@@ -14,7 +14,7 @@ fn packed_relative_relocations_work() {
 
     let dso = fixtures.join("librelr_dso.so");
     let dso_src = fixtures.join("relr_dso.c");
-    let status = Command::new("musl-gcc")
+    let output = Command::new("musl-gcc")
         .args([
             "-shared",
             "-fPIC",
@@ -24,16 +24,17 @@ fn packed_relative_relocations_work() {
             "-o",
             dso.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("failed to run musl-gcc for the RELR DSO");
-    if !status.success() {
+    let ld_stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() || ld_stderr.contains("pack-relative-relocs ignored") {
         eprintln!("skipping: linker does not support -z pack-relative-relocs");
         return;
     }
 
     let exe = fixtures.join("relr_test");
     let exe_src = fixtures.join("relr_test.c");
-    let status = Command::new("musl-gcc")
+    let output = Command::new("musl-gcc")
         .args([
             "-fPIE",
             "-pie",
@@ -53,9 +54,10 @@ fn packed_relative_relocations_work() {
             "-o",
             exe.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("failed to run musl-gcc for the RELR test");
-    if !status.success() {
+    let ld_stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() || ld_stderr.contains("pack-relative-relocs ignored") {
         eprintln!("skipping: linker does not support -z pack-relative-relocs");
         return;
     }
