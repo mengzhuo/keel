@@ -47,6 +47,12 @@ Cargo.lock
 /tests/fixtures/wave5_test
 /tests/fixtures/compat_test
 /tests/fixtures/alloc_test
+/tests/fixtures/dlopen_semantics_test
+/tests/fixtures/libdlopen_a.so
+/tests/fixtures/libdlopen_b.so
+/tests/fixtures/libdlopen_dep.so
+/tests/fixtures/libdlopen_ghost.so
+/tests/fixtures/libdlopen_missing.so
 
 # libc-test harness generated files
 /libc-test-harness/build/

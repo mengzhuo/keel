@@ -32,19 +32,19 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
 
 - **Run subsets sequentially** — `build/`, `fake-libs/`, and `reports/` are shared, so concurrent runs race.
 - **Long-double math tests:** `acoshl`, `asinhl`, `lgammal`, and `tgammal` are skipped because upstream uses 80-bit vectors while crabc's x86_64 `long double` ABI is 64-bit.
-- **`dlopen` coverage is partial.** `dlopen`, `dlsym`, `dlerror`, `dladdr`,
-  `dl_iterate_phdr` and TLS-module appends work and are exercised by libc-test
-  and the Python/Node workloads. The remaining gaps are: `dlclose` returns
-  success but does not run `DT_FINI`/`DT_FINI_ARRAY` destructors or unload the
-  module; `RTLD_NEXT` is not supported; `RTLD_NOLOAD`, `RTLD_NODELETE` and
-  `RTLD_DEEPBIND` are ignored; `dlsym(handle)` falls back to the global scope
-  instead of the handle's dependency scope; dependency lookup uses
-  `LD_LIBRARY_PATH` plus the default paths, not the caller's `RUNPATH`. Tests
-  that require those features are not meaningful here.
+- **`dlopen` follows musl semantics.** `dlopen`, `dlsym`, `dlerror`,
+  `dladdr`, `dl_iterate_phdr`, `RTLD_LOCAL`/`GLOBAL` (including the dependency
+  closure), `RTLD_NOLOAD`, `RTLD_NODELETE`, `RTLD_NEXT`, `dlopen(NULL)`,
+  dependency-scope `dlsym`, TLS symbols, `RUNPATH`/`$ORIGIN` dependency
+  lookup and constructors are implemented and covered by libc-test plus the
+  Python/Node workloads. Like musl, `dlclose` only validates the handle and
+  never unloads a module or runs `DT_FINI`/`DT_FINI_ARRAY` destructors;
+  `RTLD_DEEPBIND` is not part of musl's API and is not defined. `RTLD_LAZY`
+  is accepted but relocations are resolved eagerly.
 - **Static linking is not tested** — only dynamic-linked binaries are built.
 - **Only the functional subset runs by default** — use `./run.sh all` for everything.
 
-Current baseline: `functional` 73/73, `regression` 68/68, `api` 79/79, `math` 195 PASS + 4 SKIP.
+Current baseline: `functional` 73/73, `regression` 67 PASS + 1 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP.
 
 ## Initial Report
 

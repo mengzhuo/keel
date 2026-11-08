@@ -13,7 +13,6 @@ extern "C" {
 #define RTLD_LOCAL  0
 #define RTLD_NODELETE 0x1000
 #define RTLD_NOLOAD   0x4
-#define RTLD_DEEPBIND 0x8
 
 #define RTLD_NEXT      ((void *)-1)
 #define RTLD_DEFAULT   ((void *)0)

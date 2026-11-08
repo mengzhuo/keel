@@ -15442,7 +15442,7 @@ pub unsafe extern "C" fn __libc_start_main(
 }
 
 type LdsoDlopenFn = unsafe extern "C" fn(*const c_char, c_int) -> *mut c_void;
-type LdsoDlsymFn = unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void;
+type LdsoDlsymFn = unsafe extern "C" fn(*mut c_void, *const c_char, *mut c_void) -> *mut c_void;
 type LdsoDlcloseFn = unsafe extern "C" fn(*mut c_void) -> c_int;
 type LdsoDlerrorFn = unsafe extern "C" fn() -> *const c_char;
 
@@ -15481,12 +15481,40 @@ pub unsafe extern "C" fn dlopen(filename: *const c_char, flags: c_int) -> *mut c
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void {
+pub unsafe extern "C" fn dlsym_impl(
+    handle: *mut c_void,
+    symbol: *const c_char,
+    ra: *mut c_void,
+) -> *mut c_void {
     if let Some(f) = LDSO_DLSYM {
-        f(handle, symbol)
+        f(handle, symbol, ra)
     } else {
         null_mut()
     }
+}
+
+// dlsym() must pass its own return address to the loader so that
+// RTLD_NEXT can identify the calling object.  Keep the public entry
+// point in assembly and tail-jump into the Rust implementation.
+#[no_mangle]
+#[unsafe(naked)]
+#[cfg(target_arch = "x86_64")]
+pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> *mut c_void {
+    core::arch::naked_asm!("mov rdx, [rsp]", "jmp dlsym_impl");
+}
+
+#[no_mangle]
+#[unsafe(naked)]
+#[cfg(target_arch = "aarch64")]
+pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> *mut c_void {
+    core::arch::naked_asm!("mov x2, x30", "b dlsym_impl");
+}
+
+#[no_mangle]
+#[unsafe(naked)]
+#[cfg(target_arch = "riscv64")]
+pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> *mut c_void {
+    core::arch::naked_asm!("mv a2, ra", "la t0, dlsym_impl", "jr t0");
 }
 
 #[no_mangle]
