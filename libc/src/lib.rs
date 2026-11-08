@@ -2558,7 +2558,7 @@ pub unsafe extern "C" fn siglongjmp(env: *const c_ulong, val: c_int) -> ! {
 #[cfg(target_arch = "aarch64")]
 pub unsafe extern "C" fn __sigsetjmp_tail(env: *mut c_ulong, ret: c_int) -> c_int {
     const SIG_SETMASK: c_int = 2;
-    let ss = env.add(24) as *mut SigSetT;
+    let ss = env.add(23) as *mut SigSetT;
     let set = if ret != 0 { ss as *const SigSetT } else { core::ptr::null() };
     let old = if ret != 0 { core::ptr::null_mut() } else { ss };
     let _ = sys_rt_sigprocmask(SIG_SETMASK, set, old, core::mem::size_of::<SigSetT>());
@@ -2572,13 +2572,13 @@ pub unsafe extern "C" fn sigsetjmp(env: *mut c_ulong, savemask: c_int) -> c_int 
     core::arch::naked_asm!(
         "cbz w1, setjmp",
         "str x30, [x0, #176]",
-        "str x19, [x0, #184]",
+        "str x19, [x0, #192]",
         "mov x19, x0",
         "bl setjmp",
         "mov w1, w0",
         "mov x0, x19",
         "ldr x30, [x0, #176]",
-        "ldr x19, [x0, #184]",
+        "ldr x19, [x0, #192]",
         "b __sigsetjmp_tail",
     );
 }
@@ -2590,13 +2590,13 @@ pub unsafe extern "C" fn __sigsetjmp(env: *mut c_ulong, savemask: c_int) -> c_in
     core::arch::naked_asm!(
         "cbz w1, setjmp",
         "str x30, [x0, #176]",
-        "str x19, [x0, #184]",
+        "str x19, [x0, #192]",
         "mov x19, x0",
         "bl setjmp",
         "mov w1, w0",
         "mov x0, x19",
         "ldr x30, [x0, #176]",
-        "ldr x19, [x0, #184]",
+        "ldr x19, [x0, #192]",
         "b __sigsetjmp_tail",
     );
 }

@@ -5,21 +5,41 @@
 extern "C" {
 #endif
 
-#ifdef __aarch64__
-typedef unsigned long jmp_buf[22];
-typedef unsigned long sigjmp_buf[40];
+/*
+ * musl's jmp_buf is a struct, not just the callee-saved register area:
+ *   __jb[__JMP_BUF_SIZE] + __fl + __ss[128/sizeof(long)]
+ * sigjmp_buf is the same type.  Sizing this exactly matters: GCC allocates
+ * the caller's stack object from this definition, while sigsetjmp writes the
+ * saved mask and rbx/x19 at the end of it.
+ */
+#if defined(__aarch64__)
+#define __JMP_BUF_SIZE 22
 #elif defined(__riscv)
-typedef unsigned long jmp_buf[26];
-typedef unsigned long sigjmp_buf[44];
+#define __JMP_BUF_SIZE 26
 #else
-typedef unsigned long jmp_buf[8];
-typedef unsigned long sigjmp_buf[10];
+#define __JMP_BUF_SIZE 8
 #endif
 
-int setjmp(jmp_buf);
-void longjmp(jmp_buf, int);
-int sigsetjmp(sigjmp_buf, int);
-void siglongjmp(sigjmp_buf, int);
+typedef struct __jmp_buf_tag {
+    unsigned long __jb[__JMP_BUF_SIZE];
+    unsigned long __fl;
+    unsigned long __ss[128 / sizeof(long)];
+} jmp_buf[1];
+
+typedef jmp_buf sigjmp_buf;
+
+#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 1))
+#define __setjmp_attr __attribute__((__returns_twice__))
+#else
+#define __setjmp_attr
+#endif
+
+int setjmp(jmp_buf) __setjmp_attr;
+void longjmp(jmp_buf, int) __attribute__((__noreturn__));
+int sigsetjmp(sigjmp_buf, int) __setjmp_attr;
+void siglongjmp(sigjmp_buf, int) __attribute__((__noreturn__));
+int _setjmp(jmp_buf) __setjmp_attr;
+void _longjmp(jmp_buf, int) __attribute__((__noreturn__));
 
 #ifdef __cplusplus
 }

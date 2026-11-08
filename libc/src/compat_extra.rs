@@ -328,7 +328,9 @@ pub unsafe extern "C" fn pthread_getattr_np(thread: PthreadT, attr: *mut pthread
         let sp: usize;
         #[cfg(target_arch = "x86_64")]
         core::arch::asm!("mov {}, rsp", out(reg) sp, options(nomem, nostack));
-        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+        #[cfg(target_arch = "aarch64")]
+        core::arch::asm!("mov {}, sp", out(reg) sp, options(nomem, nostack));
+        #[cfg(target_arch = "riscv64")]
         core::arch::asm!("mv {}, sp", out(reg) sp, options(nomem, nostack));
         if let Some((base, size)) = mapping_containing(sp) {
             stack_base = base;

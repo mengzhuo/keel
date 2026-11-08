@@ -19,6 +19,22 @@
 #include <spawn.h>
 #include <sys/wait.h>
 
+/*
+ * musl's jmp_buf contains the callee-saved area, __fl and the 128-byte
+ * signal mask. sigsetjmp() writes into that trailing storage; a smaller
+ * definition silently corrupts the caller's stack (GCC 15 exposed this).
+ */
+#if defined(__x86_64__)
+_Static_assert(sizeof(jmp_buf) == 200, "jmp_buf ABI size");
+_Static_assert(sizeof(sigjmp_buf) == 200, "sigjmp_buf ABI size");
+#elif defined(__aarch64__)
+_Static_assert(sizeof(jmp_buf) == 312, "jmp_buf ABI size");
+_Static_assert(sizeof(sigjmp_buf) == 312, "sigjmp_buf ABI size");
+#elif defined(__riscv)
+_Static_assert(sizeof(jmp_buf) == 344, "jmp_buf ABI size");
+_Static_assert(sizeof(sigjmp_buf) == 344, "sigjmp_buf ABI size");
+#endif
+
 static int cmp(const void *a, const void *b) {
     return strcmp((const char *)a, (const char *)b);
 }
