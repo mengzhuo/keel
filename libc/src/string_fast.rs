@@ -143,30 +143,15 @@ unsafe fn strlen_words(s: *const u8) -> usize {
     }
     const ONES: u64 = 0x0101_0101_0101_0101;
     const HIGHS: u64 = 0x8080_8080_8080_8080;
-    // Four words per branch: fewer loop-carried branches than the one-word
-    // form, and the cold path still locates the first zero byte exactly.
+    // One aligned word at a time. A 32-byte unroll can cross into an
+    // unmapped guard page when the NUL byte is the last byte before it.
     loop {
-        let w0 = core::ptr::read(p as *const u64);
-        let w1 = core::ptr::read(p.add(8) as *const u64);
-        let w2 = core::ptr::read(p.add(16) as *const u64);
-        let w3 = core::ptr::read(p.add(24) as *const u64);
-        let z0 = w0.wrapping_sub(ONES) & !w0 & HIGHS;
-        let z1 = w1.wrapping_sub(ONES) & !w1 & HIGHS;
-        let z2 = w2.wrapping_sub(ONES) & !w2 & HIGHS;
-        let z3 = w3.wrapping_sub(ONES) & !w3 & HIGHS;
-        if z0 | z1 | z2 | z3 != 0 {
-            let (z, base) = if z0 != 0 {
-                (z0, 0usize)
-            } else if z1 != 0 {
-                (z1, 8)
-            } else if z2 != 0 {
-                (z2, 16)
-            } else {
-                (z3, 24)
-            };
-            return p as usize - start + base + (z.trailing_zeros() as usize / 8);
+        let w = core::ptr::read(p as *const u64);
+        let z = w.wrapping_sub(ONES) & !w & HIGHS;
+        if z != 0 {
+            return p as usize - start + (z.trailing_zeros() as usize / 8);
         }
-        p = p.add(32);
+        p = p.add(8);
     }
 }
 
