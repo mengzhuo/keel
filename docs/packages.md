@@ -7,7 +7,7 @@ split:
 |---|---|---|
 | `crabc` | `libc.so`, `libldso.so`, `crabc-loader` | about 1.8 MiB |
 | `crabc-dev` | headers, `libc.a`, Rust-built CRT objects, linker stubs | about 10 MiB |
-| `crabc-utils` | `getconf`, `getent`, `iconv`, `ldd`, `ldconfig` | about 2 MiB with libgcc |
+| `crabc-utils` | `getconf`, `getent`, `iconv`, `ldd`, `ldconfig` | about 1.9 MiB |
 
 All three are built for `x86_64`, `aarch64` and `riscv64`.
 
@@ -78,23 +78,15 @@ symlinks matching `musl-utils`:
 /sbin/ldconfig
 ```
 
-The binary is dynamically linked against crabc libc and loader:
+The binary is statically linked, so the tools do not depend on a dynamic
+loader, libc or `libgcc_s`.  On x86_64/aarch64 this is a static musl binary;
+the riscv64 target uses the available cross toolchain but is also fully
+static.  `ldd` still inspects crabc and musl binaries by parsing their ELF
+files.
 
-```text
-interpreter: /usr/lib/crabc/libldso.so
-NEEDED:      libc.so, libgcc_s.so.1
-RPATH:       /usr/lib/crabc
-```
-
-`DT_RPATH` (rather than `DT_RUNPATH`) is intentional: it is inherited by
-transitive dependencies, so `libgcc_s.so.1`'s `libc.musl-<arch>.so.1` lookup
-also resolves to crabc.
-
-`libgcc_s.so.1` is Rust's unwinder and comes from Alpine's `libgcc` package
-(declared as a dependency).  `ldd` parses ELF files directly because crabc's
-loader is not a command-line interpreter; it prints dependency paths but
-not load addresses.  `ldconfig` reads SONAME entries directly and does not
-require `scanelf`.
+`ldd` parses ELF files directly because crabc's loader is not a command-line
+interpreter; it prints dependency paths but not load addresses.  `ldconfig`
+reads SONAME entries directly and does not require `scanelf`.
 
 The package uses `replaces: musl-utils` so it can overwrite the commands in
 Alpine's base image.  It does not declare the `libc-utils`/`cmd:*` virtuals,
@@ -115,5 +107,5 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
 ./scripts/package-apk.sh
 ```
 
-`scripts/build-utils.sh` extracts `libgcc_s.so.1` from Alpine's `libgcc`
-package with Docker when `LIBGCC_DIR_*` is not set.
+`scripts/build-utils.sh` builds a static multicall binary for each target;
+it needs no package downloads beyond Cargo's normal dependencies.

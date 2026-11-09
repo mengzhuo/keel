@@ -9,12 +9,12 @@ manager's libc in production.
 
 ```bash
 # x86_64 (or the host architecture)
-docker build -f docker/Dockerfile -t crabc:0.7.3 .
+docker build -f docker/Dockerfile -t crabc:0.7.4 .
 
 # Multi-arch (requires buildx and a registry/loading backend)
 docker buildx build \
   --platform linux/amd64,linux/arm64,linux/riscv64 \
-  -f docker/Dockerfile -t crabc:0.7.3 .
+  -f docker/Dockerfile -t crabc:0.7.4 .
 ```
 
 The image downloads the crabc release APK from GitHub. To use a local mirror
@@ -22,10 +22,10 @@ The image downloads the crabc release APK from GitHub. To use a local mirror
 
 ```bash
 docker build -f docker/Dockerfile \
-  --build-arg CRABC_VERSION=0.7.3 \
-  --build-arg CRABC_APK_URL=http://mirror.example/crabc-0.7.3-r0.x86_64.apk \
-  --build-arg CRABC_UTILS_URL=http://mirror.example/crabc-utils-0.7.3-r0.x86_64.apk \
-  -t crabc:0.7.3 .
+  --build-arg CRABC_VERSION=0.7.4 \
+  --build-arg CRABC_APK_URL=http://mirror.example/crabc-0.7.4-r0.x86_64.apk \
+  --build-arg CRABC_UTILS_URL=http://mirror.example/crabc-utils-0.7.4-r0.x86_64.apk \
+  -t crabc:0.7.4 .
 ```
 
 Behind an HTTP proxy:
@@ -34,14 +34,14 @@ Behind an HTTP proxy:
 docker build --network host \
   --build-arg http_proxy=http://proxy:3128 \
   --build-arg https_proxy=http://proxy:3128 \
-  -f docker/Dockerfile -t crabc:0.7.3 .
+  -f docker/Dockerfile -t crabc:0.7.4 .
 ```
 
 ## Run
 
 ```bash
-docker run --rm -it crabc:0.7.3 sh
-docker run --rm crabc:0.7.3 /bin/echo hello
+docker run --rm -it crabc:0.7.4 sh
+docker run --rm crabc:0.7.4 /bin/echo hello
 ```
 
 At runtime, `LD_LIBRARY_PATH=/usr/lib/crabc` is set so DSOs that record

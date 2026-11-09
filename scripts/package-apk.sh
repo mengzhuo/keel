@@ -7,7 +7,7 @@
 #   crabc-dev     headers, libc.a, CRT objects, linker stubs
 #   crabc-utils   getconf/getent/iconv/ldd/ldconfig (Rust multicall binary)
 #
-# Usage: VERSION=0.7.3 scripts/package-apk.sh
+# Usage: VERSION=0.7.4 scripts/package-apk.sh
 #        CONTAINER_RUNTIME=podman scripts/package-apk.sh
 #
 # Expects the release artifacts produced by:
@@ -144,7 +144,7 @@ package_utils() {
     # while keeping the package installable.
     mkpkg crabc-utils "$arch" "$dir" \
         "Rust implementations of musl-utils commands for crabc" \
-        "crabc=$PKGVER libgcc" \
+        "crabc=$PKGVER" \
         "" \
         "musl-utils"
     rm -rf "$dir"

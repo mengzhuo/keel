@@ -3,22 +3,22 @@
 # A minimal Alpine image whose system libc and ELF interpreter are crabc.
 #
 # Build (single arch):
-#   docker build -f docker/Dockerfile -t crabc:0.7.3 .
+#   docker build -f docker/Dockerfile -t crabc:0.7.4 .
 #
 # Multi-arch:
 #   docker buildx build --platform linux/amd64,linux/arm64,linux/riscv64 \
-#     -f docker/Dockerfile -t crabc:0.7.3 .
+#     -f docker/Dockerfile -t crabc:0.7.4 .
 #
 # The crabc release APK is downloaded from GitHub. To use a local/mirrored
 # package, pass CRABC_APK_URL with any URL reachable from the build container:
-#   --build-arg CRABC_APK_URL=https://internal.example/crabc-0.7.3-r0.x86_64.apk
+#   --build-arg CRABC_APK_URL=https://internal.example/crabc-0.7.4-r0.x86_64.apk
 
 ARG ALPINE_VERSION=3.23
 ARG ALPINE_IMAGE=alpine
 FROM ${ALPINE_IMAGE}:${ALPINE_VERSION}
 
 ARG TARGETARCH
-ARG CRABC_VERSION=0.7.3
+ARG CRABC_VERSION=0.7.4
 ARG CRABC_APK_URL=
 ARG CRABC_UTILS_URL=
 # Optional build-time proxy settings (also accepted by BuildKit by name).
