@@ -22,8 +22,29 @@ against the same binaries under musl and crabc; the shared suites have
 identical failure lists. A Docker image that uses crabc as the system libc is
 built from [`docker/Dockerfile`](docker/README.md).
 
+crabc is not the first C library written in Rust, and it is not a musl fork:
+it is an independent implementation tracking the musl ABI. See
+[docs/comparison.md](docs/comparison.md) for how it relates to musl, relibc,
+eyra, and other projects.
+
+## Status and scope
+
+crabc is experimental (`0.4.x`). It is not a production-ready drop-in
+replacement for musl. The validated scope is the workload matrix and LTP
+report above; functionality outside that scope is not claimed.
+
+An earlier README overstated Rust's safety guarantees, implying that the
+implementation was free of buffer overflows, use-after-free, or undefined
+behavior. That was inaccurate. Like every libc, crabc contains `unsafe` code
+at the syscall and pointer boundary. Rust reduces the unsafe surface; it does
+not eliminate it. Claims in this repository are limited to what the test
+suites and workload matrix demonstrate.
+
 Build and cross-compilation instructions are in `AGENTS.md`. Release builds
 are size-optimized and stripped, and are produced from `v*` tags; the
 workspace is published as the `crabc`, `crabc-libc` and `crabc-ldso` crates.
+
+Documentation: [comparison](docs/comparison.md), [workloads](docs/workloads.md),
+[LTP](docs/ltp.md), [performance](docs/performance.md).
 
 crabc is licensed under MIT OR Apache-2.0.
