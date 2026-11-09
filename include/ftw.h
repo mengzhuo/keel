@@ -1,6 +1,7 @@
 #ifndef _FTW_H
 #define _FTW_H
 
+#include <features.h>
 #include <sys/stat.h>
 
 #ifdef __cplusplus
@@ -32,4 +33,10 @@ int nftw(const char *, int (*)(const char *, const struct stat *, int, struct FT
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

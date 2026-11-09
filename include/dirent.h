@@ -1,6 +1,7 @@
 #ifndef _DIRENT_H
 #define _DIRENT_H
 
+#include <features.h>
 #include <sys/types.h>
 
 #ifdef __cplusplus
@@ -46,4 +47,20 @@ int getdents(int, struct dirent *, size_t);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define DTTOIF(x) ((x)<<12)
+#define IFTODT(x) ((x)>>12 & 017)
+#define d_fileno d_ino
+
+/* musl 1.2.6 compatibility macros */
+#define _DIRENT_HAVE_D_OFF
+#define _DIRENT_HAVE_D_RECLEN
+#define _DIRENT_HAVE_D_TYPE
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

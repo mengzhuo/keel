@@ -1,5 +1,6 @@
 #ifndef _SYSLOG_H
 #define _SYSLOG_H
+#include <features.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,4 +66,10 @@ void vsyslog(int, const char *, __builtin_va_list);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

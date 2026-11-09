@@ -12,4 +12,11 @@ int __riscv_flush_icache(void *, void *, unsigned long);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define BCACHE (ICACHE|DCACHE)
+#define CACHEABLE 0
+#define DCACHE (1<<1)
+#define ICACHE (1<<0)
+#define UNCACHEABLE 1
 #endif

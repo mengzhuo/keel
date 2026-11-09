@@ -1,6 +1,7 @@
 #ifndef _SYS_STATVFS_H
 #define _SYS_STATVFS_H
 
+#include <features.h>
 #include <sys/types.h>
 
 #ifdef __cplusplus
@@ -43,4 +44,6 @@ int fstatvfs(int, struct statvfs *);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif

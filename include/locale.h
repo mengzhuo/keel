@@ -5,10 +5,10 @@
 extern "C" {
 #endif
 
+#include <features.h>
 #include <stddef.h>
 
 #ifndef NULL
-#define NULL ((void*)0)
 #endif
 
 #define LC_CTYPE    0
@@ -76,4 +76,10 @@ locale_t duplocale(locale_t loc);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

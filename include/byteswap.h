@@ -1,5 +1,6 @@
 #ifndef _CRABC_BYTESWAP_H
 #define _CRABC_BYTESWAP_H
+#include <features.h>
 #include <stdint.h>
 
 static __inline uint16_t __bswap_16(uint16_t __x)
@@ -21,4 +22,10 @@ static __inline uint64_t __bswap_64(uint64_t __x)
 #define bswap_32(x) __bswap_32(x)
 #define bswap_64(x) __bswap_64(x)
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

@@ -80,4 +80,7 @@ int posix_spawn_file_actions_addfchdir_np(posix_spawn_file_actions_t *, int);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define POSIX_SPAWN_SETSID 128
 #endif

@@ -1,6 +1,8 @@
 #ifndef _WCHAR_H
 #define _WCHAR_H
 
+#undef iswdigit
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -13,7 +15,6 @@ extern "C" {
 #include <time.h>
 
 #ifndef NULL
-#define NULL ((void*)0)
 #endif
 
 #ifndef __crabc_wchar_t_defined
@@ -172,4 +173,7 @@ int wcswidth(const wchar_t *, size_t);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define iswdigit(a) (0 ? iswdigit(a) : ((unsigned)(a)-'0') < 10)
 #endif

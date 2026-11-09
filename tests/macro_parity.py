@@ -226,8 +226,20 @@ def allowlist_match(entries, arch, header, macro):
     return None
 
 
-def is_public(name):
-    return not name.startswith("_")
+def is_abi_macro(name):
+    """Macros that are part of musl's usable surface.
+
+    Include guards, the __NEED_/__DEFINED_ type plumbing, feature-test
+    switches, and Linux UAPI include guards are implementation details rather
+    than macros a program can use.
+    """
+    if re.match(r"^_[A-Z0-9_]*_H$", name):
+        return False
+    if name.startswith(("__NEED_", "__DEFINED_", "__USE_", "__REDIR", "__UAPI_DEF_")):
+        return False
+    if name in ("__PIC__", "__PIE__"):
+        return False
+    return True
 
 
 def load_coverage_baseline(path):
@@ -257,14 +269,20 @@ def compare(args):
             if os.path.exists(os.path.join(args.crabc, relative)):
                 headers.append(relative)
     headers.sort()
+    missing_headers = sorted(
+        header
+        for header in headers
+        if not os.path.exists(os.path.join(args.crabc, header))
+    )
 
     mismatches = []
     failures = []
     skipped = []
     allowlisted = 0
     used_allowlist = set()
-    musl_public = set()
-    crabc_public = set()
+    musl_abi = set()
+    crabc_abi = set()
+    header_missing = {}
     common_count = 0
 
     for header in headers:
@@ -276,8 +294,13 @@ def compare(args):
         if crabc_table is None:
             failures.append((header, f"crabc: {crabc_error}"))
             continue
-        musl_public.update(name for name in musl_table if is_public(name))
-        crabc_public.update(name for name in crabc_table if is_public(name))
+        musl_here = {name for name in musl_table if is_abi_macro(name)}
+        crabc_here = {name for name in crabc_table if is_abi_macro(name)}
+        musl_abi.update(musl_here)
+        crabc_abi.update(crabc_here)
+        absent = sorted(musl_here - crabc_here)
+        if absent:
+            header_missing[header] = absent
 
         common = sorted(set(musl_table) & set(crabc_table))
         common_count += len(common)
@@ -334,16 +357,16 @@ def compare(args):
             continue
         real_mismatches.append(item)
 
-    missing = sorted(musl_public - crabc_public)
-    extra = sorted(crabc_public - musl_public)
+    missing = sorted(musl_abi - crabc_abi)
+    extra = sorted(crabc_abi - musl_abi)
     print(
         f"=== {args.arch}/{args.language}: headers={len(headers)} common_macros={common_count} "
         f"mismatches={len(real_mismatches)} allowlisted={allowlisted} "
         f"failures={len(failures)} skipped={len(skipped)}"
     )
     print(
-        f"    coverage: missing_public={len(missing)} "
-        f"extra_public={len(extra)}"
+        f"    coverage: missing_abi={len(missing)} "
+        f"extra_abi={len(extra)} missing_headers={len(missing_headers)}"
     )
     coverage_regression = False
     coverage_key = f"{args.arch}-{args.language}"
@@ -352,12 +375,12 @@ def compare(args):
         if len(missing) > baseline_missing:
             coverage_regression = True
             print(
-                f"    coverage regression: missing_public {baseline_missing} -> "
+                f"    coverage regression: missing_abi {baseline_missing} -> "
                 f"{len(missing)}"
             )
         elif len(missing) < baseline_missing:
             print(
-                f"    coverage improved: missing_public {baseline_missing} -> "
+                f"    coverage improved: missing_abi {baseline_missing} -> "
                 f"{len(missing)} (update the baseline)"
             )
 
@@ -395,7 +418,15 @@ def compare(args):
             for entry in stale:
                 print(f"  note: allowlist entry unused: {entry}")
 
-    return 1 if real_mismatches or failures or coverage_regression else 0
+    if missing:
+        print(f"    missing ABI macros: {missing[:20]}")
+    if missing_headers:
+        print(f"    missing headers: {missing_headers}")
+    if header_missing:
+        for header, names in sorted(header_missing.items())[:10]:
+            print(f"    {header}: missing {len(names)} ABI macros (e.g. {', '.join(names[:5])})")
+    return 1 if (real_mismatches or failures or coverage_regression
+                 or missing or missing_headers or header_missing) else 0
 
 
 def main():

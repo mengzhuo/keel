@@ -1,6 +1,7 @@
 #ifndef _GLOB_H
 #define _GLOB_H
 
+#include <features.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -40,4 +41,10 @@ void globfree(glob_t *);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

@@ -1,6 +1,8 @@
 #ifndef _SYS_WAIT_H
 #define _SYS_WAIT_H
 
+#include <features.h>
+#include <sys/resource.h>
 #include <sys/types.h>
 #include <signal.h>
 
@@ -42,4 +44,12 @@ int waitid(idtype_t, id_t, siginfo_t *, int);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define __WALL 0x40000000
+#define __WCLONE 0x80000000
+#define __WNOTHREAD 0x20000000
+
+/* musl 1.2.6 per-header compatibility macros */
+#define WCOREDUMP(s) ((s) & 0x80)
 #endif

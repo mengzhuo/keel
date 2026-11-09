@@ -1,5 +1,6 @@
 #ifndef _SETJMP_H
 #define _SETJMP_H
+#include <features.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,4 +46,9 @@ void _longjmp(jmp_buf, int) __attribute__((__noreturn__));
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define setjmp setjmp
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif

@@ -1,5 +1,6 @@
 #ifndef _SCHED_H
 #define _SCHED_H
+#include <features.h>
 
 #include <sys/types.h>
 #include <time.h>
@@ -37,4 +38,63 @@ int sched_getcpu(void);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define CLONE_CHILD_CLEARTID 0x00200000
+#define CLONE_CHILD_SETTID 0x01000000
+#define CLONE_DETACHED 0x00400000
+#define CLONE_FILES 0x00000400
+#define CLONE_FS 0x00000200
+#define CLONE_IO 0x80000000
+#define CLONE_NEWCGROUP 0x02000000
+#define CLONE_NEWIPC 0x08000000
+#define CLONE_NEWNET 0x40000000
+#define CLONE_NEWNS 0x00020000
+#define CLONE_NEWPID 0x20000000
+#define CLONE_NEWTIME 0x00000080
+#define CLONE_NEWUSER 0x10000000
+#define CLONE_NEWUTS 0x04000000
+#define CLONE_PARENT 0x00008000
+#define CLONE_PARENT_SETTID 0x00100000
+#define CLONE_PIDFD 0x00001000
+#define CLONE_PTRACE 0x00002000
+#define CLONE_SETTLS 0x00080000
+#define CLONE_SIGHAND 0x00000800
+#define CLONE_SYSVSEM 0x00040000
+#define CLONE_THREAD 0x00010000
+#define CLONE_UNTRACED 0x00800000
+#define CLONE_VFORK 0x00004000
+#define CLONE_VM 0x00000100
+#define CPU_ALLOC(n) ((cpu_set_t *)(calloc)(1,CPU_ALLOC_SIZE(n)))
+#define CPU_ALLOC_SIZE(n) (sizeof(long) * ( (n)/(8*sizeof(long)) + ((n)%(8*sizeof(long)) + 8*sizeof(long)-1)/(8*sizeof(long)) ) )
+#define CPU_AND(d, s1, s2) CPU_AND_S(sizeof(cpu_set_t),d,s1,s2)
+#define CPU_AND_S(a, b, c, d) __CPU_AND_S(a,b,c,d)
+#define CPU_CLR(i, set) CPU_CLR_S(i,sizeof(cpu_set_t),set)
+#define CPU_CLR_S(i, size, set) __CPU_op_S(i, size, set, &=~)
+#define CPU_COUNT(set) CPU_COUNT_S(sizeof(cpu_set_t),set)
+#define CPU_COUNT_S(size, set) __sched_cpucount(size,set)
+#define CPU_EQUAL(s1, s2) CPU_EQUAL_S(sizeof(cpu_set_t),s1,s2)
+#define CPU_EQUAL_S(size, set1, set2) (!(memcmp)(set1,set2,size))
+#define CPU_FREE(set) (free)(set)
+#define CPU_ISSET(i, set) CPU_ISSET_S(i,sizeof(cpu_set_t),set)
+#define CPU_ISSET_S(i, size, set) __CPU_op_S(i, size, set, &)
+#define CPU_OR(d, s1, s2) CPU_OR_S(sizeof(cpu_set_t),d,s1,s2)
+#define CPU_OR_S(a, b, c, d) __CPU_OR_S(a,b,c,d)
+#define CPU_SET(i, set) CPU_SET_S(i,sizeof(cpu_set_t),set)
+#define CPU_SETSIZE 1024
+#define CPU_SET_S(i, size, set) __CPU_op_S(i, size, set, |=)
+#define CPU_XOR(d, s1, s2) CPU_XOR_S(sizeof(cpu_set_t),d,s1,s2)
+#define CPU_XOR_S(a, b, c, d) __CPU_XOR_S(a,b,c,d)
+#define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t),set)
+#define CPU_ZERO_S(size, set) (memset)(set,0,size)
+#define CSIGNAL 0x000000ff
+#define SCHED_DEADLINE 6
+#define SCHED_RESET_ON_FORK 0x40000000
+
+/* musl 1.2.6 compatibility helpers */
+#define __CPU_op_S(i, size, set, op) ( (i)/8U >= (size) ? 0 : \
+    (((unsigned long *)(set))[(i)/8/sizeof(long)] op (1UL<<((i)%(8*sizeof(long))))) )
+
+/* musl 1.2.6 compatibility macros */
+#define __CPU_op_func_S(func, op) static __inline void __CPU_ ##func ##_S(size_t __size, cpu_set_t *__dest, const cpu_set_t *__src1, const cpu_set_t *__src2) { size_t __i; for (__i=0; __i<__size/sizeof(long); __i++) ((unsigned long *)__dest)[__i] = ((unsigned long *)__src1)[__i] op ((unsigned long *)__src2)[__i] ; }
 #endif

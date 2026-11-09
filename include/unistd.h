@@ -10,7 +10,6 @@ extern "C" {
 #endif
 
 #ifndef NULL
-#define NULL ((void*)0)
 #endif
 
 #define STDIN_FILENO  0
@@ -475,4 +474,9 @@ extern char **environ;
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define L_XTND 2
+#define L_INCR 1
+#define L_SET 0
 #endif

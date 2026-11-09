@@ -116,4 +116,38 @@ int utimensat(int, const char *, const struct timespec [2], int);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define STATX_ALL 0xfffU
+#define STATX_ATIME 0x20U
+#define STATX_ATTR_APPEND 0x20
+#define STATX_ATTR_AUTOMOUNT 0x1000
+#define STATX_ATTR_COMPRESSED 0x4
+#define STATX_ATTR_DAX 0x200000
+#define STATX_ATTR_ENCRYPTED 0x800
+#define STATX_ATTR_IMMUTABLE 0x10
+#define STATX_ATTR_MOUNT_ROOT 0x2000
+#define STATX_ATTR_NODUMP 0x40
+#define STATX_ATTR_VERITY 0x100000
+#define STATX_ATTR_WRITE_ATOMIC 0x400000
+#define STATX_BASIC_STATS 0x7ffU
+#define STATX_BLOCKS 0x400U
+#define STATX_BTIME 0x800U
+#define STATX_CTIME 0x80U
+#define STATX_DIOALIGN 0x2000U
+#define STATX_GID 0x10U
+#define STATX_INO 0x100U
+#define STATX_MNT_ID 0x1000U
+#define STATX_MNT_ID_UNIQUE 0x4000U
+#define STATX_MODE 2U
+#define STATX_MTIME 0x40U
+#define STATX_NLINK 4U
+#define STATX_SIZE 0x200U
+#define STATX_SUBVOL 0x8000U
+#define STATX_TYPE 1U
+#define STATX_UID 8U
+#define STATX_WRITE_ATOMIC 0x10000U
+#define S_IEXEC S_IXUSR
+#define S_IREAD S_IRUSR
+#define S_IWRITE S_IWUSR
 #endif

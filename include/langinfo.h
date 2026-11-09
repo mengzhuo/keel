@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <features.h>
 #include <nl_types.h>
 #include <locale.h>
 
@@ -79,4 +80,18 @@ char *nl_langinfo_l(nl_item, locale_t);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define NL_LOCALE_NAME(cat) _NL_LOCALE_NAME(cat)
+#define NOSTR 0x50003
+#define YESSTR 0x50002
+
+/* musl 1.2.6 compatibility helpers */
+#define _NL_LOCALE_NAME(cat) (((cat)<<16) | 0xffff)
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

@@ -8,4 +8,8 @@ int timerfd_gettime(int, struct itimerspec *);
 #define TFD_CLOEXEC O_CLOEXEC
 #define TFD_NONBLOCK O_NONBLOCK
 
+
+/* musl 1.2.6 compatibility macros */
+#define TFD_TIMER_ABSTIME 1
+#define TFD_TIMER_CANCEL_ON_SET (1 << 1)
 #endif

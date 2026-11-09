@@ -1,5 +1,6 @@
 #ifndef _ERRNO_H
 #define _ERRNO_H
+#include <features.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -147,4 +148,9 @@ int *__errno_location(void);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define EDEADLOCK EDEADLK
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif

@@ -10,4 +10,8 @@ int lremovexattr(const char *, const char *);
 ssize_t listxattr(const char *, char *, size_t);
 ssize_t llistxattr(const char *, char *, size_t);
 
+
+/* musl 1.2.6 compatibility macros */
+#define XATTR_CREATE 1
+#define XATTR_REPLACE 2
 #endif

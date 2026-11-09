@@ -217,4 +217,7 @@ int pthread_setschedprio(pthread_t, int);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define pthread_equal(x, y) ((x)==(y))
 #endif

@@ -1,6 +1,7 @@
 #ifndef _STDIO_H
 #define _STDIO_H
 
+#include <features.h>
 #include <stddef.h>
 #include <stdarg.h>
 #include <sys/types.h>
@@ -17,7 +18,6 @@ extern FILE *stdout;
 extern FILE *stderr;
 
 #ifndef NULL
-#define NULL ((void*)0)
 #endif
 
 #define EOF (-1)
@@ -169,4 +169,16 @@ FILE *fopencookie(void *, const char *, cookie_io_functions_t);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define L_cuserid 20
+#define P_tmpdir "/tmp"
+#define RENAME_EXCHANGE (1 << 1)
+#define RENAME_NOREPLACE (1 << 0)
+#define RENAME_WHITEOUT (1 << 2)
+#define stderr (stderr)
+#define stdin (stdin)
+#define stdout (stdout)
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif

@@ -50,4 +50,8 @@ int utmpxname(const char *);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define e_exit __e_exit
+#define e_termination __e_termination
 #endif

@@ -80,4 +80,9 @@ int shmget(key_t, size_t, int);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define __swap_attempts swap_attempts
+#define __swap_successes swap_successes
+#define __used_ids used_ids
 #endif

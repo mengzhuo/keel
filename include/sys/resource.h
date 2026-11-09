@@ -80,4 +80,25 @@ int setpriority(int, id_t, int);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define prlimit64 prlimit
+
+/* musl 1.2.6 per-header compatibility macros */
+#define FD_SET(d, s) ((s)->fds_bits[(d)/(8*sizeof(long))] |= (1UL<<((d)%(8*sizeof(long)))))
+#define NFDBITS (8*(int)sizeof(long))
+#define TIMESPEC_TO_TIMEVAL(tv, ts) ( (tv)->tv_sec = (ts)->tv_sec, (tv)->tv_usec = (ts)->tv_nsec / 1000, (void)0 )
+#define FD_ZERO(s) do { int __i; unsigned long *__b=(s)->fds_bits; for(__i=sizeof (fd_set)/sizeof (long); __i; __i--) *__b++=0; } while(0)
+#define timercmp(s, t, op) ((s)->tv_sec == (t)->tv_sec ? (s)->tv_usec op (t)->tv_usec : (s)->tv_sec op (t)->tv_sec)
+#define ITIMER_REAL 0
+#define FD_CLR(d, s) ((s)->fds_bits[(d)/(8*sizeof(long))] &= ~(1UL<<((d)%(8*sizeof(long)))))
+#define ITIMER_PROF 2
+#define TIMEVAL_TO_TIMESPEC(tv, ts) ( (ts)->tv_sec = (tv)->tv_sec, (ts)->tv_nsec = (tv)->tv_usec * 1000, (void)0 )
+#define FD_ISSET(d, s) !!((s)->fds_bits[(d)/(8*sizeof(long))] & (1UL<<((d)%(8*sizeof(long)))))
+#define FD_SETSIZE 1024
+#define timerisset(t) ((t)->tv_sec || (t)->tv_usec)
+#define timersub(s, t, a) (void) ( (a)->tv_sec = (s)->tv_sec - (t)->tv_sec, ((a)->tv_usec = (s)->tv_usec - (t)->tv_usec) < 0 && ((a)->tv_usec += 1000000, (a)->tv_sec--) )
+#define timerclear(t) ((t)->tv_sec = (t)->tv_usec = 0)
+#define ITIMER_VIRTUAL 1
+#define timeradd(s, t, a) (void) ( (a)->tv_sec = (s)->tv_sec + (t)->tv_sec, ((a)->tv_usec = (s)->tv_usec + (t)->tv_usec) >= 1000000 && ((a)->tv_usec -= 1000000, (a)->tv_sec++) )
 #endif

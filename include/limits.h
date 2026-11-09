@@ -1,5 +1,6 @@
 #ifndef _LIMITS_H
 #define _LIMITS_H
+#include <features.h>
 
 #define CHAR_BIT   8
 #define SCHAR_MIN  (-128)
@@ -115,4 +116,30 @@
 #define _XOPEN_NAME_MAX         255
 #define _XOPEN_PATH_MAX         1024
 
+
+/* musl 1.2.6 compatibility macros */
+#define DELAYTIMER_MAX 0x7fffffff
+#define LOGIN_NAME_MAX 256
+#define NL_NMAX 16
+#define PTHREAD_DESTRUCTOR_ITERATIONS 4
+#define PTHREAD_KEYS_MAX 128
+#define PTHREAD_STACK_MIN 2048
+#define SEM_NSEMS_MAX 256
+#define SEM_VALUE_MAX 0x7fffffff
+#if defined(__x86_64__)
+#define PAGESIZE 4096
+#define PAGE_SIZE PAGESIZE
+#endif
+
+/* musl 1.2.6 compatibility macros */
+#define _POSIX_TRACE_EVENT_NAME_MAX 30
+#define _POSIX_TRACE_NAME_MAX 8
+#define _POSIX_TRACE_SYS_MAX 8
+#define _POSIX_TRACE_USER_EVENT_MAX 32
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define MQ_PRIO_MAX 32768
+#define __LITTLE_ENDIAN 1234
+#define __BIG_ENDIAN 4321
 #endif

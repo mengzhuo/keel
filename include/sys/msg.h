@@ -51,4 +51,7 @@ struct msgbuf {
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define __msg_cbytes msg_cbytes
 #endif

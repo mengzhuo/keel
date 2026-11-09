@@ -1,6 +1,7 @@
 #ifndef _REGEX_H
 #define _REGEX_H
 
+#include <features.h>
 #include <stddef.h>
 #include <sys/types.h>
 
@@ -51,4 +52,14 @@ void regfree(regex_t *);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define REG_ENOSYS -1
+#define REG_OK 0
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

@@ -1,6 +1,7 @@
 #ifndef _SYS_INOTIFY_H
 #define _SYS_INOTIFY_H
 
+#include <fcntl.h>
 #include <stdint.h>
 #include <sys/types.h>
 
@@ -53,4 +54,7 @@ int inotify_rm_watch(int, int);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define IN_MASK_CREATE 0x10000000
 #endif

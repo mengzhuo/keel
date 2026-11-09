@@ -1,6 +1,7 @@
 #ifndef _GRP_H
 #define _GRP_H
 
+#include <features.h>
 #include <sys/types.h>
 
 struct group {
@@ -21,4 +22,10 @@ int getgrouplist(const char *, gid_t, gid_t *, int *);
 int setgroups(size_t, const gid_t *);
 int initgroups(const char *, gid_t);
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

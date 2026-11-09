@@ -1,6 +1,7 @@
 #ifndef _WORDEXP_H
 #define _WORDEXP_H
 
+#include <features.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -33,4 +34,9 @@ void wordfree(wordexp_t *);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define WRDE_NOSYS -1
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif

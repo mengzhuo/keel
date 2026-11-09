@@ -1,6 +1,7 @@
 #ifndef _CTYPE_H
 #define _CTYPE_H
 
+#include <features.h>
 #include <locale.h>
 
 #ifdef __cplusplus
@@ -69,4 +70,29 @@ int toupper(int);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility helpers */
+static __inline int __isspace(int _c)
+{
+    return _c == ' ' || (unsigned)_c-'\t' < 5;
+}
+
+#define isalpha(a) (0 ? isalpha(a) : (((unsigned)(a)|32)-'a') < 26)
+#define isascii(a) (0 ? isascii(a) : (unsigned)(a) < 128)
+#define isdigit(a) (0 ? isdigit(a) : ((unsigned)(a)-'0') < 10)
+#define isgraph(a) (0 ? isgraph(a) : ((unsigned)(a)-0x21) < 0x5e)
+#define islower(a) (0 ? islower(a) : ((unsigned)(a)-'a') < 26)
+#define isprint(a) (0 ? isprint(a) : ((unsigned)(a)-0x20) < 0x5f)
+#define isspace(a) __isspace(a)
+#define isupper(a) (0 ? isupper(a) : ((unsigned)(a)-'A') < 26)
+
+/* musl 1.2.6 compatibility macros */
+#define _tolower(a) ((a)|0x20)
+#define _toupper(a) ((a)&0x5f)
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

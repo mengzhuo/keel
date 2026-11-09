@@ -9,7 +9,6 @@ extern "C" {
 #endif
 
 #ifndef NULL
-#define NULL ((void*)0)
 #endif
 
 #ifndef __crabc_wchar_t_defined
@@ -136,4 +135,11 @@ int ptsname_r(int, char *, size_t);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define WCOREDUMP(s) ((s) & 0x80)
+
+/* musl 1.2.6 per-header compatibility macros */
+#define WIFCONTINUED(s) ((s) == 0xffff)
+#define alloca __builtin_alloca
 #endif

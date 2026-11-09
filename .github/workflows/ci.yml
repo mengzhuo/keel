@@ -93,6 +93,9 @@ jobs:
       - name: Check macro expansion parity
         run: ./scripts/macro-parity.sh
 
+      - name: Check headers against Rust constants
+        run: python3 tests/header_rust_consistency.py --include include
+
   riscv64-cross:
     runs-on: ubuntu-latest
     continue-on-error: true

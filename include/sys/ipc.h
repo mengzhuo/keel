@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <features.h>
 #include <sys/types.h>
 
 struct ipc_perm {
@@ -35,4 +36,12 @@ key_t ftok(const char *, int);
 #ifdef __cplusplus
 }
 #endif
+
+/* musl 1.2.6 compatibility macros */
+#define __ipc_perm_key __key
+#define __ipc_perm_seq __seq
+#define __key key
+#define __seq seq
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif

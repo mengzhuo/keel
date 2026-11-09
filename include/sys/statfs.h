@@ -1,6 +1,7 @@
 #ifndef _SYS_STATFS_H
 #define _SYS_STATFS_H
 
+#include <features.h>
 #include <sys/statvfs.h>
 
 #ifdef __cplusplus
@@ -26,4 +27,6 @@ int fstatfs(int, struct statfs *);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif

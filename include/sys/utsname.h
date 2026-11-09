@@ -1,5 +1,6 @@
 #ifndef _SYS_UTSNAME_H
 #define _SYS_UTSNAME_H
+#include <features.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,4 +21,6 @@ int uname(struct utsname *);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif

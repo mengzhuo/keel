@@ -1,5 +1,6 @@
 #ifndef MATH_H
 #define MATH_H
+#include <features.h>
 
 #define M_E        2.7182818284590452354
 #define M_LOG2E    1.4426950408889634074
@@ -317,16 +318,6 @@ long double pow10l(long double);
 void        sincos(double, double *, double *);
 void        sincosf(float, float *, float *);
 void        sincosl(long double, long double *, long double *);
-int          isless(double, double);
-int          islessf(float, float);
-int          islessequal(double, double);
-int          islessequalf(float, float);
-int          islessgreater(double, double);
-int          islessgreaterf(float, float);
-int          isgreater(double, double);
-int          isgreaterf(float, float);
-int          isgreaterequal(double, double);
-int          isgreaterequalf(float, float);
 double      scalb(double, double);
 float       scalbf(float, float);
 double      sin(double);
@@ -368,4 +359,50 @@ float       ynf(int, float);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define HUGE 3.40282346638528859812e+38F
+#define isgreater(x, y) __tg_pred_2(x, y, __isgreater)
+#define isgreaterequal(x, y) __tg_pred_2(x, y, __isgreaterequal)
+#define isless(x, y) __tg_pred_2(x, y, __isless)
+#define islessequal(x, y) __tg_pred_2(x, y, __islessequal)
+#define islessgreater(x, y) __tg_pred_2(x, y, __islessgreater)
+#if defined(__aarch64__)
+#define FP_FAST_FMA 1
+#define FP_FAST_FMAF 1
+#elif defined(__riscv)
+#define FP_FAST_FMA 1
+#define FP_FAST_FMAF 1
+#endif
+
+/* musl 1.2.6 compatibility helpers */
+#define __tg_pred_2(x, y, p) ( \
+    sizeof((x)+(y)) == sizeof(float) ? p##f(x, y) : \
+    sizeof((x)+(y)) == sizeof(double) ? p(x, y) : \
+    p##l(x, y) )
+
+/* musl 1.2.6 compatibility macros */
+#define __ISREL_DEF(rel, op, type) static __inline int __is ##rel(type __x, type __y) { return !isunordered(__x,__y) && __x op __y; }
+
+__ISREL_DEF(lessf, <, float_t)
+__ISREL_DEF(less, <, double_t)
+__ISREL_DEF(lessl, <, long double)
+__ISREL_DEF(lessequalf, <=, float_t)
+__ISREL_DEF(lessequal, <=, double_t)
+__ISREL_DEF(lessequall, <=, long double)
+__ISREL_DEF(lessgreaterf, !=, float_t)
+__ISREL_DEF(lessgreater, !=, double_t)
+__ISREL_DEF(lessgreaterl, !=, long double)
+__ISREL_DEF(greaterf, >, float_t)
+__ISREL_DEF(greater, >, double_t)
+__ISREL_DEF(greaterl, >, long double)
+__ISREL_DEF(greaterequalf, >=, float_t)
+__ISREL_DEF(greaterequal, >=, double_t)
+__ISREL_DEF(greaterequall, >=, long double)
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __LITTLE_ENDIAN 1234
+#define __BYTE_ORDER 1234
+#define __BIG_ENDIAN 4321
 #endif

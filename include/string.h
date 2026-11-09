@@ -9,7 +9,6 @@ extern "C" {
 #endif
 
 #ifndef NULL
-#define NULL ((void*)0)
 #endif
 
 void *memcpy(void *, const void *, size_t);
@@ -62,4 +61,7 @@ char *strerror_l(int, locale_t);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define strdupa(x) strcpy(alloca(strlen(x)+1),x)
 #endif

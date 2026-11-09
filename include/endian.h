@@ -1,5 +1,6 @@
 #ifndef _CRABC_ENDIAN_H
 #define _CRABC_ENDIAN_H
+#include <features.h>
 #include <stdint.h>
 
 #define __BYTE_ORDER 1234
@@ -54,4 +55,15 @@ static __inline uint64_t __bswap64(uint64_t __x)
 #define le64toh(x) __bswap64(x)
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define betoh16(x) __bswap16(x)
+#define betoh32(x) __bswap32(x)
+#define betoh64(x) __bswap64(x)
+#define letoh16(x) (uint16_t)(x)
+#define letoh32(x) (uint32_t)(x)
+#define letoh64(x) (uint64_t)(x)
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __LONG_MAX 0x7fffffffffffffffL
 #endif

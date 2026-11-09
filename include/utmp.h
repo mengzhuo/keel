@@ -35,4 +35,17 @@ int utmpname(const char *);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define ACCOUNTING 9
+#define UTMP_FILE _PATH_UTMP
+#define UTMP_FILENAME _PATH_UTMP
+#define WTMP_FILE _PATH_WTMP
+#define WTMP_FILENAME _PATH_WTMP
+#define e_exit __e_exit
+#define e_termination __e_termination
+
+/* musl 1.2.6 compatibility helpers */
+#define _PATH_UTMP "/dev/null/utmp"
+#define _PATH_WTMP "/dev/null/wtmp"
 #endif

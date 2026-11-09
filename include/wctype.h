@@ -8,6 +8,8 @@ extern "C" {
 #include <locale.h>
 #include <wchar.h>
 
+#undef iswdigit
+
 #ifndef __crabc_wint_t_defined
 #define __crabc_wint_t_defined
 #ifndef __DEFINED_wint_t
@@ -76,4 +78,8 @@ wctype_t wctype_l(const char *, locale_t);
 }
 #endif
 
+#ifndef __cplusplus
+#undef iswdigit
+#define iswdigit(a) (0 ? iswdigit(a) : ((unsigned)(a)-'0') < 10)
+#endif
 #endif

@@ -1,6 +1,7 @@
 #ifndef _PWD_H
 #define _PWD_H
 
+#include <features.h>
 #include <sys/types.h>
 
 #ifdef __cplusplus
@@ -31,4 +32,10 @@ int putpwent(const struct passwd *, void *);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
+#define __BYTE_ORDER 1234
+#define __LITTLE_ENDIAN 1234
+#define __LONG_MAX 0x7fffffffffffffffL
+#define __BIG_ENDIAN 4321
 #endif

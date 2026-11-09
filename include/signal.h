@@ -308,4 +308,132 @@ int getpid(void);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define POLL_ERR 4
+#define POLL_HUP 6
+#define POLL_IN 1
+#define POLL_MSG 3
+#define POLL_OUT 2
+#define POLL_PRI 5
+#define SA_EXPOSE_TAGBITS 0x00000800
+#define SA_NOMASK SA_NODEFER
+#define SA_ONESHOT SA_RESETHAND
+#define SA_UNSUPPORTED 0x00000400
+#define SEGV_MTEAERR 8
+#define SEGV_MTESERR 9
+#define SYS_SECCOMP 1
+#define SYS_USER_DISPATCH 2
+#define TRAP_BRANCH 3
+#define TRAP_HWBKPT 4
+#define TRAP_UNK 5
+#define si_arch __si_fields.__sigsys.si_arch
+#define si_call_addr __si_fields.__sigsys.si_call_addr
+#define si_syscall __si_fields.__sigsys.si_syscall
+#if defined(__x86_64__)
+#define REG_CR2 REG_CR2
+#define REG_CSGSFS REG_CSGSFS
+#define REG_EFL REG_EFL
+#define REG_ERR REG_ERR
+#define REG_OLDMASK REG_OLDMASK
+#define REG_R10 REG_R10
+#define REG_R11 REG_R11
+#define REG_R12 REG_R12
+#define REG_R13 REG_R13
+#define REG_R14 REG_R14
+#define REG_R15 REG_R15
+#define REG_R8 REG_R8
+#define REG_R9 REG_R9
+#define REG_RAX REG_RAX
+#define REG_RBP REG_RBP
+#define REG_RBX REG_RBX
+#define REG_RCX REG_RCX
+#define REG_RDI REG_RDI
+#define REG_RDX REG_RDX
+#define REG_RIP REG_RIP
+#define REG_RSI REG_RSI
+#define REG_RSP REG_RSP
+#define REG_TRAPNO REG_TRAPNO
+#endif
+
+/* musl 1.2.6 architecture macros */
+#ifdef __aarch64__
+#define FPSIMD_MAGIC 0x46508001
+#define ESR_MAGIC 0x45535201
+#define EXTRA_MAGIC 0x45585401
+#define SVE_MAGIC 0x53564501
+struct _aarch64_ctx {
+	unsigned int magic;
+	unsigned int size;
+};
+struct fpsimd_context {
+	struct _aarch64_ctx head;
+	unsigned int fpsr;
+	unsigned int fpcr;
+	__uint128_t vregs[32];
+};
+struct esr_context {
+	struct _aarch64_ctx head;
+	unsigned long esr;
+};
+struct extra_context {
+	struct _aarch64_ctx head;
+	unsigned long datap;
+	unsigned int size;
+	unsigned int __reserved[3];
+};
+struct sve_context {
+	struct _aarch64_ctx head;
+	unsigned short vl;
+	unsigned short __reserved[3];
+};
+#define SVE_VQ_BYTES		16
+#define SVE_VQ_MIN		1
+#define SVE_VQ_MAX		512
+#define SVE_VL_MIN		(SVE_VQ_MIN * SVE_VQ_BYTES)
+#define SVE_VL_MAX		(SVE_VQ_MAX * SVE_VQ_BYTES)
+#define SVE_NUM_ZREGS		32
+#define SVE_NUM_PREGS		16
+#define sve_vl_valid(vl) \
+	((vl) % SVE_VQ_BYTES == 0 && (vl) >= SVE_VL_MIN && (vl) <= SVE_VL_MAX)
+#define sve_vq_from_vl(vl)	((vl) / SVE_VQ_BYTES)
+#define sve_vl_from_vq(vq)	((vq) * SVE_VQ_BYTES)
+#define SVE_SIG_ZREG_SIZE(vq)	((unsigned)(vq) * SVE_VQ_BYTES)
+#define SVE_SIG_PREG_SIZE(vq)	((unsigned)(vq) * (SVE_VQ_BYTES / 8))
+#define SVE_SIG_FFR_SIZE(vq)	SVE_SIG_PREG_SIZE(vq)
+#define SVE_SIG_REGS_OFFSET					\
+	((sizeof(struct sve_context) + (SVE_VQ_BYTES - 1))	\
+		/ SVE_VQ_BYTES * SVE_VQ_BYTES)
+#define SVE_SIG_ZREGS_OFFSET	SVE_SIG_REGS_OFFSET
+#define SVE_SIG_ZREG_OFFSET(vq, n) \
+	(SVE_SIG_ZREGS_OFFSET + SVE_SIG_ZREG_SIZE(vq) * (n))
+#define SVE_SIG_ZREGS_SIZE(vq) \
+	(SVE_SIG_ZREG_OFFSET(vq, SVE_NUM_ZREGS) - SVE_SIG_ZREGS_OFFSET)
+#define SVE_SIG_PREGS_OFFSET(vq) \
+	(SVE_SIG_ZREGS_OFFSET + SVE_SIG_ZREGS_SIZE(vq))
+#define SVE_SIG_PREG_OFFSET(vq, n) \
+	(SVE_SIG_PREGS_OFFSET(vq) + SVE_SIG_PREG_SIZE(vq) * (n))
+#define SVE_SIG_PREGS_SIZE(vq) \
+	(SVE_SIG_PREG_OFFSET(vq, SVE_NUM_PREGS) - SVE_SIG_PREGS_OFFSET(vq))
+#define SVE_SIG_FFR_OFFSET(vq) \
+	(SVE_SIG_PREGS_OFFSET(vq) + SVE_SIG_PREGS_SIZE(vq))
+#define SVE_SIG_REGS_SIZE(vq) \
+	(SVE_SIG_FFR_OFFSET(vq) + SVE_SIG_FFR_SIZE(vq) - SVE_SIG_REGS_OFFSET)
+#define SVE_SIG_CONTEXT_SIZE(vq) (SVE_SIG_REGS_OFFSET + SVE_SIG_REGS_SIZE(vq))
+#endif
+
+/* musl 1.2.6 architecture macros */
+#ifdef __riscv
+#define REG_PC 0
+#define REG_RA 1
+#define REG_SP 2
+#define REG_TP 4
+#define REG_S0 8
+#define REG_S1 9
+#define REG_A0 10
+#define REG_S2 18
+#endif
+
+/* musl 1.2.6 compatibility macros */
+#define __ucontext ucontext
 #endif

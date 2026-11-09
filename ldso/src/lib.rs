@@ -75,7 +75,7 @@ const R_RISCV_JUMP_SLOT: u64 = 5;
 const R_RISCV_TLS_DTPMOD64: u64 = 7;
 const R_RISCV_TLS_DTPREL64: u64 = 9;
 const R_RISCV_TLS_TPREL64: u64 = 11;
-const R_RISCV_TLSDESC: u64 = 772;
+const R_RISCV_TLSDESC: u64 = 12;
 const R_RISCV_COPY: u64 = 4;
 
 const RTLD_LAZY: i32 = 1;

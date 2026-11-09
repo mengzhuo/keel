@@ -10,7 +10,6 @@ extern "C" {
 #include <locale.h>
 
 #ifndef NULL
-#define NULL ((void*)0)
 #endif
 
 #ifndef __crabc_struct_timespec_defined
@@ -124,4 +123,8 @@ int gettimeofday(struct timeval *, void *);
 }
 #endif
 
+
+/* musl 1.2.6 compatibility macros */
+#define __tm_gmtoff tm_gmtoff
+#define __tm_zone tm_zone
 #endif

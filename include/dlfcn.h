@@ -1,6 +1,7 @@
 #ifndef _DLFCN_H
 #define _DLFCN_H
 
+#include <features.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -51,4 +52,6 @@ int dl_iterate_phdr(int (*)(struct dl_phdr_info *, size_t, void *), void *);
 }
 #endif
 
+
+/* musl 1.2.6 per-header compatibility macros */
 #endif
