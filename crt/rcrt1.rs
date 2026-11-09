@@ -16,9 +16,6 @@ const DT_RELA: u64 = 7;
 const DT_RELASZ: u64 = 8;
 const DT_REL: u64 = 17;
 const DT_RELSZ: u64 = 18;
-const DT_INIT: u64 = 12;
-const DT_INIT_ARRAY: u64 = 25;
-const DT_INIT_ARRAYSZ: u64 = 27;
 const DT_RELR: u64 = 36;
 const DT_RELRSZ: u64 = 35;
 const DT_JMPREL: u64 = 23;
@@ -172,9 +169,6 @@ unsafe extern "C" fn crabc_rcrt1_start(sp: usize, dyn_addr: usize) -> ! {
     let mut relr_sz = 0usize;
     let mut jmprel = 0usize;
     let mut jmprel_sz = 0usize;
-    let mut init = 0usize;
-    let mut init_array = 0usize;
-    let mut init_array_sz = 0usize;
     let mut d = dyn_addr;
     loop {
         let tag = *(d as *const u64);
@@ -198,12 +192,6 @@ unsafe extern "C" fn crabc_rcrt1_start(sp: usize, dyn_addr: usize) -> ! {
             jmprel = val;
         } else if tag == DT_PLTRELSZ {
             jmprel_sz = val;
-        } else if tag == DT_INIT {
-            init = val;
-        } else if tag == DT_INIT_ARRAY {
-            init_array = val;
-        } else if tag == DT_INIT_ARRAYSZ {
-            init_array_sz = val;
         }
         d += 16;
     }

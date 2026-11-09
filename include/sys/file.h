@@ -1,15 +1,14 @@
 #ifndef _SYS_FILE_H
 #define _SYS_FILE_H
 
-#define F_LOCK  1
-#define F_TLOCK  2
-#define F_ULOCK  3
-#define F_TEST  4
-
 #define LOCK_SH  1
 #define LOCK_EX  2
 #define LOCK_NB  4
 #define LOCK_UN  8
+
+#define L_SET 0
+#define L_INCR 1
+#define L_XTND 2
 
 int flock(int, int);
 

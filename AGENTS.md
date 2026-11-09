@@ -128,6 +128,7 @@ The default registry in this environment is a mirror; pass `--registry crates-io
 
 - Cross-build: `CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER=riscv64-linux-gnu-gcc cargo build --workspace --target riscv64gc-unknown-linux-musl`.
 - `scripts/riscv-smoke.sh` cross-builds if needed and runs hello, tiny-PIE/loader, TLS/DSO, math, pthread, socket, net, and other fixtures under `qemu-riscv64`. Requires `gcc-riscv64-linux-gnu` and `qemu-user`. On native riscv64 it uses `musl-gcc` and runs the fixtures directly (set `RISCV_CC`/`QEMU` to override).
+- Building `libc.so`/`libldso.so` with the riscv64 GNU cross linker prints `-z pack-relative-relocs ignored`; that linker does not implement RELR for RISC-V. It is a toolchain warning, not a build failure.
 - `c_char` is `u8` on riscv64 (it is `i8` on x86_64). Use `b'x' as c_char`, not `'x' as i8`, in code compiled for both.
 - `struct stat` is architecture-specific: x86_64 uses the older order; aarch64/riscv64 use the generic 128-byte layout. Keep Rust `Stat` and `include/sys/stat.h` in sync.
 - `nlink_t` and `blksize_t` are 32-bit on aarch64/riscv64 but 64-bit on x86_64; see `include/sys/types.h`.
