@@ -9,7 +9,9 @@ principle that a libc should be small, easy to audit and safe to maintain;
 
 crabc tracks musl 1.2.6 and exports its full public symbol surface. It is
 validated with musl's own libc-test and a differential harness that runs the
-same binaries under musl and crabc, and it is faster than musl on both
+same binaries under musl and crabc. CI also compares the expanded value of
+every macro that crabc and musl both define on x86\_64, aarch64 and riscv64;
+missing macros are tracked as a ratchet. It is faster than musl on both
 x86\_64 and riscv64 (qemu-user) in the microbenchmark suite; process startup
 is the one structural exception. See `docs/performance.md`.
 

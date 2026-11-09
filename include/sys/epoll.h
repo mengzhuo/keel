@@ -12,7 +12,7 @@ int epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *);
 #define EPOLLOUT 0x004
 #define EPOLLERR 0x008
 #define EPOLLHUP 0x010
-#define EPOLLET 0x80000000u
+#define EPOLLET (1U<<31)
 #define EPOLL_CTL_ADD 1
 #define EPOLL_CTL_DEL 2
 #define EPOLL_CTL_MOD 3

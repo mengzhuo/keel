@@ -30,7 +30,10 @@ cargo test --test math       # one test file, after the build above
 ./scripts/build-crt.sh       # Rust-generated startup objects (dist/crt/)
 ./scripts/build-utils.sh     # crabc-linked Rust musl-utils replacement (dist/utils/)
 ./scripts/package-apk.sh     # crabc, crabc-dev and crabc-utils APKs
+./scripts/macro-parity.sh    # expanded-macro parity vs musl 1.2.6 (3 arches)
 ```
+
+- `scripts/macro-parity.sh` downloads musl 1.2.6 into `~/.cache/crabc`, generates its headers for x86_64/aarch64/riscv64, and compares the expansion of every macro defined by both crabc and musl in both C and C++. It requires `gcc`/`g++`, `aarch64-linux-gnu-gcc`/`g++` and `riscv64-linux-gnu-gcc`/`g++`. Intentional differences live in `tests/macro-parity.allowlist`; the only current entry is crabc's 64-bit x86_64 `long double` ABI. Missing macros are tracked in `tests/macro-parity.coverage`; the job fails if the count grows, but full musl macro coverage is not required yet.
 
 - **Bare `cargo build` only builds the root `crabc` package (the loader).** The root `Cargo.toml` is both workspace and package, so `libc.so`/`libldso.so` are not rebuilt. Use `--workspace`, or `-p crabc-libc` / `-p crabc-ldso`.
 - `-p libc` and `-p ldso` do not exist. The artifact names come from `[lib] name` (`c`, `ldso`), not the package names.

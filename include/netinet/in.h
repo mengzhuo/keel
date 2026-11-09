@@ -23,7 +23,16 @@ struct sockaddr_in {
     unsigned char sin_zero[8];
 };
 
-struct in6_addr { unsigned char s6_addr[16]; };
+struct in6_addr {
+    union {
+        uint8_t __s6_addr[16];
+        uint16_t __s6_addr16[8];
+        uint32_t __s6_addr32[4];
+    } __in6_union;
+};
+#define s6_addr __in6_union.__s6_addr
+#define s6_addr16 __in6_union.__s6_addr16
+#define s6_addr32 __in6_union.__s6_addr32
 
 struct sockaddr_in6 {
     sa_family_t sin6_family;
@@ -41,8 +50,8 @@ struct ipv6_mreq {
 extern const struct in6_addr in6addr_any;
 extern const struct in6_addr in6addr_loopback;
 
-#define IN6ADDR_ANY_INIT { { 0 } }
-#define IN6ADDR_LOOPBACK_INIT { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1 } }
+#define IN6ADDR_ANY_INIT      { { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 } } }
+#define IN6ADDR_LOOPBACK_INIT { { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1 } } }
 
 #define IPPROTO_IP   0
 #define IPPROTO_ICMP 1
@@ -63,31 +72,52 @@ extern const struct in6_addr in6addr_loopback;
 #define IPV6_V6ONLY           26
 
 #define IN6_IS_ADDR_UNSPECIFIED(a) \
-    ((a)->s6_addr[0] == 0 && (a)->s6_addr[1] == 0 && (a)->s6_addr[2] == 0 && (a)->s6_addr[3] == 0 && \
-     (a)->s6_addr[4] == 0 && (a)->s6_addr[5] == 0 && (a)->s6_addr[6] == 0 && (a)->s6_addr[7] == 0 && \
-     (a)->s6_addr[8] == 0 && (a)->s6_addr[9] == 0 && (a)->s6_addr[10] == 0 && (a)->s6_addr[11] == 0 && \
-     (a)->s6_addr[12] == 0 && (a)->s6_addr[13] == 0 && (a)->s6_addr[14] == 0 && (a)->s6_addr[15] == 0)
+        (((uint32_t *) (a))[0] == 0 && ((uint32_t *) (a))[1] == 0 && \
+         ((uint32_t *) (a))[2] == 0 && ((uint32_t *) (a))[3] == 0)
+
 #define IN6_IS_ADDR_LOOPBACK(a) \
-    ((a)->s6_addr[0] == 0 && (a)->s6_addr[1] == 0 && (a)->s6_addr[2] == 0 && (a)->s6_addr[3] == 0 && \
-     (a)->s6_addr[4] == 0 && (a)->s6_addr[5] == 0 && (a)->s6_addr[6] == 0 && (a)->s6_addr[7] == 0 && \
-     (a)->s6_addr[8] == 0 && (a)->s6_addr[9] == 0 && (a)->s6_addr[10] == 0 && (a)->s6_addr[11] == 0 && \
-     (a)->s6_addr[12] == 0 && (a)->s6_addr[13] == 0 && (a)->s6_addr[14] == 0 && (a)->s6_addr[15] == 1)
-#define IN6_IS_ADDR_MULTICAST(a) ((a)->s6_addr[0] == 0xff)
-#define IN6_IS_ADDR_LINKLOCAL(a) ((a)->s6_addr[0] == 0xfe && ((a)->s6_addr[1] & 0xc0) == 0x80)
-#define IN6_IS_ADDR_SITELOCAL(a) ((a)->s6_addr[0] == 0xfe && ((a)->s6_addr[1] & 0xc0) == 0xc0)
+        (((uint32_t *) (a))[0] == 0 && ((uint32_t *) (a))[1] == 0 && \
+         ((uint32_t *) (a))[2] == 0 && \
+         ((uint8_t *) (a))[12] == 0 && ((uint8_t *) (a))[13] == 0 && \
+         ((uint8_t *) (a))[14] == 0 && ((uint8_t *) (a))[15] == 1 )
+
+#define IN6_IS_ADDR_MULTICAST(a) (((uint8_t *) (a))[0] == 0xff)
+
+#define IN6_IS_ADDR_LINKLOCAL(a) \
+        ((((uint8_t *) (a))[0]) == 0xfe && (((uint8_t *) (a))[1] & 0xc0) == 0x80)
+
+#define IN6_IS_ADDR_SITELOCAL(a) \
+        ((((uint8_t *) (a))[0]) == 0xfe && (((uint8_t *) (a))[1] & 0xc0) == 0xc0)
+
 #define IN6_IS_ADDR_V4MAPPED(a) \
-    ((a)->s6_addr[0] == 0 && (a)->s6_addr[1] == 0 && (a)->s6_addr[2] == 0 && (a)->s6_addr[3] == 0 && \
-     (a)->s6_addr[4] == 0 && (a)->s6_addr[5] == 0 && (a)->s6_addr[6] == 0 && (a)->s6_addr[7] == 0 && \
-     (a)->s6_addr[8] == 0 && (a)->s6_addr[9] == 0 && (a)->s6_addr[10] == 0xff && (a)->s6_addr[11] == 0xff)
+        (((uint32_t *) (a))[0] == 0 && ((uint32_t *) (a))[1] == 0 && \
+         ((uint8_t *) (a))[8] == 0 && ((uint8_t *) (a))[9] == 0 && \
+         ((uint8_t *) (a))[10] == 0xff && ((uint8_t *) (a))[11] == 0xff)
+
 #define IN6_IS_ADDR_V4COMPAT(a) \
-    ((a)->s6_addr[0] == 0 && (a)->s6_addr[1] == 0 && (a)->s6_addr[2] == 0 && (a)->s6_addr[3] == 0 && \
-     (a)->s6_addr[4] == 0 && (a)->s6_addr[5] == 0 && (a)->s6_addr[6] == 0 && (a)->s6_addr[7] == 0 && \
-     (a)->s6_addr[8] == 0 && (a)->s6_addr[9] == 0 && (a)->s6_addr[10] == 0 && (a)->s6_addr[11] == 0)
-#define IN6_IS_ADDR_MC_NODELOCAL(a) ((a)->s6_addr[0] == 0xff && ((a)->s6_addr[1] & 0x0f) == 1)
-#define IN6_IS_ADDR_MC_LINKLOCAL(a) ((a)->s6_addr[0] == 0xff && ((a)->s6_addr[1] & 0x0f) == 2)
-#define IN6_IS_ADDR_MC_SITELOCAL(a) ((a)->s6_addr[0] == 0xff && ((a)->s6_addr[1] & 0x0f) == 5)
-#define IN6_IS_ADDR_MC_ORGLOCAL(a)  ((a)->s6_addr[0] == 0xff && ((a)->s6_addr[1] & 0x0f) == 8)
-#define IN6_IS_ADDR_MC_GLOBAL(a)    ((a)->s6_addr[0] == 0xff && ((a)->s6_addr[1] & 0x0f) == 14)
+        (((uint32_t *) (a))[0] == 0 && ((uint32_t *) (a))[1] == 0 && \
+         ((uint32_t *) (a))[2] == 0 && \
+         !IN6_IS_ADDR_UNSPECIFIED(a) && !IN6_IS_ADDR_LOOPBACK(a))
+
+#define IN6_IS_ADDR_MC_NODELOCAL(a) \
+        (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0x1))
+
+#define IN6_IS_ADDR_MC_LINKLOCAL(a) \
+        (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0x2))
+
+#define IN6_IS_ADDR_MC_SITELOCAL(a) \
+        (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0x5))
+
+#define IN6_IS_ADDR_MC_ORGLOCAL(a) \
+        (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0x8))
+
+#define IN6_IS_ADDR_MC_GLOBAL(a) \
+        (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0xe))
+
+#define __ARE_4_EQUAL(a,b) \
+        (!( (0[a]-0[b]) | (1[a]-1[b]) | (2[a]-2[b]) | (3[a]-3[b]) ))
+#define IN6_ARE_ADDR_EQUAL(a,b) \
+        __ARE_4_EQUAL((const uint32_t *)(a), (const uint32_t *)(b))
 
 #define INADDR_ANY       ((in_addr_t)0x00000000)
 #define INADDR_LOOPBACK  ((in_addr_t)0x7f000001)

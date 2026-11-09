@@ -39,8 +39,8 @@ struct termios {
 #define CSIZE 0000060
 #define CS8 0000060
 #define CS7 0000040
-#define CS6 0000030
-#define CS5 0000020
+#define CS6 0000020
+#define CS5 0000000
 #define CSTOPB 0000100
 #define CREAD 0000200
 #define PARENB 0000400

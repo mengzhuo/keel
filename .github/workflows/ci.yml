@@ -73,6 +73,26 @@ jobs:
           cd libc-test-harness
           ./run.sh functional
 
+  macro-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu g++-aarch64-linux-gnu g++-riscv64-linux-gnu make curl
+
+      - name: Cache musl 1.2.6 headers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/crabc
+          key: musl-1.2.6-headers-v1
+
+      - name: Check macro expansion parity
+        run: ./scripts/macro-parity.sh
+
   riscv64-cross:
     runs-on: ubuntu-latest
     continue-on-error: true

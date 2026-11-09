@@ -14,16 +14,16 @@ extern "C" {
 #define WSTOPPED  2
 #define WEXITED   4
 #define WCONTINUED 8
-#define WNOWAIT   0x01000000
+#define WNOWAIT   0x1000000
 #endif
 
 #ifndef WEXITSTATUS
 #define WEXITSTATUS(s) (((s) & 0xff00) >> 8)
 #define WTERMSIG(s)    ((s) & 0x7f)
 #define WSTOPSIG(s)    WEXITSTATUS(s)
-#define WIFEXITED(s)   (WTERMSIG(s) == 0)
-#define WIFSIGNALED(s) (((signed char)(((s) & 0x7f) + 1) >> 1) > 0)
-#define WIFSTOPPED(s)  (((s) & 0xff) == 0x7f)
+#define WIFEXITED(s)   (!WTERMSIG(s))
+#define WIFSIGNALED(s) (((s)&0xffff)-1U < 0xffu)
+#define WIFSTOPPED(s)  ((short)((((s)&0xffff)*0x10001U)>>8) > 0x7f00)
 #define WIFCONTINUED(s) ((s) == 0xffff)
 #endif
 

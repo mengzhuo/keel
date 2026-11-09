@@ -13,8 +13,8 @@ typedef struct {
     size_t we_offs;
 } wordexp_t;
 
-#define WRDE_APPEND 1
-#define WRDE_DOOFFS  2
+#define WRDE_DOOFFS  1
+#define WRDE_APPEND  2
 #define WRDE_NOCMD   4
 #define WRDE_REUSE   8
 #define WRDE_SHOWERR 16

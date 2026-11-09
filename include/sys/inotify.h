@@ -39,7 +39,7 @@ struct inotify_event {
 #define IN_MASK_ADD      0x20000000
 #define IN_ISDIR         0x40000000
 #define IN_ONESHOT       0x80000000
-#define IN_ALL_EVENTS    0x0fffffff
+#define IN_ALL_EVENTS    0x00000fff
 
 #define IN_CLOEXEC  0x80000
 #define IN_NONBLOCK 0x800

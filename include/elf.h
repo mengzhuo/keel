@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define EI_NIDENT 16
+#define EI_NIDENT (16)
 #define ELFMAG "\177ELF"
 #define SELFMAG 4
 #define ELFCLASS32 1
@@ -32,9 +32,9 @@ extern "C" {
 #define PT_SHLIB 5
 #define PT_PHDR 6
 #define PT_TLS 7
-#define PF_X 1
-#define PF_W 2
-#define PF_R 4
+#define PF_X (1 << 0)
+#define PF_W (1 << 1)
+#define PF_R (1 << 2)
 #define SHT_NULL 0
 #define SHT_PROGBITS 1
 #define SHT_SYMTAB 2
@@ -176,8 +176,8 @@ typedef struct {
     Elf64_Xword r_info;
 } Elf64_Rel;
 
-#define ELF32_R_SYM(i) ((i) >> 8)
-#define ELF32_R_TYPE(i) ((unsigned char)(i))
+#define ELF32_R_SYM(val) ((val) >> 8)
+#define ELF32_R_TYPE(val) ((val) & 0xff)
 #define ELF64_R_SYM(i) ((i) >> 32)
 #define ELF64_R_TYPE(i) ((i) & 0xffffffff)
 

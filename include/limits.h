@@ -2,16 +2,16 @@
 #define _LIMITS_H
 
 #define CHAR_BIT   8
-#define SCHAR_MIN  (-1-0x7f)
-#define SCHAR_MAX  0x7f
-#define UCHAR_MAX  0xff
+#define SCHAR_MIN  (-128)
+#define SCHAR_MAX  127
+#define UCHAR_MAX  255
 
 #if '\xff' > 0
 #define CHAR_MIN   0
 #define CHAR_MAX   255
 #else
-#define CHAR_MIN   SCHAR_MIN
-#define CHAR_MAX   SCHAR_MAX
+#define CHAR_MIN   (-128)
+#define CHAR_MAX   127
 #endif
 
 #define SHRT_MIN   (-1-0x7fff)
@@ -22,13 +22,17 @@
 #define INT_MAX    0x7fffffff
 #define UINT_MAX   0xffffffffU
 
-#define LONG_MIN   (-1-0x7fffffffffffffffL)
-#define LONG_MAX   0x7fffffffffffffffL
-#define ULONG_MAX  0xffffffffffffffffUL
+#ifndef __LONG_MAX
+#define __LONG_MAX __LONG_MAX__
+#endif
 
-#define LLONG_MIN  (-1-0x7fffffffffffffffLL)
+#define LONG_MIN   (-LONG_MAX-1)
+#define LONG_MAX   __LONG_MAX
+#define ULONG_MAX  (2UL*LONG_MAX+1)
+
+#define LLONG_MIN  (-LLONG_MAX-1)
 #define LLONG_MAX  0x7fffffffffffffffLL
-#define ULLONG_MAX 0xffffffffffffffffULL
+#define ULLONG_MAX (2ULL*LLONG_MAX+1)
 
 #define MB_LEN_MAX 4
 

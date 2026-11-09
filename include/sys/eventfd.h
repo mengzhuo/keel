@@ -1,9 +1,10 @@
 #ifndef _CRABC_SYS_EVENTFD_H
 #define _CRABC_SYS_EVENTFD_H
 #include <stdint.h>
+#include <fcntl.h>
 int eventfd(unsigned int, int);
-#define EFD_CLOEXEC 1
-#define EFD_NONBLOCK 2
+#define EFD_CLOEXEC O_CLOEXEC
+#define EFD_NONBLOCK O_NONBLOCK
 #define EFD_SEMAPHORE 1
 
 #endif

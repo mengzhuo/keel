@@ -15391,9 +15391,9 @@ pub static mut program_invocation_name: *mut c_char = core::ptr::null_mut();
 pub static mut program_invocation_short_name: *mut c_char = core::ptr::null_mut();
 
 #[no_mangle]
-pub static in6addr_any: [u8; 16] = [0; 16];
+pub static in6addr_any: [u32; 4] = [0; 4];
 #[no_mangle]
-pub static in6addr_loopback: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+pub static in6addr_loopback: [u32; 4] = [0, 0, 0, 0x0100_0000];
 
 #[no_mangle]
 pub static mut __daylight: c_int = 0;

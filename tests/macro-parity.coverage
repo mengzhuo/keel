@@ -1,0 +1,10 @@
+# Baseline of public macro names that musl defines but crabc does not.
+# The macro-parity job fails if a change increases these counts; lower is
+# always accepted (update this file when reducing the gap).
+# arch     missing extra
+x86_64     5571    17
+aarch64    5598    41
+riscv64    5530    42
+x86_64-c++   5553    17
+aarch64-c++  5580    41
+riscv64-c++  5512    42

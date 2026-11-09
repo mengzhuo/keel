@@ -1,19 +1,19 @@
 #ifndef MATH_H
 #define MATH_H
 
-#define M_E        2.71828182845904523536
-#define M_LOG2E    1.44269504088896340736
-#define M_LOG10E   0.434294481903251827651
-#define M_LN2      0.693147180559945309417
+#define M_E        2.7182818284590452354
+#define M_LOG2E    1.4426950408889634074
+#define M_LOG10E   0.43429448190325182765
+#define M_LN2      0.69314718055994530942
 #define M_LN10     2.30258509299404568402
 #define M_PI       3.14159265358979323846
 #define M_PI_2     1.57079632679489661923
-#define M_PI_4     0.785398163397448309616
-#define M_1_PI     0.318309886183790671538
-#define M_2_PI     0.636619772367581343076
+#define M_PI_4     0.78539816339744830962
+#define M_1_PI     0.31830988618379067154
+#define M_2_PI     0.63661977236758134308
 #define M_2_SQRTPI 1.12837916709551257390
 #define M_SQRT2    1.41421356237309504880
-#define M_SQRT1_2  0.707106781186547524401
+#define M_SQRT1_2  0.70710678118654752440
 
 #define NAN       __builtin_nanf("")
 #define INFINITY  __builtin_inff()
@@ -124,22 +124,22 @@ static __inline int __signbitl(long double __f)
 
 #define isinf(x) ( \
     sizeof(x) == sizeof(float) ? (__FLOAT_BITS(x) & 0x7fffffff) == 0x7f800000 : \
-    sizeof(x) == sizeof(double) ? (__DOUBLE_BITS(x) & (-1ULL>>1)) == (0x7ffULL<<52) : \
+    sizeof(x) == sizeof(double) ? (__DOUBLE_BITS(x) & -1ULL>>1) == 0x7ffULL<<52 : \
     __fpclassifyl(x) == FP_INFINITE)
 
 #define isnan(x) ( \
     sizeof(x) == sizeof(float) ? (__FLOAT_BITS(x) & 0x7fffffff) > 0x7f800000 : \
-    sizeof(x) == sizeof(double) ? (__DOUBLE_BITS(x) & (-1ULL>>1)) > (0x7ffULL<<52) : \
+    sizeof(x) == sizeof(double) ? (__DOUBLE_BITS(x) & -1ULL>>1) > 0x7ffULL<<52 : \
     __fpclassifyl(x) == FP_NAN)
 
 #define isnormal(x) ( \
     sizeof(x) == sizeof(float) ? ((__FLOAT_BITS(x)+0x00800000) & 0x7fffffff) >= 0x01000000 : \
-    sizeof(x) == sizeof(double) ? ((__DOUBLE_BITS(x)+(1ULL<<52)) & (-1ULL>>1)) >= (1ULL<<53) : \
+    sizeof(x) == sizeof(double) ? ((__DOUBLE_BITS(x)+(1ULL<<52)) & -1ULL>>1) >= 1ULL<<53 : \
     __fpclassifyl(x) == FP_NORMAL)
 
 #define isfinite(x) ( \
     sizeof(x) == sizeof(float) ? (__FLOAT_BITS(x) & 0x7fffffff) < 0x7f800000 : \
-    sizeof(x) == sizeof(double) ? (__DOUBLE_BITS(x) & (-1ULL>>1)) < (0x7ffULL<<52) : \
+    sizeof(x) == sizeof(double) ? (__DOUBLE_BITS(x) & -1ULL>>1) < 0x7ffULL<<52 : \
     __fpclassifyl(x) > FP_INFINITE)
 
 #define signbit(x) ( \

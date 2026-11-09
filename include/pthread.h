@@ -66,9 +66,9 @@ typedef struct __sigset_t { unsigned long __bits[128/sizeof(unsigned long)]; } s
 
 #define PTHREAD_ONCE_INIT 0
 
-#define PTHREAD_MUTEX_INITIALIZER {{0}}
-#define PTHREAD_RWLOCK_INITIALIZER {{0}}
-#define PTHREAD_COND_INITIALIZER {{0}}
+#define PTHREAD_MUTEX_INITIALIZER {{{0}}}
+#define PTHREAD_RWLOCK_INITIALIZER {{{0}}}
+#define PTHREAD_COND_INITIALIZER {{{0}}}
 
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                    void *(*start_routine)(void *), void *arg);

@@ -8,7 +8,11 @@ extern "C" {
 #endif
 
 #define complex _Complex
-#define _Complex_I (__extension__ 1.0iF)
+#ifdef __GNUC__
+#define _Complex_I (__extension__ (0.0f+1.0fi))
+#else
+#define _Complex_I (0.0f+1.0fi)
+#endif
 #define I _Complex_I
 
 double cabs(double complex);
@@ -74,6 +78,19 @@ long double complex conjl(long double complex);
 long double complex cpowl(long double complex, long double complex);
 long double complex cprojl(long double complex);
 long double creall(long double complex);
+
+#ifndef __cplusplus
+#define __CIMAG(x, t) \
+    (+(union { _Complex t __z; t __xy[2]; }){(_Complex t)(x)}.__xy[1])
+
+#define creal(x) ((double)(x))
+#define crealf(x) ((float)(x))
+#define creall(x) ((long double)(x))
+
+#define cimag(x) __CIMAG(x, double)
+#define cimagf(x) __CIMAG(x, float)
+#define cimagl(x) __CIMAG(x, long double)
+#endif
 long double complex csinl(long double complex);
 long double complex csinhl(long double complex);
 long double complex csqrtl(long double complex);

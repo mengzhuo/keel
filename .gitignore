@@ -64,3 +64,6 @@ Cargo.lock
 
 # release package staging
 /dist/
+
+__pycache__/
+*.pyc

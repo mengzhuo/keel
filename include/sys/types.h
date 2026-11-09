@@ -286,7 +286,7 @@ typedef struct { int __i[14]; } pthread_attr_t;
 #define __crabc_pthread_mutex_t_defined
 #ifndef __DEFINED_pthread_mutex_t
 #define __DEFINED_pthread_mutex_t
-typedef struct { int __i[10]; } pthread_mutex_t;
+typedef struct { union { int __i[sizeof(long)==8?10:6]; volatile int __vi[sizeof(long)==8?10:6]; volatile void *volatile __p[sizeof(long)==8?5:6]; } __u; } pthread_mutex_t;
 #endif
 #endif
 
@@ -294,7 +294,7 @@ typedef struct { int __i[10]; } pthread_mutex_t;
 #define __crabc_pthread_cond_t_defined
 #ifndef __DEFINED_pthread_cond_t
 #define __DEFINED_pthread_cond_t
-typedef struct { int __i[12]; } pthread_cond_t;
+typedef struct { union { int __i[12]; volatile int __vi[12]; void *__p[12*sizeof(int)/sizeof(void*)]; } __u; } pthread_cond_t;
 #endif
 #endif
 
@@ -302,7 +302,7 @@ typedef struct { int __i[12]; } pthread_cond_t;
 #define __crabc_pthread_rwlock_t_defined
 #ifndef __DEFINED_pthread_rwlock_t
 #define __DEFINED_pthread_rwlock_t
-typedef struct { int __i[14]; } pthread_rwlock_t;
+typedef struct { union { int __i[sizeof(long)==8?14:8]; volatile int __vi[sizeof(long)==8?14:8]; void *__p[sizeof(long)==8?7:8]; } __u; } pthread_rwlock_t;
 #endif
 #endif
 

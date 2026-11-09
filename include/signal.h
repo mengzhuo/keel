@@ -70,8 +70,13 @@ extern "C" {
 #define SS_AUTODISARM (1U << 31)
 #define SS_FLAG_BITS  SS_AUTODISARM
 
+#ifdef __aarch64__
+#define MINSIGSTKSZ   6144
+#define SIGSTKSZ      12288
+#else
 #define MINSIGSTKSZ   2048
 #define SIGSTKSZ      8192
+#endif
 
 #define SI_ASYNCNL (-60)
 #define SI_TKILL   (-6)

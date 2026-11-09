@@ -26,13 +26,13 @@ typedef unsigned int uint_least32_t;
 typedef unsigned long uint_least64_t;
 
 typedef signed char int_fast8_t;
-typedef long int_fast16_t;
-typedef long int_fast32_t;
+typedef int32_t int_fast16_t;
+typedef int32_t int_fast32_t;
 typedef long int_fast64_t;
 
 typedef unsigned char uint_fast8_t;
-typedef unsigned long uint_fast16_t;
-typedef unsigned long uint_fast32_t;
+typedef uint32_t uint_fast16_t;
+typedef uint32_t uint_fast32_t;
 typedef unsigned long uint_fast64_t;
 
 typedef long intptr_t;
@@ -70,16 +70,16 @@ typedef unsigned long uintmax_t;
 #define UINT_LEAST64_MAX UINT64_MAX
 
 #define INT_FAST8_MIN    INT8_MIN
-#define INT_FAST16_MIN   INT64_MIN
-#define INT_FAST32_MIN   INT64_MIN
+#define INT_FAST16_MIN   INT32_MIN
+#define INT_FAST32_MIN   INT32_MIN
 #define INT_FAST64_MIN   INT64_MIN
 #define INT_FAST8_MAX    INT8_MAX
-#define INT_FAST16_MAX   INT64_MAX
-#define INT_FAST32_MAX   INT64_MAX
+#define INT_FAST16_MAX   INT32_MAX
+#define INT_FAST32_MAX   INT32_MAX
 #define INT_FAST64_MAX   INT64_MAX
 #define UINT_FAST8_MAX   UINT8_MAX
-#define UINT_FAST16_MAX  UINT64_MAX
-#define UINT_FAST32_MAX  UINT64_MAX
+#define UINT_FAST16_MAX  UINT32_MAX
+#define UINT_FAST32_MAX  UINT32_MAX
 #define UINT_FAST64_MAX  UINT64_MAX
 
 #define INTPTR_MIN  INT64_MIN
@@ -95,18 +95,15 @@ typedef unsigned long uintmax_t;
 #define SIG_ATOMIC_MAX INT32_MAX
 #define SIZE_MAX UINT64_MAX
 
-#ifndef WCHAR_MIN
-#define WCHAR_MIN (-1-0x7fffffff)
+#ifdef __aarch64__
+#define WCHAR_MIN (0+L'\0')
+#define WCHAR_MAX (0xffffffffu+L'\0')
+#else
+#define WCHAR_MIN (-1-0x7fffffff+L'\0')
+#define WCHAR_MAX (0x7fffffff+L'\0')
 #endif
-#ifndef WCHAR_MAX
-#define WCHAR_MAX 0x7fffffff
-#endif
-#ifndef WINT_MIN
-#define WINT_MIN 0
-#endif
-#ifndef WINT_MAX
-#define WINT_MAX 0xffffffffU
-#endif
+#define WINT_MIN 0U
+#define WINT_MAX UINT32_MAX
 
 #define INT8_C(c)  c
 #define INT16_C(c) c

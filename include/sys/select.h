@@ -10,12 +10,21 @@ extern "C" {
 #endif
 
 #define FD_SETSIZE 1024
-typedef unsigned long fd_set[FD_SETSIZE / (8 * sizeof(unsigned long))];
 
-#define FD_CLR(d, s) ((s)[(d) / (8 * sizeof(unsigned long))] &= ~(1UL << ((d) % (8 * sizeof(unsigned long)))))
-#define FD_SET(d, s) ((s)[(d) / (8 * sizeof(unsigned long))] |=  (1UL << ((d) % (8 * sizeof(unsigned long)))))
-#define FD_ISSET(d, s) (((s)[(d) / (8 * sizeof(unsigned long))] >> ((d) % (8 * sizeof(unsigned long)))) & 1)
-#define FD_ZERO(s) do { unsigned long *__p = (s); int __i; for (__i = 0; __i < FD_SETSIZE / (8 * sizeof(unsigned long)); __i++) __p[__i] = 0; } while (0)
+typedef unsigned long fd_mask;
+
+typedef struct {
+    unsigned long fds_bits[FD_SETSIZE / 8 / sizeof(long)];
+} fd_set;
+
+#define FD_ZERO(s) do { int __i; unsigned long *__b=(s)->fds_bits; for(__i=sizeof (fd_set)/sizeof (long); __i; __i--) *__b++=0; } while(0)
+#define FD_SET(d, s)   ((s)->fds_bits[(d)/(8*sizeof(long))] |= (1UL<<((d)%(8*sizeof(long)))))
+#define FD_CLR(d, s)   ((s)->fds_bits[(d)/(8*sizeof(long))] &= ~(1UL<<((d)%(8*sizeof(long)))))
+#define FD_ISSET(d, s) !!((s)->fds_bits[(d)/(8*sizeof(long))] & (1UL<<((d)%(8*sizeof(long)))))
+
+#if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
+#define NFDBITS (8*(int)sizeof(long))
+#endif
 
 int select(int, fd_set *, fd_set *, fd_set *, struct timeval *);
 int pselect(int, fd_set *, fd_set *, fd_set *, const struct timespec *, const sigset_t *);
