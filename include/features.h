@@ -1,10 +1,6 @@
 #ifndef _FEATURES_H
 #define _FEATURES_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE) || defined(_SVID_SOURCE)
 #define __USE_GNU 1
 #define __USE_BSD 1
@@ -23,8 +19,10 @@ extern "C" {
 #define __THROW
 #define __NTH(x) x
 #define __attribute__(x) __attribute__(x)
+#if !defined(__cplusplus) && __STDC_VERSION__ >= 199901L
 #define __restrict restrict
 #define __restrict_arr restrict
+#endif
 #define __inline inline
 #define __always_inline inline __attribute__((always_inline))
 #define __hidden __attribute__((visibility("hidden")))
@@ -32,6 +30,16 @@ extern "C" {
 #define weak_alias(a,b) extern __typeof(a) b __attribute__((weak, alias(#a)))
 #define __cdecl
 #define __stdcall
+
+#ifndef _Noreturn
+#if __STDC_VERSION__ >= 201112L
+/* C11 keyword. */
+#elif defined(__GNUC__)
+#define _Noreturn __attribute__((__noreturn__))
+#else
+#define _Noreturn
+#endif
+#endif
 
 #define __GLIBC_USE(x) 0
 #define __GLIBC_PREREQ(a,b) 0

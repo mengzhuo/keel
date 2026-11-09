@@ -3838,6 +3838,14 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     compute_tls_layout();
 
     process_all_relocations();
+    // libc.so exports a link-time `__tls_get_addr` for static C++ runtimes.
+    // Point it at the loader's multi-module resolver before constructors or
+    // main can call it (including via dlsym).
+    let set_tls_get_addr = resolve_symbol(b"__rc_set_tls_get_addr\0".as_ptr());
+    if set_tls_get_addr != 0 {
+        let setter: unsafe extern "C" fn(usize) = core::mem::transmute(set_tls_get_addr);
+        setter(__tls_get_addr as *const () as usize);
+    }
     register_dlopen_callbacks();
 
     // Always allocate a TCB so that %fs-relative accesses (e.g. stack canary

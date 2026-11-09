@@ -5,9 +5,11 @@
 extern "C" {
 #endif
 
+#include <features.h>
 #include <stddef.h>
 #include <sys/types.h>
 #include <time.h>
+#include <sched.h>
 
 #ifndef __crabc_sched_param_defined
 #define __crabc_sched_param_defined

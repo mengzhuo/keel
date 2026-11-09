@@ -1,6 +1,7 @@
 #ifndef _STDLIB_H
 #define _STDLIB_H
 
+#include <features.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -95,8 +96,10 @@ size_t malloc_usable_size(void *);
 
 _Noreturn void abort(void);
 int atexit(void (*)(void));
+int at_quick_exit(void (*)(void));
 _Noreturn void exit(int);
 _Noreturn void _Exit(int);
+_Noreturn void quick_exit(int);
 
 char *getenv(const char *);
 int setenv(const char *, const char *, int);

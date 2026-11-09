@@ -102,7 +102,7 @@ package_runtime() {
     install -m 644 "$ROOT/README.md" "$dir/usr/share/doc/crabc/README.md"
     mkpkg crabc "$arch" "$dir" \
         "A Rust no_std musl-compatible libc with a dynamic linker" \
-        "" "" "musl"
+        "" "musl=1.2.6-r0 so:libc.musl-${arch}.so.1=1.2.6-r0" "musl"
     rm -rf "$dir"
 }
 
@@ -130,7 +130,7 @@ package_dev() {
     ln -s /usr/lib/crabc/libc.so "$dir/usr/lib/libc.so"
     mkpkg crabc-dev "$arch" "$dir" \
         "Development files for crabc (headers, libc.a and Rust-built CRT)" \
-        "crabc=$PKGVER" "libc-dev=$PKGVER" "musl-dev"
+        "crabc=$PKGVER" "libc-dev=1.2.6-r0 musl-dev=1.2.6-r0" "musl-dev"
     rm -rf "$dir"
 }
 
@@ -150,7 +150,7 @@ package_utils() {
     mkpkg crabc-utils "$arch" "$dir" \
         "Rust implementations of musl-utils commands for crabc" \
         "crabc=$PKGVER" \
-        "libc-utils=$PKGVER cmd:getconf=$PKGVER cmd:getent=$PKGVER cmd:iconv=$PKGVER cmd:ldd=$PKGVER cmd:ldconfig=$PKGVER" \
+        "libc-utils=1.2.6-r0 musl-utils=1.2.6-r0 cmd:getconf=1.2.6-r0 cmd:getent=1.2.6-r0 cmd:iconv=1.2.6-r0 cmd:ldd=1.2.6-r0 cmd:ldconfig=1.2.6-r0" \
         "musl-utils"
     rm -rf "$dir"
 }

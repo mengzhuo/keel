@@ -35,9 +35,10 @@ The package also installs symlinks at the canonical musl paths:
 /lib/libc.musl-<arch>.so.1 -> /usr/lib/crabc/libc.so
 ```
 
-It declares `replaces: musl`, so `apk add crabc` switches the system libc
-without removing the `musl` package record.  Do not run `apk del musl` or
-`apk fix musl` while crabc owns those paths.
+It declares `provides: musl`, `provides: so:libc.musl-<arch>.so.1` and
+`replaces: musl`, so installing `crabc` automatically purges the `musl`
+package and switches the whole system (including `apk` and `/bin/sh`) to
+crabc.  Do not run `apk fix musl` while crabc owns those paths.
 
 ## crabc-dev
 
@@ -65,10 +66,18 @@ Static PIE is supported through the Rust-built `rcrt1.o`; static linking
 works with either `-static` (static PIE) or `-static -no-pie`.  Static
 constructors and initial-exec TLS are initialized by the libc startup path.
 
-`crabc-dev` declares `provides: libc-dev` and `replaces: musl-dev`, so it is
-a replacement for `musl-dev` rather than a package that can coexist with it.
-If `build-base` is present, remove `musl-dev` first; installing `gcc` plus
-`crabc-dev` is sufficient.
+`gcc`/`g++` work after `crabc-dev` replaces `musl-dev`.  `libc.so` exports a
+`__tls_get_addr` entry so `libstdc++.so` links; dynamically the loader
+installs its multi-module resolver before constructors, while static
+executables use the single-module fallback.  Dynamic, static and static-PIE
+C++ programs have been built and run.
+
+`crabc-dev` declares `provides: libc-dev musl-dev` and
+`replaces: musl-dev`.  Because it provides the `musl-dev` name itself,
+packages that depend on `musl-dev` (notably `g++` and `build-base`) are
+satisfied without installing Alpine's `musl-dev`.  Installing `crabc-dev`
+over an existing `build-base` automatically purges `musl-dev` and keeps
+`gcc`/`g++` working.  No manual removal step is needed.
 
 ## crabc-utils
 
@@ -93,16 +102,15 @@ parsing their ELF files.
 interpreter; it prints dependency paths but not load addresses.  `ldconfig`
 reads SONAME entries directly and does not require `scanelf`.
 
-The package declares the `libc-utils` and `cmd:*` virtuals and uses
-`replaces: musl-utils`.  Alpine's solver treats those virtuals as exclusive
-with `musl-utils`, so remove `musl-utils` first on a stock image:
+The package declares `provides: libc-utils musl-utils` plus the `cmd:*`
+virtuals and uses `replaces: musl-utils`.  Because it provides the
+`musl-utils` name itself, installing `crabc-utils` on a stock Alpine image
+automatically purges `musl-utils` (and its `scanelf` dependency); no manual
+removal step is needed:
 
 ```sh
-apk del musl-utils
 apk add --allow-untrusted crabc-utils-<version>-r0.<arch>.apk
 ```
-
-The Dockerfile performs that removal automatically.
 
 ## Building packages
 

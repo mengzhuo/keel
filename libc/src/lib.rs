@@ -15548,6 +15548,44 @@ unsafe fn static_tls_create_block() -> *mut u8 {
     static_tls_init_block(block)
 }
 
+#[repr(C)]
+pub struct TlsIndex {
+    pub ti_module: usize,
+    pub ti_offset: usize,
+}
+
+/// Global-dynamic TLS access.  The dynamic loader intercepts this symbol for
+/// dynamically linked programs and uses its own multi-module implementation.
+/// A static executable has only module 0, so resolve directly against the
+/// static TLS block created by `init_static_tls()`.
+static mut TLS_GET_ADDR_IMPL: usize = 0;
+
+/// The dynamic loader installs its multi-module TLS resolver here before
+/// running constructors.  Keeping a dispatch pointer means a program that
+/// obtains `__tls_get_addr` through `dlsym` still reaches the loader's
+/// implementation rather than the static fallback below.
+#[no_mangle]
+pub unsafe extern "C" fn __rc_set_tls_get_addr(f: usize) {
+    TLS_GET_ADDR_IMPL = f;
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
+    if TLS_GET_ADDR_IMPL != 0 {
+        let f: unsafe extern "C" fn(*const TlsIndex) -> *mut u8 =
+            core::mem::transmute(TLS_GET_ADDR_IMPL);
+        return f(ti);
+    }
+    if ti.is_null() || (*ti).ti_module != 0 || !RC_STATIC_EXEC {
+        return core::ptr::null_mut();
+    }
+    let tp = static_tls_tp();
+    if tp == 0 {
+        return core::ptr::null_mut();
+    }
+    (tp - STATIC_TLS_TP_OFFSET + STATIC_TLS_VAR_OFFSET + (*ti).ti_offset) as *mut u8
+}
+
 /// Static executables have no dynamic loader to build a TCB.  Allocate one
 /// from PT_TLS so that `%fs`/TP-relative TLS accesses and errno work.
 unsafe fn init_static_tls() {

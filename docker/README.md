@@ -50,33 +50,37 @@ At runtime, `LD_LIBRARY_PATH=/usr/lib/crabc` is set so DSOs that record
 ## What the image does
 
 1. Installs the `crabc` and `crabc-utils` APKs.
-2. Replaces the stock Alpine musl libc/loader in place.
-3. Places the crabc files at the canonical paths:
-   - `/lib/libc.musl-<arch>.so.1`
-   - `/lib/ld-musl-<arch>.so.1`
-4. Leaves symlinks in `/usr/lib/crabc` pointing at the canonical paths.
-5. Installs Rust `getconf`, `getent`, `iconv`, `ldd` and `ldconfig` from
-   `crabc-utils` (replacing the base image's `musl-utils` commands).
-6. Smoke-tests `/bin/echo`, `/bin/sh`, `apk --version`, `getconf` and `ldd`.
+2. `crabc` provides `musl` and `so:libc.musl-<arch>.so.1`, so installing it
+   automatically purges Alpine's `musl` package.
+3. `crabc` installs the canonical paths as symlinks:
+   - `/lib/libc.musl-<arch>.so.1 -> /usr/lib/crabc/libc.so`
+   - `/lib/ld-musl-<arch>.so.1 -> /usr/lib/crabc/libldso.so`
+4. `crabc-utils` provides `musl-utils`, so installing it automatically purges
+   `musl-utils` and `scanelf`, and installs Rust `getconf`, `getent`, `iconv`,
+   `ldd` and `ldconfig`.
+5. Smoke-tests `/bin/echo`, `/bin/sh`, `apk --version`, `getconf` and `ldd`.
 
 ## Caveats
 
-- The image installs `crabc-utils`, not Alpine's `musl-utils` commands. The
-  Dockerfile removes the `musl-utils` package first because both provide
-  `libc-utils`/`cmd:*`.  `crabc-utils` is a static Rust multicall binary.
+- The image installs `crabc-utils`, not Alpine's `musl-utils` commands.
+  `crabc-utils` provides `musl-utils`/`libc-utils`/`cmd:*`, so installing it
+  automatically purges `musl-utils` and `scanelf`.  It is a static Rust
+  multicall binary.
 - `crabc-dev` is not installed in the runtime image. Install it explicitly
   if you want to compile inside the container; it provides the full
-  `musl-dev` header set, `libc.a` and Rust-built CRT objects. Static PIE,
-  static non-PIE, constructors and initial-exec TLS are supported.
+  `musl-dev` header set, `libc.a` and Rust-built CRT objects. It also
+  provides `musl-dev`, so `apk add build-base` continues to work and
+  automatically replaces Alpine's `musl-dev`. Static PIE, static non-PIE,
+  constructors and initial-exec TLS are supported.
 - `/usr/bin/crabc-loader` is the standalone mapper for static PIE/static ELF
   binaries, not a replacement for the dynamic interpreter. The image uses
   `/lib/ld-musl-<arch>.so.1` (crabc `libldso.so`) for normal dynamic binaries.
 - The stock musl files are replaced in place; the `crabc` package itself
-  declares `replaces: musl` and installs the canonical symlinks. Use
-  `apk fix musl` only if you intend to switch back. Do not run
-  `apk upgrade musl` if the image should stay on crabc.
-- The APK database still records the `musl` package. Package operations that
-  verify or reinstall musl can overwrite the crabc files.
+  declares `provides: musl` and `replaces: musl`, and installing it purges
+  the `musl` package. Use `apk fix musl` only if you intend to switch back.
+- Installing `crabc-dev` purges Alpine's `musl-dev`; packages that depend on
+  `musl-dev` are satisfied by `crabc-dev`'s `provides`, so `build-base` and
+  `g++` keep working.
 - `dlclose` follows musl: it validates the handle but does not unload modules
   or run destructors. Build a normal musl image if glibc-style unloading is
   required.

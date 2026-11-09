@@ -38,7 +38,6 @@ RUN set -eux; \
     utils_url="${CRABC_UTILS_URL:-https://github.com/mengzhuo/crabc/releases/download/v${CRABC_VERSION}/crabc-utils-${CRABC_VERSION}-r0.${arch}.apk}"; \
     curl -fsSL --retry 3 "$url" -o /tmp/crabc.apk; \
     curl -fsSL --retry 3 "$utils_url" -o /tmp/crabc-utils.apk; \
-    apk del musl-utils 2>/dev/null || true; \
     apk add --allow-untrusted /tmp/crabc.apk /tmp/crabc-utils.apk; \
     rm -f /tmp/crabc.apk /tmp/crabc-utils.apk; \
     /bin/echo "crabc ${CRABC_VERSION} (${arch})"; \
