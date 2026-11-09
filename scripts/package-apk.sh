@@ -87,9 +87,13 @@ package_runtime() {
     local arch="$1" libc="$2" ldso="$3" loader="$4"
     local dir
     dir="$(mktemp -d)"
-    install -d "$dir/usr/lib/crabc" "$dir/usr/bin" "$dir/usr/share/doc/crabc"
+    install -d "$dir/usr/lib/crabc" "$dir/usr/bin" "$dir/usr/share/doc/crabc" "$dir/lib"
     install -m 755 "$ROOT/$libc" "$dir/usr/lib/crabc/libc.so"
     install -m 755 "$ROOT/$ldso" "$dir/usr/lib/crabc/libldso.so"
+    # The runtime package is a drop-in for Alpine's musl package.  These are
+    # symlinks rather than copies so a single libc/loader serves both layouts.
+    ln -s /usr/lib/crabc/libc.so "$dir/lib/libc.musl-${arch}.so.1"
+    ln -s /usr/lib/crabc/libldso.so "$dir/lib/ld-musl-${arch}.so.1"
     # libgcc_s.so.1 (and other third-party DSOs) records the musl SONAME.
     # Keep a local alias so crabc-utils can resolve it through DT_RPATH
     # without installing crabc as the system libc.
@@ -97,7 +101,8 @@ package_runtime() {
     install -m 755 "$ROOT/$loader" "$dir/usr/bin/crabc-loader"
     install -m 644 "$ROOT/README.md" "$dir/usr/share/doc/crabc/README.md"
     mkpkg crabc "$arch" "$dir" \
-        "A Rust no_std musl-compatible libc with a dynamic linker"
+        "A Rust no_std musl-compatible libc with a dynamic linker" \
+        "" "" "musl"
     rm -rf "$dir"
 }
 
@@ -111,6 +116,7 @@ package_dev() {
     install -m 644 "$ROOT/$libc_a" "$dir/usr/lib/libc.a"
     install -m 644 "$DIST/crt/$arch/crt1.o" "$dir/usr/lib/crt1.o"
     install -m 644 "$DIST/crt/$arch/Scrt1.o" "$dir/usr/lib/Scrt1.o"
+    install -m 644 "$DIST/crt/$arch/rcrt1.o" "$dir/usr/lib/rcrt1.o"
     install -m 644 "$DIST/crt/$arch/crti.o" "$dir/usr/lib/crti.o"
     install -m 644 "$DIST/crt/$arch/crtn.o" "$dir/usr/lib/crtn.o"
 
@@ -138,14 +144,13 @@ package_utils() {
         ln -s crabc-utils "$dir/usr/bin/$cmd"
     done
     ln -s ../usr/bin/crabc-utils "$dir/sbin/ldconfig"
-    # Do not provide libc-utils/cmd:* here: Alpine's solver treats those
-    # virtuals as exclusive with musl-utils, and the Alpine base image ships
-    # musl-utils.  replaces= lets crabc-utils overwrite the same commands
-    # while keeping the package installable.
+    # This is the musl-utils replacement.  Alpine's solver treats
+    # libc-utils/cmd:* as exclusive with musl-utils, so an existing
+    # musl-utils must be removed first (the Dockerfile does this).
     mkpkg crabc-utils "$arch" "$dir" \
         "Rust implementations of musl-utils commands for crabc" \
         "crabc=$PKGVER" \
-        "" \
+        "libc-utils=$PKGVER cmd:getconf=$PKGVER cmd:getent=$PKGVER cmd:iconv=$PKGVER cmd:ldd=$PKGVER cmd:ldconfig=$PKGVER" \
         "musl-utils"
     rm -rf "$dir"
 }

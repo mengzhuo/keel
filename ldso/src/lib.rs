@@ -1865,8 +1865,12 @@ unsafe fn match_sym(
     if info >> 4 == 0 {
         return None;
     }
+    let shndx = u16::from_le_bytes(core::ptr::read_unaligned(sym.add(6) as *const [u8; 2]));
     let value = ld_u64(sym.add(8));
-    if value == 0 || st_name >= obj.strsz {
+    // An undefined symbol must not satisfy a lookup.  ET_EXEC objects can
+    // carry a non-zero st_value (the PLT stub) for an undefined function;
+    // returning it makes the PLT jump to itself forever.
+    if shndx == 0 || value == 0 || st_name >= obj.strsz {
         return None;
     }
     if !str_eq(name, name_len, obj.strtab.add(st_name)) {

@@ -15,12 +15,12 @@ build_arch() {
     local arch="$1" target="$2"
     local dir="$OUT/$arch"
     mkdir -p "$dir"
-    for file in crt1 crti crtn; do
+    for file in crt1 crti crtn rcrt1; do
         "$RUSTC" --target "$target" --crate-type=lib --emit=obj -O \
             "$ROOT/crt/$file.rs" --out-dir "$dir"
     done
     cp "$dir/crt1.o" "$dir/Scrt1.o"
-    echo "built $dir/crt1.o $dir/Scrt1.o $dir/crti.o $dir/crtn.o"
+    echo "built $dir/crt1.o $dir/Scrt1.o $dir/rcrt1.o $dir/crti.o $dir/crtn.o"
 }
 
 build_arch x86_64 x86_64-unknown-linux-gnu

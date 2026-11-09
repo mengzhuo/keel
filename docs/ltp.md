@@ -18,7 +18,7 @@ itself skipped because the environment does not provide a requirement.
 
 | Suite | Tests | musl FAIL | crabc FAIL | musl TCONF | crabc TCONF |
 |---|---:|---:|---:|---:|---:|
-| `syscalls` | 1488† | 112 | 104 | 139 | 139 |
+| `syscalls` | 1488† | 112 | 102 | 139 | 140 |
 | `math` | 10 | 0 | 0 | 0 | 0 |
 | `mm` | 74 | 2 | 2 | 0 | 0 |
 | `sched` | 14 | 1 | 1 | 0 | 0 |
@@ -33,9 +33,9 @@ them from the pass/fail comparison.
 For `math`, `mm`, `sched`, `nptl` and `syscalls-ipc` the **failure lists are
 byte-for-byte identical** between musl and crabc. They are shared environment
 failures (loop devices, cgroup layout, missing kernel config), not libc
-regressions. For `syscalls`, the per-test diff is the important number: one
-test, `preadv203`, fails only under crabc, and it is a timing-sensitive cache
-test rather than an ABI failure. See
+regressions. For `syscalls`, the per-test diff is the important number: no test fails
+only under crabc in the final run.  Ten tests fail only under musl, and one
+test (`move_pages12`) is skipped as `TCONF` under crabc.  See
 [Remaining differences](#remaining-differences).
 
 ## Method
@@ -145,15 +145,13 @@ only what the LTP comparison demonstrated.
 
 After the final run:
 
-- **One `syscalls` tag fails only under crabc: `preadv203`.** It is an
-  inherently timing-sensitive test: three threads race a `RWF_NOWAIT` reader
-  against a writer and a cache dropper, and the test fails if it does not
-  observe `EAGAIN` within its runtime. On ext2/ext4 the crabc reader performs
-  about ten times as many reads in the same window (46M vs 4.4M), keeping the
-  pages warm before the dropper can evict them. `strace` confirms that
-  `RWF_NOWAIT` is passed and the kernel does return `EAGAIN` on cold pages;
-  ext3 and xfs pass. The same test also timed out under the musl baseline in
-  other runs, so this is a cache/timing sensitivity, not an ABI regression.
+- **No `syscalls` tag fails only under crabc in the final run.**  Ten tags
+  fail only under the musl baseline (`open13`, `perf_event_open02`,
+  `preadv203_64`, `readlink03`, `readlinkat02`, `recvmmsg01`,
+  `rt_sigaction01`, `rt_sigprocmask01`, `rt_sigsuspend01`,
+  `sched_setscheduler04`).  `move_pages12` is `TCONF` under crabc because its
+  NUMA/procfs feature probe differs; it is not a failure.  The earlier
+  `preadv203` cache/timing observation is no longer a crabc-only failure.
 - `clock_settime03` is similarly timing-sensitive and fails intermittently
   under **both** runtimes: it sets `CLOCK_REALTIME` to just before the Y2038
   boundary and waits for an absolute timer that sometimes does not fire before

@@ -1,0 +1,3 @@
+#ifndef _CRABC_STDNORETURN_H
+#define _CRABC_STDNORETURN_H
+#endif

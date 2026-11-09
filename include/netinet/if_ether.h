@@ -1,0 +1,3 @@
+#ifndef _CRABC_NETINET_IF_ETHER_H
+#define _CRABC_NETINET_IF_ETHER_H
+#endif

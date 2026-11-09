@@ -61,6 +61,10 @@ jobs:
             cargo build --release -p crabc --target aarch64-unknown-linux-musl
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER=riscv64-linux-gnu-gcc \
             cargo build --release --workspace --target riscv64gc-unknown-linux-musl
+          lld="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/rust-lld"
+          RUSTFLAGS="-C target-feature=+crt-static -C link-self-contained=yes -C linker=$lld" \
+            CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$lld" \
+            cargo build --release -p crabc --target riscv64gc-unknown-linux-musl
 
       - name: Build Rust CRT objects and crabc-utils
         run: |
@@ -84,6 +88,7 @@ jobs:
           set -eux
           version="${VERSION#v}"
           docker run --rm -v "$PWD/dist:/dist:ro" alpine:3.23 sh -c "
+            apk del musl-utils
             apk add --allow-untrusted \
               /dist/crabc-${version}-r0.x86_64.apk \
               /dist/crabc-utils-${version}-r0.x86_64.apk

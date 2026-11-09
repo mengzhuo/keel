@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <locale.h>
@@ -128,8 +129,8 @@ unsigned long wcstoul(const wchar_t *, wchar_t **, int);
 long long wcstoll(const wchar_t *, wchar_t **, int);
 unsigned long long wcstoull(const wchar_t *, wchar_t **, int);
 
-long long wcstoimax(const wchar_t *, wchar_t **, int);
-unsigned long long wcstoumax(const wchar_t *, wchar_t **, int);
+intmax_t wcstoimax(const wchar_t *, wchar_t **, int);
+uintmax_t wcstoumax(const wchar_t *, wchar_t **, int);
 
 int fwide(FILE *, int);
 

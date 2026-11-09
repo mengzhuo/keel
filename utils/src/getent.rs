@@ -77,6 +77,12 @@ fn lookup(database: &str, keys: &[String]) -> Result<bool, String> {
             fields.first().copied().unwrap_or("") == key
         }),
         "hosts" => hosts(keys),
+        "ahosts" => ahosts(keys, true, true),
+        "ahostsv4" => ahosts(keys, true, false),
+        "ahostsv6" => ahosts(keys, false, true),
+        "shadow" => parse_colon_file("/etc/shadow", keys, |fields, key| {
+            fields.first() == Some(&key)
+        }),
         "ethers" => {
             if keys.is_empty() {
                 return Err("Enumeration not supported on ethers".into());
@@ -189,6 +195,26 @@ fn hosts(keys: &[String]) -> Result<bool, String> {
                 println!("{}\t{}", addr.ip(), key);
                 found = true;
             }
+        }
+    }
+    Ok(found)
+}
+
+fn ahosts(keys: &[String], v4: bool, v6: bool) -> Result<bool, String> {
+    let mut found = false;
+    for key in keys {
+        let addrs = match (key.as_str(), 0u16).to_socket_addrs() {
+            Ok(addrs) => addrs,
+            Err(_) => continue,
+        };
+        for addr in addrs {
+            let is_v4 = addr.is_ipv4();
+            if (is_v4 && !v4) || (!is_v4 && !v6) {
+                continue;
+            }
+            println!("{:<15} STREAM {}", addr.ip().to_string(), key);
+            println!("{:<15} DGRAM  {}", addr.ip().to_string(), key);
+            found = true;
         }
     }
     Ok(found)

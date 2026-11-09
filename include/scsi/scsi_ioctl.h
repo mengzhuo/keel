@@ -1,0 +1,3 @@
+#ifndef _CRABC_SCSI_SCSI_IOCTL_H
+#define _CRABC_SCSI_SCSI_IOCTL_H
+#endif

@@ -1,0 +1,3 @@
+#ifndef _CRABC_NET_ETHERNET_H
+#define _CRABC_NET_ETHERNET_H
+#endif

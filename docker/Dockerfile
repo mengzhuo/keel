@@ -38,16 +38,9 @@ RUN set -eux; \
     utils_url="${CRABC_UTILS_URL:-https://github.com/mengzhuo/crabc/releases/download/v${CRABC_VERSION}/crabc-utils-${CRABC_VERSION}-r0.${arch}.apk}"; \
     curl -fsSL --retry 3 "$url" -o /tmp/crabc.apk; \
     curl -fsSL --retry 3 "$utils_url" -o /tmp/crabc-utils.apk; \
+    apk del musl-utils 2>/dev/null || true; \
     apk add --allow-untrusted /tmp/crabc.apk /tmp/crabc-utils.apk; \
     rm -f /tmp/crabc.apk /tmp/crabc-utils.apk; \
-    # Put the crabc libraries at the canonical musl paths.  The interpreter
-    # move is last: until it is in place, external commands still use the
-    # stock loader.
-    rm -f "/lib/libc.musl-${arch}.so.1"; \
-    mv "/usr/lib/crabc/libc.so" "/lib/libc.musl-${arch}.so.1"; \
-    mv "/usr/lib/crabc/libldso.so" "/lib/ld-musl-${arch}.so.1"; \
-    ln -sf "/lib/libc.musl-${arch}.so.1" /usr/lib/crabc/libc.so; \
-    ln -sf "/lib/ld-musl-${arch}.so.1" /usr/lib/crabc/libldso.so; \
     /bin/echo "crabc ${CRABC_VERSION} (${arch})"; \
     /bin/sh -c 'echo "crabc shell ok"'; \
     apk --version >/dev/null; \

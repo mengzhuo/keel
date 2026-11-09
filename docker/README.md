@@ -62,17 +62,18 @@ At runtime, `LD_LIBRARY_PATH=/usr/lib/crabc` is set so DSOs that record
 ## Caveats
 
 - The image installs `crabc-utils`, not Alpine's `musl-utils` commands. The
-  APK database still records `musl-utils`; `apk fix musl-utils` would restore
-  its `ldd`/`getconf` files. `crabc-utils` is a Rust multicall binary.
+  Dockerfile removes the `musl-utils` package first because both provide
+  `libc-utils`/`cmd:*`.  `crabc-utils` is a static Rust multicall binary.
 - `crabc-dev` is not installed in the runtime image. Install it explicitly
-  if you want to compile inside the container; it provides headers,
-  `libc.a` and Rust-built CRT objects. Static PIE is not supported; use
-  `-no-pie` for static programs.
+  if you want to compile inside the container; it provides the full
+  `musl-dev` header set, `libc.a` and Rust-built CRT objects. Static PIE,
+  static non-PIE, constructors and initial-exec TLS are supported.
 - `/usr/bin/crabc-loader` is the standalone mapper for static PIE/static ELF
   binaries, not a replacement for the dynamic interpreter. The image uses
   `/lib/ld-musl-<arch>.so.1` (crabc `libldso.so`) for normal dynamic binaries.
-- The stock musl files are replaced in place; use the `musl` APK
-  (`apk fix musl`) if you need to switch back. Do not run
+- The stock musl files are replaced in place; the `crabc` package itself
+  declares `replaces: musl` and installs the canonical symlinks. Use
+  `apk fix musl` only if you intend to switch back. Do not run
   `apk upgrade musl` if the image should stay on crabc.
 - The APK database still records the `musl` package. Package operations that
   verify or reinstall musl can overwrite the crabc files.

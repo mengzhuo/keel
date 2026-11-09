@@ -14,6 +14,8 @@ enum Kind {
     Path(i32),
     Str(i32),
     Num(i64),
+    UNum(u64),
+    Undef,
 }
 
 struct Var {
@@ -95,8 +97,8 @@ static VARS: &[Var] = vars![
     "POSIX2_C_BIND" => Kind::Num(200809),
     "POSIX2_C_DEV" => Kind::Num(200809),
     "POSIX2_C_VERSION" => Kind::Num(200809),
-    "POSIX2_FORT_DEV" => Kind::Num(-1),
-    "POSIX2_FORT_RUN" => Kind::Num(-1),
+    "POSIX2_FORT_DEV" => Kind::Undef,
+    "POSIX2_FORT_RUN" => Kind::Undef,
     "POSIX2_LOCALEDEF" => Kind::Num(200809),
     "POSIX2_SW_DEV" => Kind::Num(200809),
     "POSIX2_UPE" => Kind::Num(200809),
@@ -132,6 +134,64 @@ static VARS: &[Var] = vars![
     "_POSIX2_EXPR_NEST_MAX" => Kind::Num(32),
     "_POSIX2_LINE_MAX" => Kind::Num(2048),
     "_POSIX2_RE_DUP_MAX" => Kind::Num(255),
+    "_POSIX2_C_BIND" => Kind::Num(200809),
+
+    "_AVPHYS_PAGES" => Kind::Sys(libc::_SC_AVPHYS_PAGES),
+    "_PHYS_PAGES" => Kind::Sys(libc::_SC_PHYS_PAGES),
+    "_NPROCESSORS_CONF" => Kind::Sys(libc::_SC_NPROCESSORS_CONF),
+    "_NPROCESSORS_ONLN" => Kind::Sys(libc::_SC_NPROCESSORS_ONLN),
+    "BC_BASE_MAX" => Kind::Num(99),
+    "BC_DIM_MAX" => Kind::Num(2048),
+    "BC_SCALE_MAX" => Kind::Num(99),
+    "BC_STRING_MAX" => Kind::Num(1000),
+    "COLL_WEIGHTS_MAX" => Kind::Num(2),
+    "EXPR_NEST_MAX" => Kind::Undef,
+    "LINE_MAX" => Kind::Undef,
+    "RE_DUP_MAX" => Kind::Num(255),
+    "GETGR_R_SIZE_MAX" => Kind::Undef,
+    "GETPW_R_SIZE_MAX" => Kind::Undef,
+    "CHAR_BIT" => Kind::Num(8),
+    "CHAR_MAX" => Kind::Num(i8::MAX as i64),
+    "CHAR_MIN" => Kind::Num(i8::MIN as i64),
+    "INT_MAX" => Kind::Num(i32::MAX as i64),
+    "INT_MIN" => Kind::Num(i32::MIN as i64),
+    "LONG_BIT" => Kind::Num(64),
+    "LONG_MAX" => Kind::Num(i64::MAX),
+    "LONG_MIN" => Kind::Num(i64::MIN),
+    "SCHAR_MAX" => Kind::Num(i8::MAX as i64),
+    "SCHAR_MIN" => Kind::Num(i8::MIN as i64),
+    "SHRT_MAX" => Kind::Num(i16::MAX as i64),
+    "SHRT_MIN" => Kind::Num(i16::MIN as i64),
+    "SSIZE_MAX" => Kind::Num(i64::MAX),
+    "UCHAR_MAX" => Kind::Num(u8::MAX as i64),
+    "UINT_MAX" => Kind::Num(u32::MAX as i64),
+    "ULONG_MAX" => Kind::UNum(u64::MAX),
+    "USHRT_MAX" => Kind::Num(u16::MAX as i64),
+    "WORD_BIT" => Kind::Num(32),
+    "_POSIX_AIO_LISTIO_MAX" => Kind::Num(2),
+    "_POSIX_AIO_MAX" => Kind::Num(1),
+    "_POSIX_ASYNCHRONOUS_IO" => Kind::Num(200809),
+    "_POSIX_BARRIERS" => Kind::Num(200809),
+    "_POSIX_FSYNC" => Kind::Num(200809),
+    "_POSIX_JOB_CONTROL" => Kind::Num(1),
+    "_POSIX_MAPPED_FILES" => Kind::Num(200809),
+    "_POSIX_MEMLOCK" => Kind::Num(200809),
+    "_POSIX_MEMLOCK_RANGE" => Kind::Num(200809),
+    "_POSIX_MEMORY_PROTECTION" => Kind::Num(200809),
+    "_POSIX_MESSAGE_PASSING" => Kind::Num(200809),
+    "_POSIX_MONOTONIC_CLOCK" => Kind::Num(200809),
+    "_POSIX_MQ_OPEN_MAX" => Kind::Num(8),
+    "_POSIX_MQ_PRIO_MAX" => Kind::Num(32),
+    "_POSIX_PRIORITY_SCHEDULING" => Kind::Undef,
+    "_POSIX_READER_WRITER_LOCKS" => Kind::Num(200809),
+    "_POSIX_SAVED_IDS" => Kind::Num(1),
+    "_POSIX_SEMAPHORES" => Kind::Num(200809),
+    "_POSIX_SHARED_MEMORY_OBJECTS" => Kind::Num(200809),
+    "_POSIX_SPIN_LOCKS" => Kind::Num(200809),
+    "_POSIX_SYNCHRONIZED_IO" => Kind::Undef,
+    "_POSIX_THREADS" => Kind::Num(200809),
+    "_POSIX_TIMERS" => Kind::Num(200809),
+    "_XOPEN_SHM" => Kind::Num(1),
 ];
 
 pub fn main(args: Vec<OsString>) -> ExitCode {
@@ -186,7 +246,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
             }
             match query(var, None) {
                 Ok(Some(value)) => println!("{} = {}", var.name, value),
-                Ok(None) => {}
+                Ok(None) => println!("{} = undefined", var.name),
                 Err(err) => {
                     eprintln!("getconf: {}: {err}", var.name);
                 }
@@ -221,7 +281,9 @@ fn query(var: &Var, path: Option<&str>) -> Result<Option<String>, String> {
             let value = unsafe { libc::sysconf(id) };
             Ok(format_number(value))
         }
-        Kind::Num(value) => Ok(format_number(value)),
+        Kind::Num(value) => Ok(Some(value.to_string())),
+        Kind::UNum(value) => Ok(Some(value.to_string())),
+        Kind::Undef => Ok(None),
         Kind::Path(id) => {
             let Some(path) = path else {
                 return Err("invalid variable type".into());

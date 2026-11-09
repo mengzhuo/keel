@@ -22,28 +22,33 @@ Installs the runtime libraries under `/usr/lib/crabc`:
 /usr/bin/crabc-loader
 ```
 
-The `libc.musl-<arch>.so.1` alias lets third-party DSOs that record the
-musl SONAME (notably `libgcc_s.so.1`) resolve to crabc libc.  It is not a
-replacement for `/lib/libc.musl-<arch>.so.1`; the Docker image still installs
-crabc at the canonical paths.
+The `/usr/lib/crabc/libc.musl-<arch>.so.1` alias lets third-party DSOs that
+record the musl SONAME (notably `libgcc_s.so.1`) resolve to crabc libc.
 
 `crabc-loader` is the standalone mapper for static PIE and static ELF
 binaries.  Dynamic binaries use `libldso.so` as their ELF interpreter.
 
-The package deliberately does not overwrite `/lib/ld-musl-<arch>.so.1` or
-`/lib/libc.musl-<arch>.so.1`.  The Docker image replaces those paths in
-place; on a normal Alpine system use `LD_LIBRARY_PATH=/usr/lib/crabc` or link
-with the crabc interpreter explicitly.
+The package also installs symlinks at the canonical musl paths:
+
+```text
+/lib/ld-musl-<arch>.so.1 -> /usr/lib/crabc/libldso.so
+/lib/libc.musl-<arch>.so.1 -> /usr/lib/crabc/libc.so
+```
+
+It declares `replaces: musl`, so `apk add crabc` switches the system libc
+without removing the `musl` package record.  Do not run `apk del musl` or
+`apk fix musl` while crabc owns those paths.
 
 ## crabc-dev
 
 Development files mirror `musl-dev`:
 
 ```text
-/usr/include/...            hand-maintained crabc headers
+/usr/include/...            217 musl-dev-compatible headers plus crabc extras
 /usr/lib/libc.a             crabc static libc
 /usr/lib/crt1.o             non-PIE startup object
 /usr/lib/Scrt1.o            PIE startup object
+/usr/lib/rcrt1.o            static-PIE self-relocating startup object
 /usr/lib/crti.o             .init/.fini prologue
 /usr/lib/crtn.o             .init/.fini epilogue
 /usr/lib/libc.so -> /usr/lib/crabc/libc.so
@@ -56,9 +61,9 @@ The CRT objects are generated from Rust `global_asm!` sources in `crt/` by
 `scripts/build-crt.sh`; no musl C or musl object files are copied.  The
 `libc.so` symlink lets `-lc` select crabc libc when `crabc-dev` is installed.
 
-Static PIE (`rcrt1.o`) is not provided yet.  Static links work with
-`-no-pie`; fully static PIE needs a self-relocating startup object that
-crabc does not ship.
+Static PIE is supported through the Rust-built `rcrt1.o`; static linking
+works with either `-static` (static PIE) or `-static -no-pie`.  Static
+constructors and initial-exec TLS are initialized by the libc startup path.
 
 `crabc-dev` declares `provides: libc-dev` and `replaces: musl-dev`, so it is
 a replacement for `musl-dev` rather than a package that can coexist with it.
@@ -79,20 +84,25 @@ symlinks matching `musl-utils`:
 ```
 
 The binary is statically linked, so the tools do not depend on a dynamic
-loader, libc or `libgcc_s`.  On x86_64/aarch64 this is a static musl binary;
-the riscv64 target uses the available cross toolchain but is also fully
-static.  `ldd` still inspects crabc and musl binaries by parsing their ELF
-files.
+loader, libc or `libgcc_s`.  All three architectures use the self-contained
+musl sysroot (riscv64 goes through `rust-lld` because the target has no
+`crt-static-default`).  `ldd` still inspects crabc and musl binaries by
+parsing their ELF files.
 
 `ldd` parses ELF files directly because crabc's loader is not a command-line
 interpreter; it prints dependency paths but not load addresses.  `ldconfig`
 reads SONAME entries directly and does not require `scanelf`.
 
-The package uses `replaces: musl-utils` so it can overwrite the commands in
-Alpine's base image.  It does not declare the `libc-utils`/`cmd:*` virtuals,
-because apk treats those as exclusive with `musl-utils`; declaring them would
-make `apk add crabc-utils` fail on a stock Alpine image where `musl-utils`
-is already installed.
+The package declares the `libc-utils` and `cmd:*` virtuals and uses
+`replaces: musl-utils`.  Alpine's solver treats those virtuals as exclusive
+with `musl-utils`, so remove `musl-utils` first on a stock image:
+
+```sh
+apk del musl-utils
+apk add --allow-untrusted crabc-utils-<version>-r0.<arch>.apk
+```
+
+The Dockerfile performs that removal automatically.
 
 ## Building packages
 
@@ -107,5 +117,5 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
 ./scripts/package-apk.sh
 ```
 
-`scripts/build-utils.sh` builds a static multicall binary for each target;
-it needs no package downloads beyond Cargo's normal dependencies.
+`scripts/build-utils.sh` builds a static musl multicall binary for each
+target; riscv64 uses `rust-lld` and Rust's self-contained musl sysroot.

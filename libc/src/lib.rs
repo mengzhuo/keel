@@ -2709,6 +2709,7 @@ unsafe fn sys_fork() -> i64 {
     { <Arch as Syscalls>::syscall2(SYS_CLONE, 17, 0) }
 }
 
+
 #[inline]
 unsafe fn sys_execve(path: *const c_char, argv: *const *const c_char, envp: *const *const c_char) -> i64 {
     <Arch as Syscalls>::syscall3(SYS_EXECVE, path as i64, argv as i64, envp as i64)
@@ -2820,6 +2821,10 @@ pub unsafe extern "C" fn getegid() -> c_uint {
 // ponytail: vfork forwards to fork; real vfork optimization not needed for tests
 #[no_mangle]
 pub unsafe extern "C" fn vfork() -> c_int {
+    // A vfork implementation must let the child return to the caller's
+    // stack.  crabc's clone path does not preserve the required stack/TLS
+    // state for arbitrary children (LTP vfork01 and mkfs helpers segfault),
+    // so use the portable fork semantics.
     let r = sys_fork();
     if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
     r as c_int
@@ -3879,10 +3884,29 @@ pub unsafe extern "C" fn pthread_create(
         (user_top as *mut u8).sub(stack_size)
     };
     if stack == MMAP_FAILED { release_thread_slot(slot); return EAGAIN; }
-    let tls_total = __rc_tls_block_size();
+    let static_mode = RC_STATIC_EXEC;
+    let tls_total = if static_mode {
+        STATIC_TLS_BLOCK_SIZE
+    } else {
+        __rc_tls_block_size()
+    };
     let mut stack_top = stack.add(stack_size);
     let mut tls_owned = true;
-    let fs_base = if !stack_owned && tls_total > 0 && stack_size > tls_total + 4096 {
+    let fs_base = if static_mode {
+        if !stack_owned && tls_total > 0 && stack_size > tls_total + 4096 {
+            let block = ((user_top as usize - tls_total) & !63usize) as *mut u8;
+            let fs = static_tls_init_block(block);
+            if fs.is_null() {
+                static_tls_create_block()
+            } else {
+                stack_top = block;
+                tls_owned = false;
+                fs
+            }
+        } else {
+            static_tls_create_block()
+        }
+    } else if !stack_owned && tls_total > 0 && stack_size > tls_total + 4096 {
         // Carve TLS out of the top of the application-provided stack (musl
         // behaviour). A separate mmap here can land directly below the stack
         // and prevent MAP_GROWSDOWN from expanding it.
@@ -3903,7 +3927,11 @@ pub unsafe extern "C" fn pthread_create(
         release_thread_slot(slot);
         return EAGAIN;
     }
-    let tls_base = fs_base.sub(__rc_tls_base_offset());
+    let tls_base = if static_mode {
+        fs_base.sub(STATIC_TLS_TP_OFFSET)
+    } else {
+        fs_base.sub(__rc_tls_base_offset())
+    };
     let tls_size = if tls_owned { tls_total } else { 0 };
     (*slot).detach_state = DT_JOINABLE;
     (*slot).result = core::ptr::null_mut();
@@ -13119,35 +13147,52 @@ pub unsafe extern "C" fn setpgrp() -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mkstemp(template: *mut c_char) -> c_int {
-    if template.is_null() { ERRNO!() = EINVAL; return -1; }
+unsafe fn mkstemps_impl(template: *mut c_char, suffixlen: i32) -> c_int {
+    if template.is_null() || suffixlen < 0 {
+        ERRNO!() = EINVAL;
+        return -1;
+    }
     let len = strlen(template as *const c_char);
-    if len < 6 { ERRNO!() = EINVAL; return -1; }
-    let x_start = len - 6;
-    // check that last 6 chars are XXXXXX
-    for i in x_start..len {
-        if *template.add(i) != b'X' as c_char { ERRNO!() = EINVAL; return -1; }
+    let suffix = suffixlen as usize;
+    if len < 6 + suffix {
+        ERRNO!() = EINVAL;
+        return -1;
+    }
+    let x_start = len - suffix - 6;
+    for i in x_start..x_start + 6 {
+        if *template.add(i) != b'X' as c_char {
+            ERRNO!() = EINVAL;
+            return -1;
+        }
     }
     let mut ts: timespec = core::mem::zeroed();
     let _ = sys_clock_gettime(CLOCK_REALTIME, &mut ts);
     let mut ctr: u32 = ts.tv_nsec as u32;
     for _ in 0..100 {
         ctr = ctr.wrapping_mul(1103515245).wrapping_add(12345);
-        let seed = ctr;
-        // fill XXXXXX with random hex chars
+        let mut seed = ctr;
         let hex = b"0123456789abcdef";
-        let mut s = seed;
-        for i in x_start..len {
-            *template.add(i) = hex[(s & 0xf) as usize] as c_char;
-            s >>= 4;
+        for i in x_start..x_start + 6 {
+            *template.add(i) = hex[(seed & 0xf) as usize] as c_char;
+            seed >>= 4;
         }
         let fd = sys_open(template as *const u8, (O_RDWR | O_CREAT | O_EXCL) as i64, 0o600);
-        if fd >= 0 { return fd as c_int; }
+        if fd >= 0 {
+            return fd as c_int;
+        }
         let e = (-fd) as c_int;
-        if e != EEXIST_VAL { ERRNO!() = e; return -1; }
+        if e != EEXIST_VAL {
+            ERRNO!() = e;
+            return -1;
+        }
     }
     ERRNO!() = EEXIST_VAL;
     -1
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mkstemp(template: *mut c_char) -> c_int {
+    mkstemps_impl(template, 0)
 }
 
 #[no_mangle]
@@ -15332,6 +15377,9 @@ pub unsafe extern "C" fn shmctl(shmid: c_int, cmd: c_int, buf: *mut c_void) -> c
 // constructors run so getauxval() works during early startup.
 #[no_mangle]
 pub static mut __auxv: *const usize = core::ptr::null();
+#[no_mangle]
+pub static mut __rc_static_base: usize = 0;
+static mut RC_STATIC_EXEC: bool = false;
 
 #[no_mangle]
 pub static mut __progname: *mut c_char = core::ptr::null_mut();
@@ -15372,8 +15420,232 @@ pub unsafe extern "C" fn getauxval(type_: c_ulong) -> c_ulong {
     }
 }
 
+
+unsafe fn run_static_init() {
+    if !RC_STATIC_EXEC {
+        return;
+    }
+    extern "C" {
+        static __preinit_array_start: usize;
+        static __preinit_array_end: usize;
+        static __init_array_start: usize;
+        static __init_array_end: usize;
+    }
+    let mut p = core::ptr::addr_of!(__preinit_array_start) as usize;
+    let end = core::ptr::addr_of!(__preinit_array_end) as usize;
+    while p < end {
+        let f = core::ptr::read_unaligned(p as *const usize);
+        if f != 0 {
+            let f: unsafe extern "C" fn() = core::mem::transmute(f);
+            f();
+        }
+        p += core::mem::size_of::<usize>();
+    }
+    p = core::ptr::addr_of!(__init_array_start) as usize;
+    let end = core::ptr::addr_of!(__init_array_end) as usize;
+    while p < end {
+        let f = core::ptr::read_unaligned(p as *const usize);
+        if f != 0 {
+            let f: unsafe extern "C" fn() = core::mem::transmute(f);
+            f();
+        }
+        p += core::mem::size_of::<usize>();
+    }
+}
+
 type MainFn = unsafe extern "C" fn(c_int, *const *const c_char, *const *const c_char) -> c_int;
 type InitFn = unsafe extern "C" fn();
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn static_tls_tp() -> usize {
+    let mut fs: u64 = 0;
+    if arch_prctl(0x1003, &mut fs as *mut u64 as u64) != 0 {
+        0
+    } else {
+        fs as usize
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn set_static_tls_tp(tp: usize) {
+    let _ = arch_prctl(0x1002, tp as u64);
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn static_tls_tp() -> usize {
+    let tp: usize;
+    core::arch::asm!("mrs {}, tpidr_el0", out(reg) tp, options(nostack));
+    tp
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn set_static_tls_tp(tp: usize) {
+    core::arch::asm!("msr tpidr_el0, {}", in(reg) tp, options(nostack));
+}
+
+#[cfg(target_arch = "riscv64")]
+unsafe fn static_tls_tp() -> usize {
+    let tp: usize;
+    core::arch::asm!("mv {}, tp", out(reg) tp, options(nostack));
+    tp
+}
+
+#[cfg(target_arch = "riscv64")]
+unsafe fn set_static_tls_tp(tp: usize) {
+    core::arch::asm!("mv tp, {}", in(reg) tp, options(nostack));
+}
+
+static mut STATIC_TLS_BLOCK_SIZE: usize = 0;
+static mut STATIC_TLS_TP_OFFSET: usize = 0;
+static mut STATIC_TLS_VAR_OFFSET: usize = 0;
+static mut STATIC_TLS_TLS_SIZE: usize = 0;
+static mut STATIC_TLS_IMAGE: *const u8 = core::ptr::null();
+static mut STATIC_TLS_FILESZ: usize = 0;
+static mut STATIC_TLS_CANARY: u64 = 0;
+
+unsafe fn static_tls_init_block(block: *mut u8) -> *mut u8 {
+    if block.is_null() || STATIC_TLS_BLOCK_SIZE == 0 {
+        return core::ptr::null_mut();
+    }
+    let var_base = block.add(STATIC_TLS_VAR_OFFSET);
+    if STATIC_TLS_TLS_SIZE > 0 {
+        core::ptr::write_bytes(var_base, 0, STATIC_TLS_TLS_SIZE);
+    }
+    if STATIC_TLS_FILESZ > 0 && !STATIC_TLS_IMAGE.is_null() {
+        core::ptr::copy_nonoverlapping(STATIC_TLS_IMAGE, var_base, STATIC_TLS_FILESZ);
+    }
+    let tp = block.add(STATIC_TLS_TP_OFFSET);
+    let tcb = if cfg!(target_arch = "x86_64") {
+        tp as usize
+    } else {
+        block as usize
+    };
+    core::ptr::write_unaligned(tcb as *mut u64, tcb as u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(1), 1);
+    core::ptr::write_unaligned((tcb as *mut u64).add(2), STATIC_TLS_TLS_SIZE as u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(3), 1);
+    core::ptr::write_unaligned((tcb as *mut u64).add(4), 0); // reserved
+    core::ptr::write_unaligned((tcb as *mut u64).add(5), STATIC_TLS_CANARY); // 0x28
+    core::ptr::write_unaligned((tcb as *mut u64).add(6), 0); // errno at 0x30
+    tp
+}
+
+unsafe fn static_tls_create_block() -> *mut u8 {
+    if STATIC_TLS_BLOCK_SIZE == 0 {
+        return core::ptr::null_mut();
+    }
+    let block = sys_mmap(
+        core::ptr::null_mut(),
+        STATIC_TLS_BLOCK_SIZE,
+        PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS,
+        -1,
+        0,
+    );
+    if block.is_null() || block == MMAP_FAILED {
+        return core::ptr::null_mut();
+    }
+    static_tls_init_block(block)
+}
+
+/// Static executables have no dynamic loader to build a TCB.  Allocate one
+/// from PT_TLS so that `%fs`/TP-relative TLS accesses and errno work.
+unsafe fn init_static_tls() {
+    if static_tls_tp() != 0 {
+        return;
+    }
+    let phdr = getauxval(3) as usize; // AT_PHDR
+    let phnum = getauxval(5) as usize; // AT_PHNUM
+    let phent = getauxval(4) as usize; // AT_PHENT
+    if phdr == 0 || phnum == 0 || phent < 56 {
+        return;
+    }
+
+    let mut tls_vaddr = 0usize;
+    let mut tls_filesz = 0usize;
+    let mut tls_memsz = 0usize;
+    let mut tls_align = 1usize;
+    let mut exec_base = __rc_static_base;
+    let mut i = 0usize;
+    while i < phnum {
+        let ph = phdr + i * phent;
+        let p_type = core::ptr::read_unaligned(ph as *const u32);
+        if p_type == 3 {
+            // PT_INTERP means the dynamic loader already owns TLS.
+            return;
+        }
+        if p_type == 6 {
+            // PT_PHDR
+            if exec_base == 0 {
+                let p_vaddr = core::ptr::read_unaligned((ph + 16) as *const u64) as usize;
+                exec_base = phdr.wrapping_sub(p_vaddr);
+            }
+        } else if p_type == 7 {
+            // PT_TLS
+            tls_vaddr = core::ptr::read_unaligned((ph + 16) as *const u64) as usize;
+            tls_filesz = core::ptr::read_unaligned((ph + 32) as *const u64) as usize;
+            tls_memsz = core::ptr::read_unaligned((ph + 40) as *const u64) as usize;
+            let align = core::ptr::read_unaligned((ph + 48) as *const u64) as usize;
+            if align > 1 {
+                tls_align = align;
+            }
+        }
+        i += 1;
+    }
+
+    let tcb_size = 256usize;
+    #[cfg(target_arch = "x86_64")]
+    let gap = 0usize;
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    let gap = if cfg!(target_arch = "aarch64") { 16usize } else { 0usize };
+
+    let tls_size = if tls_align > 1 {
+        (tls_memsz + tls_align - 1) & !(tls_align - 1)
+    } else {
+        tls_memsz
+    };
+    let total = tcb_size + gap + tls_size + tls_align;
+    STATIC_TLS_BLOCK_SIZE = total;
+    STATIC_TLS_TP_OFFSET = if cfg!(target_arch = "x86_64") {
+        tls_size
+    } else {
+        tcb_size
+    };
+    STATIC_TLS_VAR_OFFSET = if cfg!(target_arch = "x86_64") {
+        0
+    } else {
+        tcb_size + gap
+    };
+    STATIC_TLS_TLS_SIZE = tls_size;
+    STATIC_TLS_IMAGE = (exec_base + tls_vaddr) as *const u8;
+    STATIC_TLS_FILESZ = tls_filesz;
+    let random = getauxval(25) as *const u8; // AT_RANDOM
+    STATIC_TLS_CANARY = if random.is_null() {
+        0xdefaced_cafebeefu64
+    } else {
+        core::ptr::read_unaligned(random as *const u64)
+            ^ core::ptr::read_unaligned(random.add(8) as *const u64)
+    };
+
+    let block = sys_mmap(
+        core::ptr::null_mut(),
+        total,
+        PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS,
+        -1,
+        0,
+    );
+    if block.is_null() || block == MMAP_FAILED {
+        return;
+    }
+    let tp = static_tls_init_block(block);
+    if tp.is_null() {
+        return;
+    }
+    set_static_tls_tp(tp as usize);
+    RC_STATIC_EXEC = true;
+}
+
 
 #[no_mangle]
 pub unsafe extern "C" fn __libc_start_main(
@@ -15385,9 +15657,15 @@ pub unsafe extern "C" fn __libc_start_main(
     _rtld_fini: *const c_void,
     _stack_end: *const c_void,
 ) -> ! {
+    let envp = argv.add((argc + 1) as usize);
+    let mut aux = envp;
+    while !(*aux).is_null() {
+        aux = aux.add(1);
+    }
+    __auxv = aux.add(1) as *const usize;
+    init_static_tls();
     errno_init();
 
-    let envp = argv.add((argc + 1) as usize);
     __environ = envp as *mut *mut c_char;
     environ = __environ; // sync environ alias
     ___environ = __environ;
@@ -15409,6 +15687,7 @@ pub unsafe extern "C" fn __libc_start_main(
     }
 
     __stdio_init();
+    run_static_init();
 
     let mut set: SigSetT = 0;
     sigemptyset(&mut set);
@@ -20475,8 +20754,8 @@ pub unsafe extern "C" fn mkostemp(template: *mut core::ffi::c_char, _flags: i32)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mkstemps(template: *mut core::ffi::c_char, _suffixlen: i32) -> i32 {
-    mkstemp(template)
+pub unsafe extern "C" fn mkstemps(template: *mut core::ffi::c_char, suffixlen: i32) -> i32 {
+    mkstemps_impl(template, suffixlen)
 }
 
 // ============================================================

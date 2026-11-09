@@ -8,9 +8,12 @@
 extern "C" {
 #endif
 
+#ifndef __crabc_sched_param_defined
+#define __crabc_sched_param_defined
 struct sched_param {
     int sched_priority;
 };
+#endif
 
 #define SCHED_OTHER 0
 #define SCHED_FIFO  1

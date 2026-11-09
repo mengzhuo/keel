@@ -1,0 +1,3 @@
+#ifndef _CRABC_SYS_SYSMACROS_H
+#define _CRABC_SYS_SYSMACROS_H
+#endif

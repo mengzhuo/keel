@@ -130,5 +130,10 @@ fn scan_dir(dir: &Path, verbose: bool) -> std::io::Result<()> {
 
 fn is_system_dir(dir: &Path) -> bool {
     let s = dir.to_string_lossy();
-    s == "/lib" || s == "/usr/lib" || s == "/usr/local/lib"
+    s == "/lib"
+        || s.starts_with("/lib/")
+        || s == "/usr/lib"
+        || s.starts_with("/usr/lib/")
+        || s == "/usr/local/lib"
+        || s.starts_with("/usr/local/lib/")
 }

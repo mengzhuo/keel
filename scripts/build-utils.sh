@@ -14,10 +14,19 @@ build() {
     local arch="$1" target="$2" linker="$3"
     echo "building crabc-utils for $arch"
     local envname="CARGO_TARGET_$(echo "$target" | tr 'a-z-' 'A-Z_')_LINKER"
-    # Force a static executable.  On x86_64/aarch64 this is a static musl
-    # binary; the riscv64 target lacks crt-static-default and uses the
-    # available cross toolchain, but the result is still self-contained.
-    env RUSTFLAGS="-C target-feature=+crt-static" "$envname=$linker" \
+    local rustflags="-C target-feature=+crt-static"
+    if [ "$arch" = riscv64 ]; then
+        # The riscv64 target has no crt-static-default.  Point rustc at the
+        # self-contained musl sysroot and rust-lld instead of the glibc
+        # cross compiler.
+        local sysroot host lld
+        sysroot="$("${RUSTC:-rustc}" --print sysroot)"
+        host="$("${RUSTC:-rustc}" -vV | sed -n 's/^host: //p')"
+        lld="$sysroot/lib/rustlib/$host/bin/rust-lld"
+        linker="$lld"
+        rustflags="$rustflags -C link-self-contained=yes -C linker=$lld"
+    fi
+    env RUSTFLAGS="$rustflags" "$envname=$linker" \
         cargo build --release -p crabc-utils --target "$target"
 
     local out="$DIST/utils/$arch"

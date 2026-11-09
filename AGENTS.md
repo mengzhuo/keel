@@ -69,9 +69,12 @@ Math fixtures add `-frounding-math`; on x86_64 also `-mlong-double-64`. `tests/c
 - `pthread_create()` carves the TLS block out of the top of an application-provided stack when it fits. This mirrors musl and keeps the loader's separate TLS mmap from landing directly below a `MAP_GROWSDOWN` stack, which would block stack growth (`LTP mmap18`). `__rc_init_thread_tls_at` in `libldso.so` initializes the embedded block.
 - `dlopen()` follows musl: `LoadedObject` tracks its PT_LOAD address range, direct `DT_NEEDED` indices, `needed_by` parent and RUNPATH/RPATH. `RTLD_NOLOAD`/`NODELETE`/`GLOBAL`/`LOCAL` and dependency-scope `dlsym` are implemented. The public `dlsym` is a tiny per-arch naked wrapper that passes the caller's return address to `__ldso_dlsym`, which is what makes `RTLD_NEXT` work. `dlclose` validates the handle but, like musl, never unloads modules or runs destructors.
 - `crabc-utils` is Rust, not a copy of Alpine's C utilities. It is a statically linked multicall binary for `getconf`/`getent`/`iconv`/`ldd`/`ldconfig`. `ldd` parses ELF directly; `ldconfig` reads SONAME entries directly.
-- `crabc-dev` ships `include/`, `libc.a` and Rust `global_asm!` CRT objects. It does not ship `rcrt1.o`; static links need `-no-pie`.
+- `crabc-dev` ships the 217-file musl-dev-compatible header set, `libc.a` and Rust `global_asm!` CRT objects including `rcrt1.o`. Static PIE, static non-PIE, constructors, initial-exec TLS and static pthread TLS work; `init_static_tls()` builds a TCB when no dynamic loader is present, and `pthread_create()` allocates static thread TLS from the saved PT_TLS image.
 - `poll()` on aarch64/riscv64 must convert the millisecond timeout to a `struct timespec` before calling `ppoll`; Rust std calls `poll(..., 0)` during startup and would otherwise block forever.
 - The byte loops in `memset_words()` use `write_volatile`; without it LLVM recognises the loop as a `memset` idiom on aarch64 and emits a recursive call to `memset`, overflowing the stack for small unaligned fills (Rust `HashSet` hit this).
+- `match_sym()` must reject `SHN_UNDEF` symbols. ET_EXEC objects can carry a non-zero `st_value` (the PLT stub) for an undefined function; resolving it makes the PLT jump to itself.
+- `mkstemps()` must honour the suffix length; GCC's temp-file creation uses a template whose final six characters are not `XXXXXX`. `vfork()` intentionally forwards to `fork`; a clone-based vfork broke LTP `vfork01` and the mkfs helpers (child segfaults), while fork semantics pass.
+- The `crabc` runtime package installs the canonical `/lib/ld-musl-<arch>.so.1` and `/lib/libc.musl-<arch>.so.1` symlinks and declares `replaces: musl`; installing it switches the system libc while leaving the `musl` package record in place.
 - When a new DSO is loaded, TLS layout offsets are assigned **before** relocations (aarch64 TLSDESC/TPOFF embed them) and the relocated `.tdata` image is copied into threads **after** relocations. Do not merge these steps: doing so either corrupts TLSDESC offsets or copies unrelocated pointers.
 - `libc` and `ldso` are `no_std`; only the `src/` loader uses `std`.
 - C ABI exports need `#[no_mangle] pub unsafe extern "C" fn ...`. A plain Rust function will not appear in `libc.so`/`libc.a`.
@@ -106,7 +109,7 @@ git push origin main vX.Y.Z
 
 The workflow verifies that all three manifest versions equal the tag before publishing. It publishes `crabc-libc`, `crabc-ldso`, then `crabc`, and creates a GitHub release. Release artifacts include `crabc`, `crabc-dev` and `crabc-utils` APKs plus `SHA256SUMS`; see `docs/packages.md`.
 
-The same workflow builds release artifacts for x86_64, aarch64, and riscv64 and packages them with `scripts/package-apk.sh`. The script runs `apk mkpkg` inside an Alpine 3.23 container (Docker or podman), producing v3/ADB packages, then writes `dist/SHA256SUMS`. The `.apk` files and checksums are uploaded to the GitHub release; they install with `apk add --allow-untrusted`.
+The same workflow builds release artifacts for x86_64, aarch64, and riscv64 and packages them with `scripts/package-apk.sh`. The riscv64 loader and `crabc-utils` use `rust-lld` plus Rust's self-contained musl sysroot because that target lacks `crt-static-default`; the cross glibc compiler is not used for static binaries. The script runs `apk mkpkg` inside an Alpine 3.23 container (Docker or podman), producing v3/ADB packages, then writes `dist/SHA256SUMS`. The `.apk` files and checksums are uploaded to the GitHub release; they install with `apk add --allow-untrusted`.
 
 x86_64 and aarch64 musl targets force `crt-static` and cannot produce a cdylib with the current toolchain, so their no_std libraries are built for the gnu target (they do not depend on the C library) while the loader is built for musl. riscv64 builds the whole workspace for the musl target.
 
@@ -201,8 +204,8 @@ scripts/riscv-smoke.sh          # riscv64 cross-build + qemu fixtures, 0 failure
 
 LTP 20250930, x86_64, 1488 syscalls tags:
   musl baseline                 # 112 FAIL, 139 TCONF
-  crabc                         # 104 FAIL, 139 TCONF
-  per-test diff                 # crabc-only: preadv203 (cache/timing flake)
+  crabc                         # 102 FAIL, 140 TCONF
+  per-test diff                 # no crabc-only failures
 math / mm / sched / nptl / ipc  # failure lists identical to musl
 ```
 
