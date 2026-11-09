@@ -70,7 +70,7 @@ jobs:
             exit 1
           }
           ./scripts/build-utils.sh > /tmp/utils-build.log 2>&1 || {
-            tail -60 /tmp/utils-build.log | sed 's/^/::error::/'
+            tail -10 /tmp/utils-build.log | sed 's/^/::error::/'
             exit 1
           }
 
