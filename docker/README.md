@@ -70,4 +70,7 @@ At runtime, `LD_LIBRARY_PATH=/usr/lib/crabc` is set so DSOs that record
   or run destructors. Build a normal musl image if glibc-style unloading is
   required.
 - The image is architecture-specific. `TARGETARCH` is mapped to Alpine's
-  `x86_64` / `aarch64` / `riscv64` names.
+  `x86_64` / `aarch64` / `riscv64` names. The x86_64 image is verified
+  locally; build aarch64/riscv64 on a native runner (or with a working
+  buildx/binfmt setup) because qemu-user emulation can trip over Alpine's
+  busybox shell independently of crabc.
