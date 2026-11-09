@@ -19,8 +19,12 @@ Redis, CPython, Node.js and PostgreSQL all run under crabc, with a per-project
 report and baseline comparison. The [LTP report](docs/ltp.md) records the
 `syscalls`, math, memory-management, scheduler, threading and SysV IPC suites
 against the same binaries under musl and crabc; the shared suites have
-identical failure lists. A Docker image that uses crabc as the system libc is
-built from [`docker/Dockerfile`](docker/README.md).
+identical failure lists. Release APKs are split the same way as Alpine's
+musl packages: `crabc` (runtime), `crabc-dev` (headers, `libc.a`, Rust-built
+CRT objects) and `crabc-utils` (`getconf`, `getent`, `iconv`, `ldd`,
+`ldconfig`). See [`docs/packages.md`](docs/packages.md). A Docker image that
+uses crabc as the system libc is built from
+[`docker/Dockerfile`](docker/README.md).
 
 crabc is not the first C library written in Rust, and it is not a musl fork:
 it is an independent implementation tracking the musl ABI. See

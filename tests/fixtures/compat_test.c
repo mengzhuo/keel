@@ -27,6 +27,7 @@
 #include <limits.h>
 #include <aio.h>
 #include <getopt.h>
+#include <poll.h>
 
 struct memcookie { char data[64]; size_t len, pos; };
 static ssize_t mc_read(void *c, char *b, size_t n) {
@@ -325,6 +326,24 @@ int main(void) {
             else if (oc == 'b') { got_b++; bval = optarg; }
         }
         CHECK(got_a == 2 && got_b == 1 && bval && strcmp(bval, "VAL") == 0, "getopt_long");
+    }
+
+    /* Small unaligned memset must not recurse into itself.  LLVM can
+     * otherwise recognise the byte loop as a memset idiom on aarch64. */
+    {
+        unsigned char b[64];
+        memset(b, 0, sizeof b);
+        memset(b + 1, 0x5a, 3);
+        CHECK(b[0] == 0 && b[1] == 0x5a && b[2] == 0x5a &&
+              b[3] == 0x5a && b[4] == 0, "memset unaligned small");
+    }
+
+    /* poll(2) must convert a millisecond timeout to ppoll's timespec on
+     * architectures without the poll syscall.  A zero timeout must return
+     * immediately. */
+    {
+        struct pollfd pfd = { .fd = -1, .events = 0, .revents = 0 };
+        CHECK(poll(&pfd, 1, 0) == 0, "poll zero timeout");
     }
 
     /* membarrier may be restricted by the kernel; just exercise the ABI. */

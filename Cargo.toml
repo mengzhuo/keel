@@ -1,5 +1,5 @@
 [workspace]
-members = ["ldso", "libc"]
+members = ["ldso", "libc", "utils"]
 
 [profile.dev]
 panic = "abort"
@@ -13,7 +13,7 @@ opt-level = "s"
 
 [package]
 name = "crabc"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "A Rust musl-compatible libc with a dynamic linker"
 license = "MIT OR Apache-2.0"

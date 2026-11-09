@@ -441,8 +441,10 @@ unsafe fn memset_words(dst: *mut u8, c: u8, n: usize) {
     let word = 0x0101_0101_0101_0101u64 * c as u64;
     let all = dst.add(n);
     let mut d = dst;
+    // write_volatile keeps LLVM from recognising this loop as a memset
+    // idiom and turning it into a recursive call to memset() itself.
     while d < all && (d as usize) & 7 != 0 {
-        *d = c;
+        core::ptr::write_volatile(d, c);
         d = d.add(1);
     }
     let mut end = d.add((all as usize - d as usize) & !31);
@@ -464,7 +466,7 @@ unsafe fn memset_words(dst: *mut u8, c: u8, n: usize) {
         d = d.add(8);
     }
     while d < all {
-        *d = c;
+        core::ptr::write_volatile(d, c);
         d = d.add(1);
     }
 }

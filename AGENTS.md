@@ -11,7 +11,9 @@
 | `src/` | `loader` binary (package `crabc`): maps a standalone PIE/static ELF and jumps to its entry. It is **not** the dynamic linker. |
 | `libc/` | Package `crabc-libc`; `[lib] name = "c"` produces `target/debug/libc.so` and `libc.a`. |
 | `ldso/` | Package `crabc-ldso`; produces `target/debug/libldso.so`. `_start` is `global_asm!` in `ldso/src/lib.rs`. |
-| `include/` | Hand-maintained C headers used by fixtures. There is no header generator or `make` target. |
+| `include/` | Hand-maintained C headers used by fixtures and packaged in `crabc-dev`. |
+| `crt/` | Rust `global_asm!` startup objects (`crt1.o`, `Scrt1.o`, `crti.o`, `crtn.o`); built by `scripts/build-crt.sh`. |
+| `utils/` | Package `crabc-utils`; Rust multicall binary for `getconf`, `getent`, `iconv`, `ldd`, `ldconfig`. |
 | `tests/` | Root-package integration tests; C fixtures live in `tests/fixtures/`. |
 | `libc-test-harness/` | Shell runner for upstream `libc-test`; reports in `libc-test-harness/reports/`. |
 | `scripts/local-ci.sh` | Reproduces CI build/test in podman/docker (it does not run the harness). |
@@ -24,6 +26,10 @@
 cargo build --workspace      # required before tests: builds loader, libc.so/a, libldso.so
 cargo test --workspace       # all integration tests
 cargo test --test math       # one test file, after the build above
+
+./scripts/build-crt.sh       # Rust-generated startup objects (dist/crt/)
+./scripts/build-utils.sh     # crabc-linked Rust musl-utils replacement (dist/utils/)
+./scripts/package-apk.sh     # crabc, crabc-dev and crabc-utils APKs
 ```
 
 - **Bare `cargo build` only builds the root `crabc` package (the loader).** The root `Cargo.toml` is both workspace and package, so `libc.so`/`libldso.so` are not rebuilt. Use `--workspace`, or `-p crabc-libc` / `-p crabc-ldso`.
@@ -62,6 +68,10 @@ Math fixtures add `-frounding-math`; on x86_64 also `-mlong-double-64`. `tests/c
 - `errno` is thread-local for dynamically linked programs: it lives at offset `0x30` in the 256-byte TCB that `ldso` allocates for every thread (`0x00` self pointer, `0x08` generation, `0x28` stack canary). `__libc_start_main` calls `errno_init()`; when no TCB is present (static executables), `errno` falls back to a process-global slot. Internal code must use the `ERRNO!()` accessor, never a direct static.
 - `pthread_create()` carves the TLS block out of the top of an application-provided stack when it fits. This mirrors musl and keeps the loader's separate TLS mmap from landing directly below a `MAP_GROWSDOWN` stack, which would block stack growth (`LTP mmap18`). `__rc_init_thread_tls_at` in `libldso.so` initializes the embedded block.
 - `dlopen()` follows musl: `LoadedObject` tracks its PT_LOAD address range, direct `DT_NEEDED` indices, `needed_by` parent and RUNPATH/RPATH. `RTLD_NOLOAD`/`NODELETE`/`GLOBAL`/`LOCAL` and dependency-scope `dlsym` are implemented. The public `dlsym` is a tiny per-arch naked wrapper that passes the caller's return address to `__ldso_dlsym`, which is what makes `RTLD_NEXT` work. `dlclose` validates the handle but, like musl, never unloads modules or runs destructors.
+- `crabc-utils` is Rust, not a copy of Alpine's C utilities. It is built dynamically against crabc libc/loader and is the package's `getconf`/`getent`/`iconv`/`ldd`/`ldconfig` multicall binary. `ldd` parses ELF directly; `ldconfig` reads SONAME entries directly.
+- `crabc-dev` ships `include/`, `libc.a` and Rust `global_asm!` CRT objects. It does not ship `rcrt1.o`; static links need `-no-pie`.
+- `poll()` on aarch64/riscv64 must convert the millisecond timeout to a `struct timespec` before calling `ppoll`; Rust std calls `poll(..., 0)` during startup and would otherwise block forever.
+- The byte loops in `memset_words()` use `write_volatile`; without it LLVM recognises the loop as a `memset` idiom on aarch64 and emits a recursive call to `memset`, overflowing the stack for small unaligned fills (Rust `HashSet` hit this).
 - When a new DSO is loaded, TLS layout offsets are assigned **before** relocations (aarch64 TLSDESC/TPOFF embed them) and the relocated `.tdata` image is copied into threads **after** relocations. Do not merge these steps: doing so either corrupts TLSDESC offsets or copies unrelocated pointers.
 - `libc` and `ldso` are `no_std`; only the `src/` loader uses `std`.
 - C ABI exports need `#[no_mangle] pub unsafe extern "C" fn ...`. A plain Rust function will not appear in `libc.so`/`libc.a`.
@@ -94,7 +104,7 @@ git tag vX.Y.Z
 git push origin main vX.Y.Z
 ```
 
-The workflow verifies that all three manifest versions equal the tag before publishing. It publishes `crabc-libc`, `crabc-ldso`, then `crabc`, and creates a GitHub release.
+The workflow verifies that all three manifest versions equal the tag before publishing. It publishes `crabc-libc`, `crabc-ldso`, then `crabc`, and creates a GitHub release. Release artifacts include `crabc`, `crabc-dev` and `crabc-utils` APKs plus `SHA256SUMS`; see `docs/packages.md`.
 
 The same workflow builds release artifacts for x86_64, aarch64, and riscv64 and packages them with `scripts/package-apk.sh`. The script runs `apk mkpkg` inside an Alpine 3.23 container (Docker or podman), producing v3/ADB packages, then writes `dist/SHA256SUMS`. The `.apk` files and checksums are uploaded to the GitHub release; they install with `apk add --allow-untrusted`.
 

@@ -9332,6 +9332,11 @@ pub unsafe extern "C" fn __stack_chk_fail() -> ! {
     abort();
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn __stack_chk_fail_local() -> ! {
+    __stack_chk_fail()
+}
+
 // ============================================================
 // qsort / qsort_r (smoothsort, O(1) aux, adaptive)
 // ============================================================
@@ -20358,13 +20363,37 @@ pub unsafe extern "C" fn issetugid() -> i32 {
 // poll functions
 // ============================================================
 
+#[repr(C)]
+struct PollTimespec {
+    tv_sec: i64,
+    tv_nsec: i64,
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn poll(fds: *mut core::ffi::c_void, nfds: u32, timeout: i32) -> i32 {
     #[cfg(target_arch = "x86_64")]
     { syscall_ret(<Arch as Syscalls>::syscall3(SYS_POLL, fds as i64, nfds as i64, timeout as i64)) as i32 }
     #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     {
-        syscall_ret(<Arch as Syscalls>::syscall5(SYS_PPOLL, fds as i64, nfds as i64, timeout as i64, 0, 0)) as i32
+        // poll(2) does not exist on these architectures.  ppoll(2) takes a
+        // struct timespec, not a millisecond count; passing the integer
+        // directly made poll(..., 0) wait forever.
+        let mut ts = PollTimespec { tv_sec: 0, tv_nsec: 0 };
+        let ts_ptr = if timeout < 0 {
+            core::ptr::null()
+        } else {
+            ts.tv_sec = (timeout / 1000) as i64;
+            ts.tv_nsec = ((timeout % 1000) as i64) * 1_000_000;
+            &ts as *const PollTimespec as *const core::ffi::c_void
+        };
+        syscall_ret(<Arch as Syscalls>::syscall5(
+            SYS_PPOLL,
+            fds as i64,
+            nfds as i64,
+            ts_ptr as i64,
+            0,
+            8,
+        )) as i32
     }
 }
 

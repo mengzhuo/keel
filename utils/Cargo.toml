@@ -1,0 +1,15 @@
+[package]
+name = "crabc-utils"
+version = "0.7.0"
+edition = "2021"
+description = "Rust implementations of the musl-utils commands for crabc"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mengzhuo/crabc"
+readme = "README.md"
+
+[[bin]]
+name = "crabc-utils"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

@@ -30,7 +30,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           cargo metadata --no-deps --format-version 1 > /tmp/metadata.json
-          for pkg in crabc crabc-libc crabc-ldso; do
+          for pkg in crabc crabc-libc crabc-ldso crabc-utils; do
             got=$(jq -r --arg p "$pkg" '.packages[] | select(.name == $p) | .version' /tmp/metadata.json)
             if [ "$got" != "$version" ]; then
               echo "::error::$pkg is version $got but tag $GITHUB_REF_NAME expects $version"
@@ -62,8 +62,28 @@ jobs:
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER=riscv64-linux-gnu-gcc \
             cargo build --release --workspace --target riscv64gc-unknown-linux-musl
 
+      - name: Build Rust CRT objects and crabc-utils
+        run: |
+          ./scripts/build-crt.sh
+          ./scripts/build-utils.sh
+
       - name: Build Alpine packages
         run: ./scripts/package-apk.sh
+
+      - name: Smoke-test crabc-utils
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -eux
+          version="${VERSION#v}"
+          docker run --rm -v "$PWD/dist:/dist:ro" alpine:3.23 sh -c "
+            apk add --allow-untrusted \
+              /dist/crabc-${version}-r0.x86_64.apk \
+              /dist/crabc-utils-${version}-r0.x86_64.apk
+            crabc-utils getconf PAGESIZE >/dev/null
+            ldd /bin/busybox >/dev/null
+          "
+
       - name: Smoke-test the packaged libc
         env:
           VERSION: ${{ github.ref_name }}

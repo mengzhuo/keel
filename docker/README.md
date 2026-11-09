@@ -9,12 +9,12 @@ manager's libc in production.
 
 ```bash
 # x86_64 (or the host architecture)
-docker build -f docker/Dockerfile -t crabc:0.6.0 .
+docker build -f docker/Dockerfile -t crabc:0.7.0 .
 
 # Multi-arch (requires buildx and a registry/loading backend)
 docker buildx build \
   --platform linux/amd64,linux/arm64,linux/riscv64 \
-  -f docker/Dockerfile -t crabc:0.6.0 .
+  -f docker/Dockerfile -t crabc:0.7.0 .
 ```
 
 The image downloads the crabc release APK from GitHub. To use a local mirror
@@ -22,9 +22,10 @@ The image downloads the crabc release APK from GitHub. To use a local mirror
 
 ```bash
 docker build -f docker/Dockerfile \
-  --build-arg CRABC_VERSION=0.6.0 \
-  --build-arg CRABC_APK_URL=http://mirror.example/crabc-0.6.0-r0.x86_64.apk \
-  -t crabc:0.6.0 .
+  --build-arg CRABC_VERSION=0.7.0 \
+  --build-arg CRABC_APK_URL=http://mirror.example/crabc-0.7.0-r0.x86_64.apk \
+  --build-arg CRABC_UTILS_URL=http://mirror.example/crabc-utils-0.7.0-r0.x86_64.apk \
+  -t crabc:0.7.0 .
 ```
 
 Behind an HTTP proxy:
@@ -33,14 +34,14 @@ Behind an HTTP proxy:
 docker build --network host \
   --build-arg http_proxy=http://proxy:3128 \
   --build-arg https_proxy=http://proxy:3128 \
-  -f docker/Dockerfile -t crabc:0.6.0 .
+  -f docker/Dockerfile -t crabc:0.7.0 .
 ```
 
 ## Run
 
 ```bash
-docker run --rm -it crabc:0.6.0 sh
-docker run --rm crabc:0.6.0 /bin/echo hello
+docker run --rm -it crabc:0.7.0 sh
+docker run --rm crabc:0.7.0 /bin/echo hello
 ```
 
 At runtime, `LD_LIBRARY_PATH=/usr/lib/crabc` is set so DSOs that record
@@ -48,16 +49,25 @@ At runtime, `LD_LIBRARY_PATH=/usr/lib/crabc` is set so DSOs that record
 
 ## What the image does
 
-1. Installs the `crabc` APK (libc, loader and `crabc-loader`).
+1. Installs the `crabc` and `crabc-utils` APKs.
 2. Replaces the stock Alpine musl libc/loader in place.
 3. Places the crabc files at the canonical paths:
    - `/lib/libc.musl-<arch>.so.1`
    - `/lib/ld-musl-<arch>.so.1`
 4. Leaves symlinks in `/usr/lib/crabc` pointing at the canonical paths.
-5. Smoke-tests `/bin/echo`, `/bin/sh` and `apk --version`.
+5. Installs Rust `getconf`, `getent`, `iconv`, `ldd` and `ldconfig` from
+   `crabc-utils` (replacing the base image's `musl-utils` commands).
+6. Smoke-tests `/bin/echo`, `/bin/sh`, `apk --version`, `getconf` and `ldd`.
 
 ## Caveats
 
+- The image installs `crabc-utils`, not Alpine's `musl-utils` commands. The
+  APK database still records `musl-utils`; `apk fix musl-utils` would restore
+  its `ldd`/`getconf` files. `crabc-utils` is a Rust multicall binary.
+- `crabc-dev` is not installed in the runtime image. Install it explicitly
+  if you want to compile inside the container; it provides headers,
+  `libc.a` and Rust-built CRT objects. Static PIE is not supported; use
+  `-no-pie` for static programs.
 - `/usr/bin/crabc-loader` is the standalone mapper for static PIE/static ELF
   binaries, not a replacement for the dynamic interpreter. The image uses
   `/lib/ld-musl-<arch>.so.1` (crabc `libldso.so`) for normal dynamic binaries.
