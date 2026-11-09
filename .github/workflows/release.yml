@@ -64,8 +64,15 @@ jobs:
 
       - name: Build Rust CRT objects and crabc-utils
         run: |
-          ./scripts/build-crt.sh
-          ./scripts/build-utils.sh
+          set -o pipefail
+          ./scripts/build-crt.sh > /tmp/crt-build.log 2>&1 || {
+            tail -40 /tmp/crt-build.log | sed 's/^/::error::/'
+            exit 1
+          }
+          ./scripts/build-utils.sh > /tmp/utils-build.log 2>&1 || {
+            tail -60 /tmp/utils-build.log | sed 's/^/::error::/'
+            exit 1
+          }
 
       - name: Build Alpine packages
         run: ./scripts/package-apk.sh
