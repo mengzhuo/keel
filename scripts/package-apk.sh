@@ -7,7 +7,7 @@
 #   crabc-dev     headers, libc.a, CRT objects, linker stubs
 #   crabc-utils   getconf/getent/iconv/ldd/ldconfig (Rust multicall binary)
 #
-# Usage: VERSION=0.7.1 scripts/package-apk.sh
+# Usage: VERSION=0.7.2 scripts/package-apk.sh
 #        CONTAINER_RUNTIME=podman scripts/package-apk.sh
 #
 # Expects the release artifacts produced by:

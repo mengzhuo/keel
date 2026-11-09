@@ -41,13 +41,20 @@ fetch_libgcc() {
         exit 1
     fi
     mkdir -p "$out"
-    "$CONTAINER_RUNTIME" run --rm -v "$out:/out" "$IMAGE" sh -eu -c "
+    echo "fetching libgcc for $arch" >&2
+    if ! "$CONTAINER_RUNTIME" run --rm -v "$out:/out" "$IMAGE" sh -eu -c "
         cd /out
         apk fetch --arch '$apkarch' --allow-untrusted libgcc
         apk extract --allow-untrusted libgcc-*.apk
         mv usr/lib/libgcc_s.so.1 .
         rm -rf usr libgcc-*.apk
-    " >&2
+    " >"$out/fetch.log" 2>&1; then
+        echo "fetch_libgcc failed for $arch:" >&2
+        tail -20 "$out/fetch.log" >&2
+        rm -f "$out/fetch.log"
+        exit 1
+    fi
+    rm -f "$out/fetch.log"
     echo "$out"
 }
 
