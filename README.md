@@ -19,7 +19,8 @@ Redis, CPython, Node.js and PostgreSQL all run under crabc, with a per-project
 report and baseline comparison. The [LTP report](docs/ltp.md) records the
 `syscalls`, math, memory-management, scheduler, threading and SysV IPC suites
 against the same binaries under musl and crabc; the shared suites have
-identical failure lists.
+identical failure lists. A Docker image that uses crabc as the system libc is
+built from [`docker/Dockerfile`](docker/README.md).
 
 Build and cross-compilation instructions are in `AGENTS.md`. Release builds
 are size-optimized and stripped, and are produced from `v*` tags; the

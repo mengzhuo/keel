@@ -1,0 +1,7 @@
+target/
+.git/
+dist/
+libc-test-harness/build/
+libc-test-harness/fake-libs/
+libc-test-harness/parity/
+libc-test-harness/reports/
