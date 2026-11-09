@@ -367,12 +367,14 @@ float       ynf(int, float);
 #define isless(x, y) __tg_pred_2(x, y, __isless)
 #define islessequal(x, y) __tg_pred_2(x, y, __islessequal)
 #define islessgreater(x, y) __tg_pred_2(x, y, __islessgreater)
-#if defined(__aarch64__)
+#ifdef __FP_FAST_FMA
 #define FP_FAST_FMA 1
+#endif
+#ifdef __FP_FAST_FMAF
 #define FP_FAST_FMAF 1
-#elif defined(__riscv)
-#define FP_FAST_FMA 1
-#define FP_FAST_FMAF 1
+#endif
+#ifdef __FP_FAST_FMAL
+#define FP_FAST_FMAL 1
 #endif
 
 /* musl 1.2.6 compatibility helpers */
