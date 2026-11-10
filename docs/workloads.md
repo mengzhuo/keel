@@ -6,7 +6,7 @@ identical chroots — one with the stock musl loader, one with crabc's
 `libldso.so` + `libc.so` — and the observable output is compared.
 
 Everything below is a snapshot from **2026-11-06** on x86\_64, taken with
-crabc 0.4.2.  The current release is 0.7.6; the later loader/libc changes
+crabc 0.4.2.  The current release is 0.7.7; the later loader/libc changes
 preserve the behavior recorded here.  The results are reproducible with the
 commands in each report.
 
@@ -31,7 +31,7 @@ exit status and the same relevant stdout as the musl baseline.
 
 - Alpine Linux **3.23**, x86\_64, musl 1.2.6 ABI.
 - All binaries are the stock Alpine packages (`apk add`), unmodified.
-- crabc **0.4.2** (historical measurement; current release is 0.7.6).
+- crabc **0.4.2** (historical measurement; current release is 0.7.7).
 - Two chroots:
   - `alpine-root`: pristine musl loader and libc.
   - `alpine-crabc`: same files, but `/lib/ld-musl-x86_64.so.1` is crabc's

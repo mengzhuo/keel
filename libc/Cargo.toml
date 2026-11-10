@@ -1,6 +1,6 @@
 [package]
 name = "crabc-libc"
-version = "0.7.6"
+version = "0.7.7"
 edition = "2021"
 description = "A Rust no_std musl-compatible libc implementation"
 license = "BSD-3-Clause"
