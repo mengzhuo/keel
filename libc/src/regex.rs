@@ -26,14 +26,10 @@ const OP_SPLIT: u8 = 5;
 const OP_BOL: u8 = 6;
 const OP_EOL: u8 = 7;
 
-const MAX_CODE: usize = 1024;
-const MAX_BRACKETS: usize = 32;
-const MAX_RANGES: usize = 64;
-const MAX_STACK: usize = 256;
-
 // regex_t layout: re_nsub(8) + __opaque(8) + __padding[4](32) + __nsub2(8) + __padding2(1) = 57 bytes
 // __opaque is at offset 8
 
+#[derive(Copy, Clone)]
 struct BracketRange {
     min: u8,
     max: u8,
@@ -43,21 +39,25 @@ struct BracketData {
     negated: bool,
     icase: bool,
     nranges: usize,
-    ranges: [BracketRange; MAX_RANGES],
+    ranges: *mut BracketRange,
+    ranges_cap: usize,
 }
 
 struct CompiledRegex {
     ncode: usize,
-    code: [u8; MAX_CODE],
+    code: *mut u8,
+    code_cap: usize,
     icase: bool,
     extended: bool,
     n_brackets: usize,
-    brackets: [BracketData; MAX_BRACKETS],
+    brackets: *mut BracketData,
+    brackets_cap: usize,
 }
 
 struct RegexCContext {
     code: *mut CompiledRegex,
     pos: usize,
+    last_atom_start: usize,
     err: c_int,
     extended: bool,
     icase: bool,
@@ -78,7 +78,7 @@ fn is_ascii_letter(b: u8) -> bool {
 fn bracket_contains(br: &BracketData, b: u8) -> bool {
     let c = if br.icase { case_fold_byte(b) } else { b };
     for i in 0..br.nranges {
-        let r = &br.ranges[i];
+        let r = unsafe { &*br.ranges.add(i) };
         if c >= r.min && c <= r.max {
             return !br.negated;
         }
@@ -86,18 +86,46 @@ fn bracket_contains(br: &BracketData, b: u8) -> bool {
     br.negated
 }
 
-fn emit(ctx: &mut RegexCContext, byte: u8) -> bool {
-    if ctx.pos >= MAX_CODE {
+fn grow_code(ctx: &mut RegexCContext, need: usize) -> bool {
+    let code = unsafe { &mut *ctx.code };
+    if need <= code.code_cap {
+        return true;
+    }
+    let mut cap = if code.code_cap == 0 { 128 } else { code.code_cap };
+    while cap < need {
+        cap *= 2;
+    }
+    let p = unsafe { crate::realloc(code.code as *mut c_void, cap) } as *mut u8;
+    if p.is_null() {
         ctx.err = REG_ESPACE;
         return false;
     }
-    unsafe { (*ctx.code).code[ctx.pos] = byte; }
+    code.code = p;
+    code.code_cap = cap;
+    true
+}
+
+fn emit(ctx: &mut RegexCContext, byte: u8) -> bool {
+    if !grow_code(ctx, ctx.pos + 1) {
+        return false;
+    }
+    unsafe { *(*ctx.code).code.add(ctx.pos) = byte; }
     ctx.pos += 1;
     true
 }
 
-fn emit16(ctx: &mut RegexCContext, val: u16) -> bool {
-    emit(ctx, (val & 0xff) as u8) && emit(ctx, (val >> 8) as u8)
+fn emit32(ctx: &mut RegexCContext, val: u32) -> bool {
+    emit(ctx, (val & 0xff) as u8)
+        && emit(ctx, ((val >> 8) & 0xff) as u8)
+        && emit(ctx, ((val >> 16) & 0xff) as u8)
+        && emit(ctx, ((val >> 24) & 0xff) as u8)
+}
+
+unsafe fn patch32(code: *mut u8, at: usize, val: u32) {
+    *code.add(at) = (val & 0xff) as u8;
+    *code.add(at + 1) = ((val >> 8) & 0xff) as u8;
+    *code.add(at + 2) = ((val >> 16) & 0xff) as u8;
+    *code.add(at + 3) = ((val >> 24) & 0xff) as u8;
 }
 
 fn emit_char(ctx: &mut RegexCContext, b: u8) -> bool {
@@ -130,10 +158,9 @@ fn compile_expr(
         if b == b'|' && extended {
             if !compile_sequence(ctx, pat, plen, alt_start, i) { return false; }
             let jump_pos = ctx.pos;
-            if !emit(ctx, OP_JUMP) || !emit16(ctx, 0) { return false; }
+            if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
             let cur = ctx.pos;
-            unsafe { (*ctx.code).code[jump_pos + 1] = ((cur >> 0) & 0xff) as u8; }
-            unsafe { (*ctx.code).code[jump_pos + 2] = ((cur >> 8) & 0xff) as u8; }
+            unsafe { patch32((*ctx.code).code, jump_pos + 1, cur as u32); }
             alt_start = i + 1;
             i += 1;
             continue;
@@ -175,7 +202,9 @@ fn compile_sequence(
                 continue;
             }
             if !extended && next == b')' { return true; }
+            let atom = ctx.pos;
             if !emit_char(ctx, next) { return false; }
+            ctx.last_atom_start = atom;
             i = i.wrapping_add(2);
             continue;
         }
@@ -187,68 +216,78 @@ fn compile_sequence(
         }
 
         if b == b'[' {
+            let atom = ctx.pos;
             if !compile_bracket(ctx, pat, plen, &mut i, end) { return false; }
+            ctx.last_atom_start = atom;
             continue;
         }
 
         if b == b'^' && i == start {
+            let atom = ctx.pos;
             if !emit(ctx, OP_BOL) { return false; }
+            ctx.last_atom_start = atom;
             i += 1;
             continue;
         }
         if b == b'$' && i + 1 == end {
+            let atom = ctx.pos;
             if !emit(ctx, OP_EOL) { return false; }
+            ctx.last_atom_start = atom;
             i += 1;
             continue;
         }
 
-        if (b == b'*' || b == b'+' || b == b'?') && ctx.pos > 0 {
-            let op = unsafe { (*ctx.code).code[ctx.pos - 2] };
+        if (b == b'*' || b == b'+' || b == b'?') && ctx.last_atom_start < ctx.pos {
+            let prev_start = ctx.last_atom_start;
+            let prev_end = ctx.pos;
+            let op = unsafe { *(*ctx.code).code.add(prev_start) };
             if op == OP_CHAR || op == OP_BRACKET || op == OP_BOL || op == OP_EOL {
-                let prev_start = ctx.pos - 2;
-                let prev_end = ctx.pos;
-                let mut prev = [0u8; 32];
                 let prev_len = prev_end - prev_start;
-                for k in 0..prev_len { prev[k] = unsafe { (*ctx.code).code[prev_start + k] }; }
+                let mut prev = [0u8; 32];
+                for k in 0..prev_len {
+                    prev[k] = unsafe { *(*ctx.code).code.add(prev_start + k) };
+                }
                 ctx.pos = prev_start;
 
                 if b == b'*' {
                     let sp = ctx.pos;
-                    if !emit(ctx, OP_SPLIT) || !emit16(ctx, 0) { return false; }
+                    if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
                     for k in 0..prev_len { if !emit(ctx, prev[k]) { return false; } }
                     let jmp = ctx.pos;
-                    if !emit(ctx, OP_JUMP) || !emit16(ctx, 0) { return false; }
+                    if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
                     let after = ctx.pos;
-                    unsafe { (*ctx.code).code[sp + 1] = ((after >> 0) & 0xff) as u8; }
-                    unsafe { (*ctx.code).code[sp + 2] = ((after >> 8) & 0xff) as u8; }
-                    unsafe { (*ctx.code).code[jmp + 1] = ((sp >> 0) & 0xff) as u8; }
-                    unsafe { (*ctx.code).code[jmp + 2] = ((sp >> 8) & 0xff) as u8; }
+                    unsafe {
+                        patch32((*ctx.code).code, sp + 1, after as u32);
+                        patch32((*ctx.code).code, jmp + 1, sp as u32);
+                    }
                 } else if b == b'+' {
                     let jmp = ctx.pos;
-                    if !emit(ctx, OP_JUMP) || !emit16(ctx, 0) { return false; }
+                    if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
                     let sp = ctx.pos;
-                    if !emit(ctx, OP_SPLIT) || !emit16(ctx, 0) { return false; }
+                    if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
                     for k in 0..prev_len { if !emit(ctx, prev[k]) { return false; } }
                     let after = ctx.pos;
-                    unsafe { (*ctx.code).code[jmp + 1] = ((sp >> 0) & 0xff) as u8; }
-                    unsafe { (*ctx.code).code[jmp + 2] = ((sp >> 8) & 0xff) as u8; }
-                    unsafe { (*ctx.code).code[sp + 1] = ((after >> 0) & 0xff) as u8; }
-                    unsafe { (*ctx.code).code[sp + 2] = ((after >> 8) & 0xff) as u8; }
+                    unsafe {
+                        patch32((*ctx.code).code, jmp + 1, sp as u32);
+                        patch32((*ctx.code).code, sp + 1, after as u32);
+                    }
                 } else {
                     let sp = ctx.pos;
-                    if !emit(ctx, OP_SPLIT) || !emit16(ctx, 0) { return false; }
+                    if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
                     for k in 0..prev_len { if !emit(ctx, prev[k]) { return false; } }
                     let after = ctx.pos;
-                    unsafe { (*ctx.code).code[sp + 1] = ((after >> 0) & 0xff) as u8; }
-                    unsafe { (*ctx.code).code[sp + 2] = ((after >> 8) & 0xff) as u8; }
+                    unsafe { patch32((*ctx.code).code, sp + 1, after as u32); }
                 }
+                ctx.last_atom_start = prev_start;
                 i += 1;
                 continue;
             }
         }
 
         if b >= 0x80 { return false; }
+        let atom = ctx.pos;
         if !emit_char(ctx, b) { return false; }
+        ctx.last_atom_start = atom;
         i += 1;
     }
     true
@@ -280,6 +319,28 @@ fn compile_group(
     true
 }
 
+fn add_range(ctx: &mut RegexCContext, bi: usize, min: u8, max: u8) -> bool {
+    let bd = unsafe { &mut *(*ctx.code).brackets.add(bi) };
+    if bd.nranges == bd.ranges_cap {
+        let cap = if bd.ranges_cap == 0 { 16 } else { bd.ranges_cap * 2 };
+        let p = unsafe {
+            crate::realloc(
+                bd.ranges as *mut c_void,
+                cap * core::mem::size_of::<BracketRange>(),
+            )
+        } as *mut BracketRange;
+        if p.is_null() {
+            ctx.err = REG_ESPACE;
+            return false;
+        }
+        bd.ranges = p;
+        bd.ranges_cap = cap;
+    }
+    unsafe { *bd.ranges.add(bd.nranges) = BracketRange { min, max }; }
+    bd.nranges += 1;
+    true
+}
+
 fn compile_bracket(
     ctx: &mut RegexCContext,
     pat: *const c_char,
@@ -287,10 +348,30 @@ fn compile_bracket(
     i: &mut usize,
     end: usize,
 ) -> bool {
-    if ctx.pos + 4 > MAX_CODE { ctx.err = REG_ESPACE; return false; }
     let bi = unsafe { (*ctx.code).n_brackets };
-    if bi >= MAX_BRACKETS { ctx.err = REG_ESPACE; return false; }
-    unsafe { (*ctx.code).n_brackets += 1; }
+    unsafe {
+        let code = &mut *ctx.code;
+        if bi == code.brackets_cap {
+            let cap = if code.brackets_cap == 0 { 8 } else { code.brackets_cap * 2 };
+            let p = crate::realloc(
+                code.brackets as *mut c_void,
+                cap * core::mem::size_of::<BracketData>(),
+            ) as *mut BracketData;
+            if p.is_null() {
+                ctx.err = REG_ESPACE;
+                return false;
+            }
+            code.brackets = p;
+            code.brackets_cap = cap;
+        }
+        let bd = &mut *code.brackets.add(bi);
+        bd.negated = false;
+        bd.icase = ctx.icase;
+        bd.nranges = 0;
+        bd.ranges = core::ptr::null_mut();
+        bd.ranges_cap = 0;
+        code.n_brackets += 1;
+    }
 
     let mut negated = false;
     let mut j = *i + 1;
@@ -298,118 +379,122 @@ fn compile_bracket(
     let first = unsafe { *pat.add(j) as u8 };
     if first == b'^' { negated = true; j += 1; }
 
-        let mut nranges: usize = 0;
-        while j < end {
-            let cb = unsafe { *pat.add(j) as u8 };
-            if cb == b']' && j > *i + 1 + (if negated { 1 } else { 0 }) { break; }
-            if cb >= 0x80 { return false; }
-            let lo = cb;
-            j += 1;
+    while j < end {
+        let cb = unsafe { *pat.add(j) as u8 };
+        if cb == b']' && j > *i + 1 + (if negated { 1 } else { 0 }) { break; }
+        if cb >= 0x80 { return false; }
+        let lo = cb;
+        j += 1;
 
-            if j + 1 < end && unsafe { *pat.add(j) as u8 } == b'-' {
-                let dash_next = unsafe { *pat.add(j + 1) as u8 };
-                if dash_next == b']' {
-                    if nranges >= MAX_RANGES { ctx.err = REG_ESPACE; return false; }
-                    unsafe {
-                        (*ctx.code).brackets[bi].ranges[nranges].min = lo;
-                        (*ctx.code).brackets[bi].ranges[nranges].max = lo;
-                    }
-                    nranges += 1;
-                    if ctx.icase && is_ascii_letter(lo) {
-                        let fc = case_fold_byte(lo);
-                        if nranges >= MAX_RANGES { ctx.err = REG_ESPACE; return false; }
-                        unsafe {
-                            (*ctx.code).brackets[bi].ranges[nranges].min = fc;
-                            (*ctx.code).brackets[bi].ranges[nranges].max = fc;
-                        }
-                        nranges += 1;
-                    }
-                    continue;
-                }
-                if dash_next >= 0x80 { return false; }
-                let hi = dash_next;
-                if lo > hi { return false; }
-                j += 2;
-                if nranges >= MAX_RANGES { ctx.err = REG_ESPACE; return false; }
-                unsafe {
-                    (*ctx.code).brackets[bi].ranges[nranges].min = lo;
-                    (*ctx.code).brackets[bi].ranges[nranges].max = hi;
-                }
-                nranges += 1;
-                if ctx.icase {
-                    let flo = case_fold_byte(lo);
-                    let fhi = case_fold_byte(hi);
-                    if flo != lo || fhi != hi {
-                        let (rmin, rmax) = if flo < fhi { (flo, fhi) } else { (fhi, flo) };
-                        if nranges >= MAX_RANGES { ctx.err = REG_ESPACE; return false; }
-                        unsafe {
-                            (*ctx.code).brackets[bi].ranges[nranges].min = rmin;
-                            (*ctx.code).brackets[bi].ranges[nranges].max = rmax;
-                        }
-                        nranges += 1;
-                    }
-                }
-            } else {
-                if nranges >= MAX_RANGES { ctx.err = REG_ESPACE; return false; }
-                unsafe {
-                    (*ctx.code).brackets[bi].ranges[nranges].min = lo;
-                    (*ctx.code).brackets[bi].ranges[nranges].max = lo;
-                }
-                nranges += 1;
+        if j + 1 < end && unsafe { *pat.add(j) as u8 } == b'-' {
+            let dash_next = unsafe { *pat.add(j + 1) as u8 };
+            if dash_next == b']' {
+                if !add_range(ctx, bi, lo, lo) { return false; }
                 if ctx.icase && is_ascii_letter(lo) {
-                    let f = case_fold_byte(lo);
-                    if nranges >= MAX_RANGES { ctx.err = REG_ESPACE; return false; }
-                    unsafe {
-                        (*ctx.code).brackets[bi].ranges[nranges].min = f;
-                        (*ctx.code).brackets[bi].ranges[nranges].max = f;
-                    }
-                    nranges += 1;
+                    let fc = case_fold_byte(lo);
+                    if !add_range(ctx, bi, fc, fc) { return false; }
+                }
+                continue;
+            }
+            if dash_next >= 0x80 { return false; }
+            let hi = dash_next;
+            if lo > hi { return false; }
+            j += 2;
+            if !add_range(ctx, bi, lo, hi) { return false; }
+            if ctx.icase {
+                let flo = case_fold_byte(lo);
+                let fhi = case_fold_byte(hi);
+                if flo != lo || fhi != hi {
+                    let (rmin, rmax) = if flo < fhi { (flo, fhi) } else { (fhi, flo) };
+                    if !add_range(ctx, bi, rmin, rmax) { return false; }
                 }
             }
+        } else {
+            if !add_range(ctx, bi, lo, lo) { return false; }
+            if ctx.icase && is_ascii_letter(lo) {
+                let f = case_fold_byte(lo);
+                if !add_range(ctx, bi, f, f) { return false; }
+            }
         }
+    }
     if j >= end || unsafe { *pat.add(j) as u8 } != b']' { return false; }
     *i = j + 1;
 
     unsafe {
-        (*ctx.code).brackets[bi].negated = negated;
-        (*ctx.code).brackets[bi].icase = ctx.icase;
-        (*ctx.code).brackets[bi].nranges = nranges;
+        let bd = &mut *(*ctx.code).brackets.add(bi);
+        bd.negated = negated;
+        bd.icase = ctx.icase;
     }
 
     if !emit(ctx, OP_BRACKET) { return false; }
-    if !emit16(ctx, bi as u16) { return false; }
+    if !emit32(ctx, bi as u32) { return false; }
     true
 }
 
-fn match_regex_impl(code: &CompiledRegex, input: *const c_char, nmatch: usize, pmatch: *mut crate::regmatch_t, eflags: c_int) -> c_int {
+#[inline]
+unsafe fn read32(code: *const u8, at: usize) -> usize {
+    (*code.add(at) as usize)
+        | ((*code.add(at + 1) as usize) << 8)
+        | ((*code.add(at + 2) as usize) << 16)
+        | ((*code.add(at + 3) as usize) << 24)
+}
+
+fn match_regex_impl(
+    code: &CompiledRegex,
+    input: *const c_char,
+    nmatch: usize,
+    pmatch: *mut crate::regmatch_t,
+    eflags: c_int,
+) -> c_int {
+    let frames = match (code.ncode + 1).checked_mul(core::mem::size_of::<MatchFrame>()) {
+        Some(n) => n,
+        None => return REG_ESPACE,
+    };
+    let stack = unsafe { crate::malloc(frames) } as *mut MatchFrame;
+    if stack.is_null() {
+        return REG_ESPACE;
+    }
+    let r = match_regex_inner(code, input, nmatch, pmatch, eflags, stack);
+    unsafe { crate::free(stack as *mut c_void) };
+    r
+}
+
+fn match_regex_inner(
+    code: &CompiledRegex,
+    input: *const c_char,
+    nmatch: usize,
+    pmatch: *mut crate::regmatch_t,
+    eflags: c_int,
+    stack: *mut MatchFrame,
+) -> c_int {
     let slen = unsafe { crate::strlen(input) };
     let notbol = (eflags & REG_NOTBOL) != 0;
     let noteol = (eflags & REG_NOTEOL) != 0;
-    let bytecode = &code.code;
+    let bytecode = code.code;
     let ncode = code.ncode;
+    let stack_cap = ncode + 1;
 
     for start in 0..=slen {
-        let mut stack = [MatchFrame { pc: 0usize, sp: 0usize, at_bol: false }; MAX_STACK];
         let mut top: usize = 0;
-        stack[top] = MatchFrame { pc: 0, sp: start, at_bol: start == 0 };
+        unsafe { *stack.add(top) = MatchFrame { pc: 0, sp: start, at_bol: start == 0 }; }
         top += 1;
         let mut found = false;
         let mut match_end = 0usize;
 
         while top > 0 {
             top -= 1;
-            let frame = stack[top];
+            let frame = unsafe { *stack.add(top) };
             let mut pc = frame.pc;
             let mut sp = frame.sp;
             let mut at_bol = frame.at_bol;
 
             loop {
                 if pc >= ncode { break; }
-                let op = bytecode[pc];
+                let op = unsafe { *bytecode.add(pc) };
                 match op {
                     OP_CHAR => {
                         if sp >= slen { break; }
-                        let expected = bytecode[pc + 1];
+                        let expected = unsafe { *bytecode.add(pc + 1) };
                         let actual = unsafe { *input.add(sp) as u8 };
                         let m = if code.icase && is_ascii_letter(expected) && is_ascii_letter(actual) {
                             case_fold_byte(expected) == case_fold_byte(actual)
@@ -423,12 +508,13 @@ fn match_regex_impl(code: &CompiledRegex, input: *const c_char, nmatch: usize, p
                     }
                     OP_BRACKET => {
                         if sp >= slen { break; }
-                        let bi = (bytecode[pc + 1] as usize) | ((bytecode[pc + 2] as usize) << 8);
+                        let bi = unsafe { read32(bytecode, pc + 1) };
                         let actual = unsafe { *input.add(sp) as u8 };
-                        if !bracket_contains(&code.brackets[bi], actual) { break; }
+                        if bi >= code.n_brackets { break; }
+                        if !bracket_contains(unsafe { &*code.brackets.add(bi) }, actual) { break; }
                         sp += 1;
                         at_bol = false;
-                        pc += 3;
+                        pc += 5;
                     }
                     OP_MATCH => {
                         if !noteol || sp == slen {
@@ -438,15 +524,17 @@ fn match_regex_impl(code: &CompiledRegex, input: *const c_char, nmatch: usize, p
                         break;
                     }
                     OP_JUMP => {
-                        pc = (bytecode[pc + 1] as usize) | ((bytecode[pc + 2] as usize) << 8);
+                        pc = unsafe { read32(bytecode, pc + 1) };
                     }
                     OP_SPLIT => {
-                        let alt = (bytecode[pc + 1] as usize) | ((bytecode[pc + 2] as usize) << 8);
-                        let next = pc + 3;
-                        if top + 2 <= MAX_STACK {
-                            stack[top] = MatchFrame { pc: alt, sp, at_bol };
-                            top += 1;
-                            stack[top] = MatchFrame { pc: next, sp, at_bol };
+                        let alt = unsafe { read32(bytecode, pc + 1) };
+                        let next = pc + 5;
+                        if top + 2 <= stack_cap {
+                            unsafe {
+                                *stack.add(top) = MatchFrame { pc: alt, sp, at_bol };
+                                top += 1;
+                                *stack.add(top) = MatchFrame { pc: next, sp, at_bol };
+                            }
                             top += 1;
                         }
                         break;
@@ -478,6 +566,26 @@ fn match_regex_impl(code: &CompiledRegex, input: *const c_char, nmatch: usize, p
     REG_NOMATCH
 }
 
+unsafe fn free_compiled(code: *mut CompiledRegex) {
+    if code.is_null() { return; }
+    let c = &*code;
+    if !c.brackets.is_null() {
+        let mut i = 0usize;
+        while i < c.n_brackets {
+            let bd = &*c.brackets.add(i);
+            if !bd.ranges.is_null() {
+                crate::free(bd.ranges as *mut c_void);
+            }
+            i += 1;
+        }
+        crate::free(c.brackets as *mut c_void);
+    }
+    if !c.code.is_null() {
+        crate::free(c.code as *mut c_void);
+    }
+    crate::free(code as *mut c_void);
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn regcomp(preg: *mut crate::regex_t, pattern: *const c_char, cflags: c_int) -> c_int {
     if preg.is_null() || pattern.is_null() { return REG_BADPAT; }
@@ -486,7 +594,7 @@ pub unsafe extern "C" fn regcomp(preg: *mut crate::regex_t, pattern: *const c_ch
     crate::memset(code as *mut c_void, 0, core::mem::size_of::<CompiledRegex>());
     let rc = compile_regex_into(pattern, cflags, code);
     if rc != REG_OK {
-        crate::free(code as *mut c_void);
+        free_compiled(code);
         return rc;
     }
     crate::memset(preg as *mut c_void, 0, core::mem::size_of::<crate::regex_t>());
@@ -497,7 +605,7 @@ pub unsafe extern "C" fn regcomp(preg: *mut crate::regex_t, pattern: *const c_ch
 fn compile_regex_into(pat: *const c_char, flags: c_int, code: *mut CompiledRegex) -> c_int {
     unsafe {
         let plen = crate::strlen(pat);
-        if plen == 0 || plen > 256 { return REG_BADPAT; }
+        if plen == 0 { return REG_BADPAT; }
 
         crate::memset(code as *mut c_void, 0, core::mem::size_of::<CompiledRegex>());
         (*code).icase = (flags & REG_ICASE) != 0;
@@ -506,6 +614,7 @@ fn compile_regex_into(pat: *const c_char, flags: c_int, code: *mut CompiledRegex
         let mut ctx = RegexCContext {
             code,
             pos: 0,
+            last_atom_start: 0,
             err: REG_OK,
             extended: (*code).extended,
             icase: (*code).icase,
@@ -569,7 +678,7 @@ pub unsafe extern "C" fn regfree(preg: *mut crate::regex_t) {
     if preg.is_null() { return; }
     let code = (*preg).__opaque as *mut CompiledRegex;
     if !code.is_null() {
-        crate::free(code as *mut c_void);
+        free_compiled(code);
         (*preg).__opaque = core::ptr::null_mut();
     }
 }
