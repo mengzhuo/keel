@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Stubs and minimal implementations for symbols required by libc-test
 // regression cases that currently fail to link.
 

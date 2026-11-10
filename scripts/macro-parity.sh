@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 # Check that every macro crabc and musl both define expands to the same token
 # sequence on x86_64, aarch64 and riscv64.
 #

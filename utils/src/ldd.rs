@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! `ldd`: print the shared-library dependencies of a dynamic executable.
 //!
 //! musl's `ldd` is a two-line shell wrapper around the loader's `--list`

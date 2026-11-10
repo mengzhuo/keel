@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 // Tiny PIE program: raw syscalls, no libc dependency.
 // Prints "Hello\n" via SYS_write, exits 0 via SYS_exit.
 

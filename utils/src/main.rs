@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! Rust implementations of the commands provided by Alpine's `musl-utils`.
 //!
 //! The package installs a single `crabc-utils` multicall binary and symlinks

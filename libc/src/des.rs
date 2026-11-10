@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // DES, used by crypt(3) with traditional salts and by encrypt(3)/setkey(3).
 // Straightforward table-driven implementation of FIPS 46-3.
 

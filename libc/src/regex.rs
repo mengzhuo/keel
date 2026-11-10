@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Minimal POSIX regex engine (bytecode VM).
 // Supports BRE and ERE: literals, bracket expressions, groups, *, +, ?, |.
 // REG_ICASE, REG_EXTENDED, REG_NOSUB, REG_NOTBOL, REG_NOTEOL.

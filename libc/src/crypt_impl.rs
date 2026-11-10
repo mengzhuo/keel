@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // crypt_impl.rs - crypt password hashing (MD5, bcrypt, SHA-256, SHA-512)
 // Ported from musl libc src/crypt/
 

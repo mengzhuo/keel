@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 """Check that public header macros agree with crabc's Rust constants.
 
 Every Rust numeric constant that also exists as an object-like macro in the

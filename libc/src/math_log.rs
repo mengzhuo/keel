@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: log.c, logf.c, log10.c, log10f.c, log2.c, log2f.c
 // and their associated *_data.c files.
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // rand48 PRNG family (musl semantics)
 // xi = __seed48[0..3] = 48-bit state as three u16
 // lc = __seed48[3..7] = multiplier a (three u16) + addend c (one u16)

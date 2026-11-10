@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: hypot.c, hypotf.c
 // Uses only integer/bit ops and helper functions from math_helpers.rs.
 // SPLIT constant for double_t (FLT_EVAL_METHOD == 0, standard x86-64).

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // musl src/network/dn_expand.c
 #[no_mangle]
 pub unsafe extern "C" fn dn_expand(

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 # Build the crabc-utils multicall binary for each release architecture.
 #
 # crabc-utils is a normal Rust program built for the musl target.  It is

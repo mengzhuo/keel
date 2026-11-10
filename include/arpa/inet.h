@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 #ifndef _ARPA_INET_H
 #define _ARPA_INET_H
 

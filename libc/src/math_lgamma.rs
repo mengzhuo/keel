@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: lgamma_r.c (lgamma_r, lgamma).
 // Constants are the exact IEEE-754 bit patterns from the C source.
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Parsing of DNS messages for the ns_* API from <arpa/nameser.h>.
 
 pub const NS_MAXDNAME_V: usize = 1025;

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 # Reproduce the GitHub Actions CI environment locally.
 # Uses podman by default; falls back to docker if podman is unavailable.
 # Requires a working container registry connection.

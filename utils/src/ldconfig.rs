@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! `ldconfig`: create soname symlinks for shared libraries.
 //!
 //! musl does not use an `ld.so.cache`; Alpine's ldconfig is a small shell

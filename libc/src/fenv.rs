@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 #[cfg(target_arch = "x86_64")]
 pub type fexcept_t = u16;
 

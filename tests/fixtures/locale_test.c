@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 #include <locale.h>
 #include <langinfo.h>
 #include <nl_types.h>

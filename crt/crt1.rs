@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! crabc startup object (`crt1.o` / `Scrt1.o`).
 //!
 //! The entry point only marshals the kernel stack into the

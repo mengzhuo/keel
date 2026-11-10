@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 #![cfg_attr(not(test), no_std)]
 #![feature(c_variadic)]
 #![feature(linkage)]

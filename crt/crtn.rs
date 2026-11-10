@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! epilogue halves of the `.init` and `.fini` functions (`crtn.o`).
 
 #![no_std]

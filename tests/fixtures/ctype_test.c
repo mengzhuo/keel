@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <locale.h>

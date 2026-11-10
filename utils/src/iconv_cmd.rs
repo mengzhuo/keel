@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! `iconv`: character-set conversion using crabc/musl's iconv(3).
 
 use std::ffi::OsString;

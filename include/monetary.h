@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 #ifndef _MONETARY_H
 #define _MONETARY_H
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Real implementations for the remaining POSIX/GNU compatibility surface:
 // AIO, mqueue attributes, pthread introspection, spawn attributes, stdio
 // internals, and assorted legacy calls.

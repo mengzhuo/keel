@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Port of musl lrint/llrint/lrintf/llrintf/lrintl/llrintl
 //
 // On x86_64: c_long = i64 (LONG_MAX >= 2^53), c_longlong = i64, long double = f64.

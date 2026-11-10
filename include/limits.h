@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 #ifndef _LIMITS_H
 #define _LIMITS_H
 #include <features.h>

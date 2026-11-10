@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: asin.c, acos.c, atan.c, atan2.c,
 // asinf.c, acosf.c, atanf.c, atan2f.c
 

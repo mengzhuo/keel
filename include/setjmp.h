@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 #ifndef _SETJMP_H
 #define _SETJMP_H
 #include <features.h>

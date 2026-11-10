@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 # Build the crabc startup objects (crt1.o, Scrt1.o, crti.o, crtn.o).
 #
 # The objects are generated from Rust global_asm! sources in crt/; no C

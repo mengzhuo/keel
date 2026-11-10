@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 """Compare crabc's preprocessor macro expansions with musl 1.2.6.
 
 The comparison is deliberately done after expansion, not on the #define text:

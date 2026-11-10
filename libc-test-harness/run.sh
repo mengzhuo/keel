@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 #
 # Integration harness: build libc-test against crabc's libc.so
 # Usage: ./run.sh [subset]

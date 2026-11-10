@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // syscall() - variadic syscall forwarding, musl-compatible.
 // Included from libc/src/lib.rs in the "syscall wrappers" section.
 // Matches musl x86_64 convention: rax=num, rdi,rsi,rdx,r10,r8,r9; rcx,r11 clobbered.

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: sin, cos, tan, sinf, cosf, tanf,
 // __sin, __cos, __tan, __rem_pio2, __rem_pio2f, __rem_pio2_large,
 // __sindf, __cosdf, __tandf

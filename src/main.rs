@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Standalone mapper for static ELF and static-PIE binaries.
 //
 // ELF parsing, segment mapping and relocation live in loader_core.rs; the

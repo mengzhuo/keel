@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: tgamma.c.
 
 const TG_PI: f64 = 3.141592653589793238462643383279502884;

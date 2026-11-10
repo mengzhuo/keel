@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 #
 # Compare crabc against musl with a small set of microbenchmarks and a
 # process-startup benchmark.

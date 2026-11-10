@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // A real fts(3) implementation. The tree is scanned depth-first on the first
 // fts_read() call into a preorder array; fts_read() then walks that array.
 

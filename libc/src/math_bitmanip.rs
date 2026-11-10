@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 #[inline]
 fn p2d(e: i32) -> f64 {
     f64::from_bits(((0x3ff + e) as u64) << 52)

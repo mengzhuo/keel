@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
 # Cross-build and smoke-test crabc for riscv64 under qemu-user.
 #
 # Requirements:

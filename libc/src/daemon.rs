@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // daemon() - ported from musl/src/legacy/daemon.c
 // Included from libc/src/lib.rs in the "unistd.h: process primitives" section.
 

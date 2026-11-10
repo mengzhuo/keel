@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: sinh.c, cosh.c, tanh.c, sinhf.c, coshf.c, tanhf.c,
 // expm1.c, expm1f.c, __expo2.c, __expo2f.c
 //

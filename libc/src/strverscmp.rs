@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // strverscmp() - ported from musl/src/string/strverscmp.c
 // Included from libc/src/lib.rs in the "String/memory functions" section.
 

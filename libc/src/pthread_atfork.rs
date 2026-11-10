@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // pthread_atfork() handler registry and fork hook, musl-compatible.
 // Included from libc/src/lib.rs; fork() must call __fork_handler(-1/0/1).
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // fopencookie, open_wmemstream, strfmon and getdate.
 
 // ============================================================

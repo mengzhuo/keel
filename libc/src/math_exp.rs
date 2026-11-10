@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: exp.c, exp2.c, expf.c, exp_data.c, exp2f_data.c
 
 // ============================================================

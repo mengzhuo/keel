@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 #ifndef _SYS_UN_H
 #define _SYS_UN_H
 #include <sys/socket.h>

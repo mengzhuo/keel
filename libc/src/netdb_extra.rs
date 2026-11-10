@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Network database backends: /etc/services, /etc/protocols, /etc/networks,
 // /etc/ethers and /etc/hosts, plus getaddrinfo/getnameinfo.
 

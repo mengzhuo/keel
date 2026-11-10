@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 #[cfg(target_arch = "x86_64")]
 macro_rules! ld_wrapper {
     ($name:ident, $base:path, f64_ret) => {

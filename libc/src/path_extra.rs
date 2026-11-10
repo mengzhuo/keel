@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // realpath, glob/globfree and nftw/ftw.
 
 const PATH_MAX_V: usize = 4096;

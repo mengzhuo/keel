@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Shared fixture build/run helpers for the integration tests.
 //
 // Every C fixture is compiled as a PIE against the in-tree crabc libc and

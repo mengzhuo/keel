@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // getifaddrs() via rtnetlink, plus if_nametoindex/if_indextoname/
 // if_nameindex backed by /sys/class/net.
 

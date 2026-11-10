@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! `getconf`: print POSIX configuration values.
 //!
 //! The table below covers the values exposed by musl's getconf.  Limits

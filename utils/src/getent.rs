@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! `getent`: query the system databases.
 //!
 //! The passwd/group/hosts/services/protocols/networks/shells databases are

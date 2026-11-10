@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 /* Reduced benchmark for riscv64 qemu runs: keeps the loops short enough for
  * TCG while still comparing the hot libc paths. Output is picoseconds/op so
  * it does not depend on floating-point formatting. */

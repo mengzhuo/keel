@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Meng Zhuo */
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 /* long double format for crabc's per-architecture ABI. */
 #ifndef _CRABC_BITS_FLOAT_H
 #define _CRABC_BITS_FLOAT_H

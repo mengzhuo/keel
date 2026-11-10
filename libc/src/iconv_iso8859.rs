@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // ISO-8859-2..16 decode tables for iconv (auto-generated).
 // Undefined bytes map to their own value so round-trips stay byte-identical.
 

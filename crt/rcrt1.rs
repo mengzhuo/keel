@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 //! crabc static-PIE startup object (`rcrt1.o`).
 //!
 //! A static PIE is mapped by the kernel with no interpreter, so the entry

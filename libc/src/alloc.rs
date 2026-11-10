@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Allocator: segregated free lists for small blocks, mmap for large blocks.
 //
 // This replaces the old mmap-per-allocation allocator. Small allocations are

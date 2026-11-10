@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Architecture layer for libldso.
 //
 // Included from lib.rs.  Contains the raw syscall ABI, the active Arch alias

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 #![allow(dead_code)]
 
 //! Minimal 64-bit little-endian ELF reader used by `ldd` and `ldconfig`.

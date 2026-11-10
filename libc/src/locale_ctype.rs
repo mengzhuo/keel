@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 #[no_mangle]
 pub extern "C" fn toascii(c: c_int) -> c_int {
     c & 0x7f

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: sqrt.c, sqrtf.c, fmod.c, fmodf.c, sqrt_data.c
 // Uses only integer/bit ops and f64::from_bits/to_bits.
 // No Rust float methods except final return.

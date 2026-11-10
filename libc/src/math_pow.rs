@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Meng Zhuo
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Translated from musl: pow.c, powf.c, pow_data.c, powf_data.c
 // Uses non-FMA paths throughout (no __FP_FAST_FMA).
 // issignaling_inline/issignalingf_inline defined as 0 (always false) per musl libm.h.
