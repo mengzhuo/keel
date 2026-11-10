@@ -37,6 +37,29 @@ unsafe fn arch_get_tp() -> usize {
     tp
 }
 
+/// Read the thread pointer without a syscall.  Used on hot paths (vDSO
+/// getrandom) where TLS is guaranteed to be set up already.
+#[cfg(target_arch = "x86_64")]
+unsafe fn arch_get_tp_fast() -> usize {
+    let tp: usize;
+    core::arch::asm!("mov {}, fs:[0]", out(reg) tp, options(nostack, preserves_flags));
+    tp
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn arch_get_tp_fast() -> usize {
+    let tp: usize;
+    core::arch::asm!("mrs {}, tpidr_el0", out(reg) tp, options(nostack, preserves_flags));
+    tp
+}
+
+#[cfg(target_arch = "riscv64")]
+unsafe fn arch_get_tp_fast() -> usize {
+    let tp: usize;
+    core::arch::asm!("mv {}, tp", out(reg) tp, options(nostack, preserves_flags));
+    tp
+}
+
 // ============================================================
 // Syscall ABI
 // ============================================================

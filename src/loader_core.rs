@@ -49,6 +49,7 @@ pub const EM_RISCV: u16 = 243;
 pub const PT_LOAD: u32 = 1;
 pub const PT_DYNAMIC: u32 = 2;
 pub const PT_INTERP: u32 = 3;
+pub const PT_PHDR: u32 = 6;
 
 pub const PF_R: u32 = 4;
 pub const PF_W: u32 = 2;
@@ -74,10 +75,12 @@ const R_RELATIVE: u64 = R_RISCV_RELATIVE;
 
 pub const AT_NULL: u64 = 0;
 pub const AT_PHDR: u64 = 3;
+pub const AT_PHENT: u64 = 4;
 pub const AT_PHNUM: u64 = 5;
 pub const AT_PAGESZ: u64 = 6;
 pub const AT_ENTRY: u64 = 9;
 pub const AT_BASE: u64 = 7;
+pub const AT_SYSINFO_EHDR: u64 = 33;
 
 pub const PROT_READ: i32 = 1;
 pub const PROT_WRITE: i32 = 2;
@@ -158,21 +161,42 @@ pub fn map_segments(phdrs: &[Phdr], fd: i32, e_type: u16) -> Result<u64, &'stati
         let adj = ph.p_vaddr & (page - 1);
         let map_addr = load_bias + ph.p_vaddr - adj;
         let map_off = ph.p_offset - adj;
-        let map_len = (ph.p_filesz + adj + page - 1) & !(page - 1);
+        // Map the file-backed pages, not just p_filesz: the pages rounded up
+        // to a page boundary may be needed before BSS starts.  Then extend
+        // with anonymous pages so that BSS never lands outside the mapping.
+        let file_len = (ph.p_filesz + adj + page - 1) & !(page - 1);
+        let mem_len = (ph.p_memsz + adj + page - 1) & !(page - 1);
 
         let prot = prot_from_flags(ph.p_flags);
-        let ptr = unsafe {
-            sys_mmap(
-                map_addr as *mut u8,
-                map_len as usize,
-                prot,
-                MAP_PRIVATE | MAP_FIXED,
-                fd,
-                map_off as i64,
-            )
-        };
-        if ptr == MAP_FAILED {
-            return Err("mmap failed for PT_LOAD segment");
+        if file_len > 0 {
+            let ptr = unsafe {
+                sys_mmap(
+                    map_addr as *mut u8,
+                    file_len as usize,
+                    prot,
+                    MAP_PRIVATE | MAP_FIXED,
+                    fd,
+                    map_off as i64,
+                )
+            };
+            if ptr == MAP_FAILED {
+                return Err("mmap failed for PT_LOAD segment");
+            }
+        }
+        if mem_len > file_len {
+            let ptr = unsafe {
+                sys_mmap(
+                    (map_addr + file_len) as *mut u8,
+                    (mem_len - file_len) as usize,
+                    prot,
+                    MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS,
+                    -1,
+                    0,
+                )
+            };
+            if ptr == MAP_FAILED {
+                return Err("mmap failed for PT_LOAD BSS");
+            }
         }
 
         if ph.p_memsz > ph.p_filesz {

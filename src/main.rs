@@ -30,6 +30,27 @@ fn main() {
     }
 }
 
+/// Read the kernel's vDSO address from our own auxv.  The target inherits
+/// the same address space, so the same pointer stays valid after the jump.
+fn read_sysinfo_ehdr() -> u64 {
+    let Ok(data) = fs::read("/proc/self/auxv") else {
+        return 0;
+    };
+    let mut i = 0;
+    while i + 16 <= data.len() {
+        let tag = u64::from_ne_bytes(data[i..i + 8].try_into().unwrap());
+        let val = u64::from_ne_bytes(data[i + 8..i + 16].try_into().unwrap());
+        if tag == AT_NULL {
+            break;
+        }
+        if tag == AT_SYSINFO_EHDR {
+            return val;
+        }
+        i += 16;
+    }
+    0
+}
+
 fn load_and_run(path: &str, argv: &[String]) -> Result<(), String> {
     let file = fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
     let data = fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
@@ -43,10 +64,33 @@ fn load_and_run(path: &str, argv: &[String]) -> Result<(), String> {
     apply_relocations(&data, phdrs, load_bias).map_err(|e| e.to_string())?;
 
     let entry = ehdr.e_entry + load_bias;
-    transfer(entry, argv, ehdr.e_phoff + load_bias, phdrs.len());
+    transfer(
+        entry,
+        argv,
+        phdr_runtime_addr(&ehdr, phdrs, load_bias),
+        phdrs.len(),
+        read_sysinfo_ehdr(),
+    );
 }
 
-fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize) -> ! {
+/// Translate e_phoff (a file offset) to its runtime address.  For ET_EXEC,
+/// e_phoff is not a virtual address: the headers live inside the first
+/// PT_LOAD, usually at 0x400000 + e_phoff, not e_phoff.
+fn phdr_runtime_addr(ehdr: &Ehdr, phdrs: &[Phdr], load_bias: u64) -> u64 {
+    for ph in phdrs {
+        if ph.p_type == PT_PHDR {
+            return load_bias + ph.p_vaddr;
+        }
+    }
+    for ph in phdrs.iter().filter(|p| p.p_type == PT_LOAD) {
+        if ehdr.e_phoff >= ph.p_offset && ehdr.e_phoff < ph.p_offset + ph.p_filesz {
+            return load_bias + ph.p_vaddr + (ehdr.e_phoff - ph.p_offset);
+        }
+    }
+    load_bias + ehdr.e_phoff
+}
+
+fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize, sysinfo_ehdr: u64) -> ! {
     let c_argv: Vec<CString> = argv
         .iter()
         .map(|a| CString::new(a.as_str()).unwrap())
@@ -79,15 +123,29 @@ fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize) -> ! {
 
     sp &= !7usize;
 
-    let auxv_entries: [(u64, u64); 5] = [
+    let auxv_entries: [(u64, u64); 7] = [
         (AT_PHDR, phdr_addr),
+        // Elf64_Phdr size; static libc uses it while walking PT_TLS.
+        (AT_PHENT, 56),
         (AT_PHNUM, phnum as u64),
         (AT_PAGESZ, PAGE_SIZE as u64),
         (AT_ENTRY, entry),
+        (AT_SYSINFO_EHDR, sysinfo_ehdr),
         (AT_NULL, 0),
     ];
 
-    sp -= auxv_entries.len() * 16;
+    // Lay out the structured area so that the final stack pointer stays
+    // 16-byte aligned.  argc is written last and must sit exactly at sp;
+    // aligning after writing it (as this loader used to do) shifts argc.
+    sp &= !15usize;
+    let auxv_bytes = auxv_entries.len() * 16;
+    let words = 1 /* argc */ + 1 /* argv NULL */ + str_ptrs.len() + 1 /* envp NULL */;
+    if (auxv_bytes + words * 8) % 16 != 0 {
+        // Padding above the auxv is ignored: the scan stops at AT_NULL.
+        sp -= 8;
+        unsafe { *(sp as *mut u64) = 0 };
+    }
+    sp -= auxv_bytes;
     let auxv_ptr = sp as *mut (u64, u64);
     for (i, &(tag, val)) in auxv_entries.iter().enumerate() {
         unsafe { *auxv_ptr.add(i) = (tag, val) };
@@ -106,7 +164,9 @@ fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize) -> ! {
     sp -= 8;
     unsafe { *(sp as *mut u64) = argv.len() as u64 };
 
-    sp &= !15usize;
+    // The target is static: it must build its own TCB.  Do not let it inherit
+    // the loader's Rust/glibc thread pointer.
+    unsafe { arch::clear_thread_pointer() };
 
     #[cfg(target_arch = "x86_64")]
     unsafe {

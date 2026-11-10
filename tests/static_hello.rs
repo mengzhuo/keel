@@ -1,45 +1,13 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
+mod common;
+
 use std::process::Command;
 
 #[test]
 fn static_hello_links_against_libc_a() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fixtures = manifest_dir.join("tests/fixtures");
-
-    let libc_a = manifest_dir.join("target/debug/libc.a");
-    assert!(libc_a.exists(), "libc.a not found at {}", libc_a.display());
-
-    let hello_src = fixtures.join("hello.c");
-    let hello_bin = fixtures.join("hello_static");
-
-    // CRT paths differ by architecture
-    let arch = if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else if cfg!(target_arch = "riscv64") {
-        "riscv64"
-    } else {
-        "x86_64"
-    };
-    let musl_lib = format!("/usr/lib/{}-linux-musl", arch);
-
-    let status = Command::new("musl-gcc")
-        .args([
-            "-static",
-            "-nostdlib",
-            "-fno-stack-protector",
-            &format!("{}/crt1.o", musl_lib),
-            &format!("{}/crti.o", musl_lib),
-            hello_src.to_str().unwrap(),
-            libc_a.to_str().unwrap(),
-            &format!("{}/crtn.o", musl_lib),
-            "-o",
-            hello_bin.to_str().unwrap(),
-        ])
-        .status()
-        .expect("failed to run musl-gcc");
-    assert!(status.success(), "static link with libc.a failed");
+    let hello_bin = common::compile_static("hello.c", "hello_static");
 
     let file_out = Command::new("file")
         .arg(&hello_bin)
@@ -58,6 +26,21 @@ fn static_hello_links_against_libc_a() {
     assert!(
         output.status.success(),
         "hello_static exited with {:?}, stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello\n");
+
+    // The standalone loader maps static ELF itself.  It must translate
+    // AT_PHDR, map BSS, and clear the loader's thread pointer before the
+    // target's startup runs.
+    let output = Command::new(env!("CARGO_BIN_EXE_loader"))
+        .arg(&hello_bin)
+        .output()
+        .expect("failed to run loader");
+    assert!(
+        output.status.success(),
+        "loader hello_static exited with {:?}, stderr: {}",
         output.status.code(),
         String::from_utf8_lossy(&output.stderr)
     );

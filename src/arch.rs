@@ -419,6 +419,28 @@ pub use sysnr::*;
 // Syscall wrappers
 // ============================================================
 
+/// Drop the loader's own thread pointer before jumping to a static target.
+/// The target inherits the address space, and Rust's glibc TLS block is not
+/// a crabc TCB: leaving %fs set makes crabc's static startup think TLS is
+/// already initialized and skip building its own block.
+#[inline]
+pub unsafe fn clear_thread_pointer() {
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        const SYS_ARCH_PRCTL: i64 = 158;
+        const ARCH_SET_FS: i64 = 0x1002;
+        let _ = <Arch as Syscalls>::syscall2(SYS_ARCH_PRCTL, ARCH_SET_FS, 0);
+    }
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        core::arch::asm!("msr tpidr_el0, {}", in(reg) 0usize, options(nostack));
+    }
+    #[cfg(target_arch = "riscv64")]
+    unsafe {
+        core::arch::asm!("mv tp, {}", in(reg) 0usize, options(nostack));
+    }
+}
+
 #[inline]
 pub unsafe fn sys_mmap(
     addr: *mut u8,

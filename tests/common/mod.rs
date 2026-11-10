@@ -71,6 +71,42 @@ pub fn compile_fixture(name: &str, extra: &[&str]) -> PathBuf {
     compile_file(&src, &bin, extra)
 }
 
+/// Build a static fixture against libc.a using the host musl CRT objects.
+/// The result runs both directly and through the standalone `loader`.
+pub fn compile_static(src_name: &str, bin_name: &str) -> PathBuf {
+    require_runtime();
+    let src = fixtures_dir().join(src_name);
+    let bin = fixtures_dir().join(bin_name);
+    let libc_a = debug_dir().join("libc.a");
+    assert!(libc_a.exists(), "libc.a not found at {}", libc_a.display());
+
+    let arch = if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else if cfg!(target_arch = "riscv64") {
+        "riscv64"
+    } else {
+        "x86_64"
+    };
+    let musl_lib = format!("/usr/lib/{arch}-linux-musl");
+    let status = Command::new("musl-gcc")
+        .args([
+            "-static",
+            "-nostdlib",
+            "-fno-stack-protector",
+            &format!("{musl_lib}/crt1.o"),
+            &format!("{musl_lib}/crti.o"),
+            src.to_str().unwrap(),
+            libc_a.to_str().unwrap(),
+            &format!("{musl_lib}/crtn.o"),
+            "-o",
+            bin.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap_or_else(|error| panic!("failed to run musl-gcc for {}: {error}", src.display()));
+    assert!(status.success(), "static link failed for {}", src.display());
+    bin
+}
+
 pub fn run_binary(bin: &Path) -> Output {
     Command::new(bin)
         .env("LD_LIBRARY_PATH", debug_dir())

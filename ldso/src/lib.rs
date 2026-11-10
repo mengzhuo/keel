@@ -109,6 +109,7 @@ const AT_GID: u64 = 13;
 const AT_EGID: u64 = 14;
 const AT_SECURE: u64 = 23;
 const AT_RANDOM: u64 = 25;
+const AT_SYSINFO_EHDR: u64 = 33;
 
 const PROT_READ: i32 = 1;
 const PROT_WRITE: i32 = 2;
@@ -2100,6 +2101,8 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
     } else {
         old_fs as *mut u8
     };
+    let old_tcb = (old_fs as isize + tls_tcb_offset_from_tp()) as *const u64;
+    let old_getrandom = core::ptr::read_unaligned(old_tcb.add(7));
     if old_total > 0 {
         core::ptr::copy_nonoverlapping(old_var_base, block.add(tls_var_area_offset_from_block()), old_total);
     }
@@ -2123,6 +2126,10 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
     core::ptr::write_unaligned((tcb as *mut u64).add(1), TLS_GENERATION);
     core::ptr::write_unaligned((tcb as *mut u64).add(2), TLS_TOTAL_SIZE as u64);
     core::ptr::write_unaligned((tcb as *mut u64).add(3), TLS_MODULE_COUNT as u64);
+    // 0x38 is libc's per-thread vDSO getrandom state pointer.  Keep the
+    // state this thread already allocated when growing its block; dropping
+    // it would leak the page and force a fresh kernel reseed.
+    core::ptr::write_unaligned((tcb as *mut u64).add(7), old_getrandom);
     write_tp(block.add(tls_tp_offset_from_block()) as usize);
 }
 
@@ -2828,6 +2835,9 @@ unsafe fn init_tls_block(block: *mut u8) -> *mut u8 {
     core::ptr::write_unaligned((tcb as *mut u64).add(1), TLS_GENERATION);
     core::ptr::write_unaligned((tcb as *mut u64).add(2), TLS_TOTAL_SIZE as u64);
     core::ptr::write_unaligned((tcb as *mut u64).add(3), TLS_MODULE_COUNT as u64);
+    // 0x38 is libc's per-thread vDSO getrandom state pointer.  A block
+    // carved out of an application stack is not zero-filled, so clear it.
+    core::ptr::write_unaligned((tcb as *mut u64).add(7), 0u64);
     block.add(tls_tp_offset_from_block())
 }
 
@@ -3515,6 +3525,7 @@ struct OrigAuxv {
     at_euid: u64,
     at_gid: u64,
     at_egid: u64,
+    at_sysinfo_ehdr: u64,
 }
 
 unsafe fn read_orig_auxv(orig_sp: usize, envc: usize) -> OrigAuxv {
@@ -3526,6 +3537,7 @@ unsafe fn read_orig_auxv(orig_sp: usize, envc: usize) -> OrigAuxv {
         at_euid: 0,
         at_gid: 0,
         at_egid: 0,
+        at_sysinfo_ehdr: 0,
     };
     let argc = *(orig_sp as *const u64) as usize;
     let argv_start = orig_sp + 8;
@@ -3546,6 +3558,7 @@ unsafe fn read_orig_auxv(orig_sp: usize, envc: usize) -> OrigAuxv {
             AT_EUID => out.at_euid = val,
             AT_GID => out.at_gid = val,
             AT_EGID => out.at_egid = val,
+            AT_SYSINFO_EHDR => out.at_sysinfo_ehdr = val,
             _ => {}
         }
         i += 1;
@@ -3634,7 +3647,7 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
         *(sp as *mut u64) = 0;
     }
 
-    const AUXV_ENTRIES: usize = 13;
+    const AUXV_ENTRIES: usize = 14;
     sp -= AUXV_ENTRIES * 16;
     let aux = sp as *mut u64;
     *aux.add(0) = AT_PHDR;
@@ -3661,8 +3674,10 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
     *aux.add(21) = orig_auxv.at_gid;
     *aux.add(22) = AT_EGID;
     *aux.add(23) = orig_auxv.at_egid;
-    *aux.add(24) = AT_NULL;
-    *aux.add(25) = 0;
+    *aux.add(24) = AT_SYSINFO_EHDR;
+    *aux.add(25) = orig_auxv.at_sysinfo_ehdr;
+    *aux.add(26) = AT_NULL;
+    *aux.add(27) = 0;
 
     sp -= (max_env + 1) * 8;
     for i in 0..max_env {

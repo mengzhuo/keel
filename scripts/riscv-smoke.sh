@@ -75,7 +75,7 @@ run() {
         LD_LIBRARY_PATH="$LIBS" "$out" >"$TMP/$name.out" 2>"$TMP/$name.err"
     fi
     if [ $? -ne 0 ]; then
-        echo "RUNFAIL $name: $(head -c 160 "$TMP/$name.err" | tr '\n' ' ')"
+        echo "RUNFAIL $name: stderr=$(head -c 160 "$TMP/$name.err" | tr '\n' ' ') stdout=$(head -c 160 "$TMP/$name.out" | tr '\n' ' ')"
         FAILS=$((FAILS + 1))
         return
     fi

@@ -55,9 +55,11 @@ Most `tests/<name>.rs` (canonical: `tests/math.rs`) use `tests/common/mod.rs`:
 3. the test asserts exact stdout (for example `"math ok\n"`).
 
 Pass extra compiler flags through the `extra` slice. Math adds
-`-fno-builtin -frounding-math`; on x86_64 also `-mlong-double-64`. Tests
-that build DSOs, static binaries or custom loader layouts still invoke the
-toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/wave4.rs` and `tests/wave5.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup.
+`-fno-builtin -frounding-math`; on x86_64 also `-mlong-double-64`.
+`common::compile_static(src, bin)` builds a static fixture against `libc.a`
+with the host musl CRT objects; tests then run it directly and through the
+standalone `loader`. Tests that build DSOs or custom loader layouts still
+invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/wave4.rs` and `tests/wave5.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup.
 
 `libc` and `ldso` set `test = false`; all coverage is through these root integration tests.
 
@@ -82,6 +84,9 @@ toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rus
 - The byte loops in `memset_words()` use `write_volatile`; without it LLVM recognises the loop as a `memset` idiom on aarch64 and emits a recursive call to `memset`, overflowing the stack for small unaligned fills (Rust `HashSet` hit this).
 - `match_sym()` must reject `SHN_UNDEF` symbols. ET_EXEC objects can carry a non-zero `st_value` (the PLT stub) for an undefined function; resolving it makes the PLT jump to itself.
 - `mkstemps()` must honour the suffix length; GCC's temp-file creation uses a template whose final six characters are not `XXXXXX`. `vfork()` intentionally forwards to `fork`; a clone-based vfork broke LTP `vfork01` and the mkfs helpers (child segfaults), while fork semantics pass.
+- vDSO entry points are resolved from `AT_SYSINFO_EHDR` in `libc/src/vdso.rs`. `clock_gettime`, `gettimeofday`, `time`, `sched_getcpu` and `getrandom` use it; the real syscall is always the fallback. Both `__vdso_*` and `__kernel_*` names must be tried (aarch64 uses the latter).
+- vDSO `getrandom` uses a per-thread opaque state. Its pointer lives at TCB offset `0x38` (errno ends at `0x34`), so every TCB constructor must zero that slot, `expand_thread_tls()` must preserve it, and thread exit must `munmap` the state page. The page is allocated with the kernel-provided `MAP_DROPPABLE` flags and `MADV_WIPEONFORK`; without the fork wipe the vDSO must not be used, or parent and child could reuse the same buffered bytes. A DSO with 4-byte TLS alignment can leave the thread pointer only 4-byte aligned, so access the slot with `read_unaligned`/`write_unaligned`; an `&AtomicUsize` or `read_volatile` at that address is misaligned and panics in debug builds.
+- The standalone `loader` rebuilds the target auxv. It must pass through `AT_SYSINFO_EHDR` and `AT_PHENT`, translate `AT_PHDR` from a file offset to its runtime address, extend PT_LOAD mappings past `p_filesz` for BSS, keep the final `sp` 16-byte aligned before writing `argc`, and clear its own thread pointer before jumping to a static target. `tests/static_hello.rs` and `tests/vdso.rs` cover the direct and loader paths.
 - The `crabc` runtime package installs the canonical `/lib/ld-musl-<arch>.so.1` and `/lib/libc.musl-<arch>.so.1` symlinks, provides `musl` and `so:libc.musl-<arch>.so.1`, and replaces `musl`; installing it purges the `musl` package record and switches the system libc.
 - `crabc-dev` provides both `libc-dev` and `musl-dev` and replaces `musl-dev`; installing it purges Alpine `musl-dev`, while `build-base`/`g++` dependents remain satisfied. `crabc-utils` provides `libc-utils`, `musl-utils`, and `cmd:*`, and replaces `musl-utils`; installing it purges `musl-utils` and `scanelf`.
 - When a new DSO is loaded, TLS layout offsets are assigned **before** relocations (aarch64 TLSDESC/TPOFF embed them) and the relocated `.tdata` image is copied into threads **after** relocations. Do not merge these steps: doing so either corrupts TLSDESC offsets or copies unrelocated pointers.

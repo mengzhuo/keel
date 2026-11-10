@@ -19,7 +19,8 @@ and the reproduction scripts rather than the absolute values.
   - crabc: `target/release/libldso.so` with
     `LD_LIBRARY_PATH=target/release`
 - Microbenchmarks: `clock_gettime(CLOCK_MONOTONIC)` around a batch, `-O2
-  -fno-builtin`, so calls go through the libc.
+  -fno-builtin`, so calls go through the libc. The vDSO group also measures
+  `gettimeofday`, `time`, `sched_getcpu` and 32-byte `getrandom`.
 - Startup: `fork` + `exec` + `wait` of a minimal dynamically linked program.
 - Interleaved rounds, pinned to one CPU; the median is reported. The host is
   shared, so absolute values can move by 10-20% between sessions.
@@ -30,34 +31,38 @@ and the reproduction scripts rather than the absolute values.
 
 | Benchmark | musl | crabc | crabc/musl |
 |---|---:|---:|---:|
-| `memcpy` 64B | 10.9 ns | 6.8 ns | 0.62x |
-| `memcpy` 4KB | 59.0 ns | 45.4 ns | 0.77x |
+| `memcpy` 64B | 10.8 ns | 6.7 ns | 0.62x |
+| `memcpy` 4KB | 59.0 ns | 44.7 ns | 0.76x |
 | `memset` 4KB | 63.3 ns | 50.2 ns | 0.79x |
-| `memcmp` 4KB | 861 ns | 36.7 ns | 0.04x |
-| `strlen` 4KB | 314 ns | 53.2 ns | 0.17x |
-| `strcmp` (short) | 9.3 ns | 4.8 ns | 0.52x |
-| `strstr` | 55.1 ns | 8.4 ns | 0.15x |
-| `snprintf` | 434 ns | 272 ns | 0.63x |
-| `fprintf` → `/dev/null` | 414 ns | 252 ns | 0.61x |
-| `malloc`/`free` 16B | 112 ns | 13.1 ns | 0.12x |
-| `malloc`/`free` 256B | 112 ns | 12.6 ns | 0.11x |
-| `calloc` 1KB | 171 ns | 25.8 ns | 0.15x |
-| `realloc` (grow) | 22.3 ns | 9.2 ns | 0.41x |
-| `sin` | 5.19 ns | 5.01 ns | 0.96x |
-| `exp` | 6.59 ns | 6.53 ns | 0.98x |
-| `log` | 8.57 ns | 8.60 ns | 1.00x |
+| `memcmp` 4KB | 865 ns | 45.8 ns | 0.05x |
+| `strlen` 4KB | 316 ns | 55.4 ns | 0.17x |
+| `strcmp` (short) | 10.2 ns | 4.8 ns | 0.47x |
+| `strstr` | 57.7 ns | 8.9 ns | 0.15x |
+| `snprintf` | 434 ns | 260 ns | 0.60x |
+| `fprintf` → `/dev/null` | 414 ns | 243 ns | 0.59x |
+| `malloc`/`free` 16B | 104 ns | 13.4 ns | 0.13x |
+| `malloc`/`free` 256B | 108 ns | 13.2 ns | 0.12x |
+| `calloc` 1KB | 173 ns | 26.3 ns | 0.15x |
+| `realloc` (grow) | 23.9 ns | 8.9 ns | 0.37x |
+| `sin` | 5.19 ns | 5.02 ns | 0.97x |
+| `exp` | 6.58 ns | 6.53 ns | 0.99x |
+| `log` | 8.59 ns | 8.54 ns | 1.00x |
 | `pow` | 21.8 ns | 23.9 ns | 1.10x |
-| `sqrt` | 2.95 ns | 2.87 ns | 1.00x |
-| `getpid` | 183 ns | 182 ns | 1.00x |
-| `clock_gettime` | 27.7 ns | 27.7 ns | 1.00x |
-| `open`+`close` | 3482 ns | 3404 ns | 0.98x |
-| `stat` | 1457 ns | 1455 ns | 1.00x |
-| `getenv` | 88.6 ns | 40.9 ns | 0.46x |
-| `pthread_mutex` lock/unlock | 12.2 ns | 6.5 ns | 0.53x |
-| `pthread_create`+`join` | 38.8 µs | 40.4 µs | 1.04x |
-| Process startup | 333 µs | 391 µs | 1.17x |
+| `sqrt` | 2.85 ns | 3.08 ns | 1.08x |
+| `getpid` | 183 ns | 184 ns | 1.01x |
+| `clock_gettime` | 27.7 ns | 27.8 ns | 1.01x |
+| `gettimeofday` | 33.1 ns | 32.7 ns | 0.99x |
+| `time` | 26.8 ns | 27.7 ns | 1.03x |
+| `sched_getcpu` | 4.26 ns | 7.00 ns | 1.64x |
+| `getrandom` 32B | 480 ns | 94.6 ns | 0.20x |
+| `open`+`close` | 3468 ns | 3399 ns | 0.98x |
+| `stat` | 1463 ns | 1456 ns | 1.00x |
+| `getenv` | 88.6 ns | 37.0 ns | 0.42x |
+| `pthread_mutex` lock/unlock | 12.3 ns | 6.5 ns | 0.52x |
+| `pthread_create`+`join` | 54.8 µs | 62.5 µs | 1.14x |
+| Process startup | 538 µs | 629 µs | 1.17x |
 
-Geometric mean over the 26 benchmarks: **0.50x musl's runtime**.
+Geometric mean over the 30 benchmarks: **0.54x musl's runtime**.
 
 The thread benchmark creates and joins 2000 threads; all 2000 ran in every
 crabc round.
@@ -108,8 +113,15 @@ without `--gc-sections` it grows to 1.23 MB.
   loops. The riscv64 path uses single `ld`/`sd` instructions (LLVM otherwise
   splits unaligned 64-bit accesses into bytes) and offset-addressed 32B
   blocks.
-- **vDSO `clock_gettime`.** crabc resolves `__vdso_clock_gettime` from
-  `AT_SYSINFO_EHDR` and calls it directly; the syscall remains the fallback.
+- **vDSO fast paths.** `clock_gettime`, `gettimeofday`, `time`,
+  `sched_getcpu` and `getrandom` resolve their entry points from
+  `AT_SYSINFO_EHDR` and call the kernel implementation directly; the syscall
+  remains the fallback.  On Linux 6.11+ `getrandom` keeps a per-thread
+  ChaCha20 state allocated with the kernel-provided `MAP_DROPPABLE` flags and
+  `MADV_WIPEONFORK`, so forked children reseed instead of reusing the parent's
+  buffered bytes.  This makes 32-byte `getrandom` about 5x faster than the
+  syscall.  Both vDSO symbol naming schemes (`__vdso_*` and `__kernel_*`) are
+  handled, and the loader preserves `AT_SYSINFO_EHDR` for static targets.
 - **Packed relative relocations.** `libc.so` is linked with
   `-z pack-relative-relocs`; the loader applies both `DT_RELA` and `DT_RELR`.
 - **Dynamic linker.** Symbol lookup uses each object's GNU/SysV hash table
@@ -128,6 +140,31 @@ without `--gc-sections` it grows to 1.23 MB.
   the previous `-O3` build was about 2.3x musl's size, the current one is
   1.06x.
 
+## vDSO coverage
+
+The vDSO is resolved lazily from `AT_SYSINFO_EHDR`; no syscall is needed on
+the fast path.  Both symbol naming schemes are accepted because the kernel
+uses `__vdso_*` on x86\_64/riscv64 and `__kernel_*` on aarch64.
+
+| Function | Fast path | Fallback |
+|---|---|---|
+| `clock_gettime` | `__vdso_clock_gettime` / `__kernel_clock_gettime` | `clock_gettime` syscall |
+| `gettimeofday`, `time` | built on `clock_gettime` | same |
+| `sched_getcpu` | `__vdso_getcpu` / `__kernel_getcpu` (x86\_64, riscv64) | `getcpu` syscall |
+| `getrandom`, `getentropy` | `__vdso_getrandom` / `__kernel_getrandom` (Linux 6.11+) | `getrandom` syscall |
+
+vDSO `getrandom` needs an opaque per-thread state.  crabc queries the kernel
+for its size and mmap flags, maps one page per thread, and applies
+`MADV_WIPEONFORK`.  The state pointer lives in the otherwise unused TCB byte
+range at `0x38`, is preserved when `dlopen` grows a thread's TLS block, and is
+unmapped when the thread exits.  Kernels without the symbol, or where the
+state cannot be made fork-safe, use the syscall.
+
+The standalone loader rebuilds the auxiliary vector for the target.  It
+preserves `AT_SYSINFO_EHDR` and `AT_PHENT`, translates `AT_PHDR` from a file
+offset to its runtime address, maps BSS past `p_filesz`, and clears its own
+thread pointer before jumping to a static target.
+
 ## Remaining gaps
 
 - **Process startup, 1.17x.** musl's dynamic linker *is* its libc, so one
@@ -135,9 +172,12 @@ without `--gc-sections` it grows to 1.23 MB.
   relocates a separate `libc.so`.
 - **`pow`, 1.10x.** The port keeps exact `x^1` / `x^-1` identities (see
   `AGENTS.md`).
-- **`snprintf` / `fprintf`, 0.61-0.63x.** Still faster than musl, but slower
-  than the `-O3` build (0.53x) because of the size profile.
-- **`pthread_create`+`join`, 1.04x.** Within run-to-run noise on this host.
+- **`sched_getcpu`, 1.64x.** Both implementations use the vDSO; crabc's
+  wrapper costs a few instructions more. It is still far cheaper than the
+  syscall fallback.
+- **`pthread_create`+`join`, 1.14x.** The thread stack and TLS mappings
+  dominate this microbenchmark; the host is shared and the ratio moves
+  between sessions.
 
 ## Reproduce
 

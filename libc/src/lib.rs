@@ -2965,6 +2965,7 @@ unsafe extern "C" fn thread_entry(slot: *mut c_void) -> *mut c_void {
         core::mem::transmute::<usize, _>(slot.user_fn);
     let ret = user_fn(slot.user_arg);
     run_key_dtors(slot);
+    vdso_getrandom_thread_exit();
     slot.result = ret;
     a_store(&raw mut slot.detach_state, DT_EXITED);
     futex_wake(&raw mut slot.detach_state, 1);
@@ -3200,6 +3201,7 @@ pub unsafe extern "C" fn pthread_exit(retval: *mut c_void) -> ! {
     if let Some(slot) = find_thread() {
         run_cleanup_handlers(slot);
         run_key_dtors(slot);
+        vdso_getrandom_thread_exit();
         slot.result = retval;
         slot.detach_state = DT_EXITED;
         futex_wake(&slot.detach_state as *const c_int as *mut c_int, 1);
@@ -10583,7 +10585,7 @@ const CLOCK_PROCESS_CPUTIME_ID: c_int = 2;
 #[no_mangle]
 pub unsafe extern "C" fn time(t: *mut TimeT) -> TimeT {
     let mut ts: timespec = core::mem::zeroed();
-    let _ = sys_clock_gettime(CLOCK_REALTIME, &mut ts);
+    let _ = clock_gettime(CLOCK_REALTIME, &mut ts);
     if !t.is_null() { *t = ts.tv_sec; }
     ts.tv_sec
 }
@@ -10743,7 +10745,7 @@ pub unsafe extern "C" fn clock_nanosleep(clockid: c_int, flags: c_int, req: *con
 pub unsafe extern "C" fn gettimeofday(tv: *mut timeval, _tz: *mut c_void) -> c_int {
     if tv.is_null() { return 0; }
     let mut ts: timespec = core::mem::zeroed();
-    let _ = sys_clock_gettime(CLOCK_REALTIME, &mut ts);
+    let _ = clock_gettime(CLOCK_REALTIME, &mut ts);
     (*tv).tv_sec = ts.tv_sec;
     (*tv).tv_usec = ts.tv_nsec / 1000;
     0
@@ -14686,6 +14688,7 @@ unsafe fn static_tls_init_block(block: *mut u8) -> *mut u8 {
     core::ptr::write_unaligned((tcb as *mut u64).add(4), 0); // reserved
     core::ptr::write_unaligned((tcb as *mut u64).add(5), STATIC_TLS_CANARY); // 0x28
     core::ptr::write_unaligned((tcb as *mut u64).add(6), 0); // errno at 0x30
+    core::ptr::write_unaligned((tcb as *mut u64).add(7), 0); // vDSO getrandom state at 0x38
     tp
 }
 
@@ -17099,9 +17102,21 @@ pub unsafe extern "C" fn sched_getaffinity(pid: i32, cpusetsize: usize, cpuset: 
 
 #[no_mangle]
 pub unsafe extern "C" fn sched_getcpu() -> i32 {
-    let mut cpu: i32 = 0;
-    <Arch as Syscalls>::syscall3(sysno(309, 168), &mut cpu as *mut i32 as i64, 0, 0);
-    cpu
+    let mut cpu: u32 = 0;
+    if vdso_getcpu(&mut cpu) {
+        return cpu as i32;
+    }
+    let r = <Arch as Syscalls>::syscall3(
+        sysno(309, 168),
+        &mut cpu as *mut u32 as i64,
+        0,
+        0,
+    );
+    if r == 0 {
+        cpu as i32
+    } else {
+        syscall_ret(r) as i32
+    }
 }
 
 #[no_mangle]
@@ -17860,6 +17875,14 @@ pub unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn getrandom(buf: *mut u8, buflen: usize, flags: u32) -> isize {
+    if let Some(r) = vgetrandom(buf, buflen, flags) {
+        return if r < 0 {
+            ERRNO!() = (-r) as c_int;
+            -1
+        } else {
+            r
+        };
+    }
     let r = <Arch as Syscalls>::syscall3(sysno(318, 278), buf as i64, buflen as i64, flags as i64);
     if r < 0 {
         ERRNO!() = (-r) as c_int;

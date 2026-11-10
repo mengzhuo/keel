@@ -6,11 +6,14 @@
 #include <fcntl.h>
 #include <math.h>
 #include <pthread.h>
+#include <sched.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/random.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -189,18 +192,49 @@ static void bench_math(void) {
     report("sqrt", now_ns() - t0, 10000000);
 }
 
-static void bench_syscalls(void) {
+static void bench_vdso(void) {
     uint64_t t0 = now_ns();
-    for (uint64_t i = 0; i < 5000000; i++) sink += (uint64_t)getpid();
-    report("getpid", now_ns() - t0, 5000000);
-
-    t0 = now_ns();
     for (uint64_t i = 0; i < 5000000; i++) {
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         sink += (uint64_t)ts.tv_nsec;
     }
     report("clock_gettime", now_ns() - t0, 5000000);
+
+    t0 = now_ns();
+    for (uint64_t i = 0; i < 5000000; i++) {
+        struct timeval tv;
+        gettimeofday(&tv, 0);
+        sink += (uint64_t)tv.tv_usec;
+    }
+    report("gettimeofday", now_ns() - t0, 5000000);
+
+    t0 = now_ns();
+    for (uint64_t i = 0; i < 5000000; i++) sink += (uint64_t)time(0);
+    report("time", now_ns() - t0, 5000000);
+
+    t0 = now_ns();
+    for (uint64_t i = 0; i < 5000000; i++) sink += (uint64_t)sched_getcpu();
+    report("sched_getcpu", now_ns() - t0, 5000000);
+
+    unsigned char rnd[32];
+    t0 = now_ns();
+    for (uint64_t i = 0; i < 2000000; i++) {
+        if (getrandom(rnd, sizeof rnd, 0) != (ssize_t)sizeof rnd) {
+            report("getrandom_32", UINT64_MAX, 1);
+            return;
+        }
+        sink += rnd[i & 31];
+    }
+    report("getrandom_32", now_ns() - t0, 2000000);
+}
+
+static void bench_syscalls(void) {
+    uint64_t t0 = now_ns();
+    for (uint64_t i = 0; i < 5000000; i++) sink += (uint64_t)getpid();
+    report("getpid", now_ns() - t0, 5000000);
+
+    bench_vdso();
 
     t0 = now_ns();
     for (uint64_t i = 0; i < 200000; i++) {
