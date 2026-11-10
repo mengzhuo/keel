@@ -53,7 +53,7 @@ and the reproduction scripts rather than the absolute values.
 | `clock_gettime` | 27.7 ns | 27.8 ns | 1.01x |
 | `gettimeofday` | 33.1 ns | 32.7 ns | 0.99x |
 | `time` | 26.8 ns | 27.7 ns | 1.03x |
-| `sched_getcpu` | 4.26 ns | 7.00 ns | 1.64x |
+| `sched_getcpu` | 4.26 ns | 4.26 ns | 1.00x |
 | `getrandom` 32B | 480 ns | 94.6 ns | 0.20x |
 | `open`+`close` | 3468 ns | 3399 ns | 0.98x |
 | `stat` | 1463 ns | 1456 ns | 1.00x |
@@ -62,7 +62,7 @@ and the reproduction scripts rather than the absolute values.
 | `pthread_create`+`join` | 54.8 µs | 62.5 µs | 1.14x |
 | Process startup | 538 µs | 629 µs | 1.17x |
 
-Geometric mean over the 30 benchmarks: **0.54x musl's runtime**.
+Geometric mean over the 30 benchmarks: **0.53x musl's runtime**.
 
 The thread benchmark creates and joins 2000 threads; all 2000 ran in every
 crabc round.
@@ -172,9 +172,6 @@ thread pointer before jumping to a static target.
   relocates a separate `libc.so`.
 - **`pow`, 1.10x.** The port keeps exact `x^1` / `x^-1` identities (see
   `AGENTS.md`).
-- **`sched_getcpu`, 1.64x.** Both implementations use the vDSO; crabc's
-  wrapper costs a few instructions more. It is still far cheaper than the
-  syscall fallback.
 - **`pthread_create`+`join`, 1.14x.** The thread stack and TLS mappings
   dominate this microbenchmark; the host is shared and the ratio moves
   between sessions.

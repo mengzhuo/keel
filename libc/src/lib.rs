@@ -17100,23 +17100,28 @@ pub unsafe extern "C" fn sched_getaffinity(pid: i32, cpusetsize: usize, cpuset: 
     0
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn sched_getcpu() -> i32 {
-    let mut cpu: u32 = 0;
-    if vdso_getcpu(&mut cpu) {
-        return cpu as i32;
-    }
-    let r = <Arch as Syscalls>::syscall3(
-        sysno(309, 168),
-        &mut cpu as *mut u32 as i64,
-        0,
-        0,
-    );
+#[cold]
+unsafe fn sched_getcpu_syscall(cpu: *mut u32) -> i32 {
+    let r = <Arch as Syscalls>::syscall3(sysno(309, 168), cpu as i64, 0, 0);
     if r == 0 {
-        cpu as i32
+        core::ptr::read_unaligned(cpu) as i32
     } else {
         syscall_ret(r) as i32
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sched_getcpu() -> i32 {
+    // Both the vDSO and the syscall fill the slot on success.  A 16-byte
+    // scratch area keeps the write away from the return address; a 4-byte
+    // slot overlaps the compiler's push and triggers a store-forwarding
+    // stall on the vDSO write (measured ~2.5 ns).
+    let mut cpu = core::mem::MaybeUninit::<[u64; 2]>::uninit();
+    let cpu_ptr = cpu.as_mut_ptr() as *mut u32;
+    if vdso_getcpu(cpu_ptr) {
+        return core::ptr::read_unaligned(cpu_ptr) as i32;
+    }
+    sched_getcpu_syscall(cpu_ptr)
 }
 
 #[no_mangle]

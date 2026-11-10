@@ -67,7 +67,11 @@ static VGETRANDOM_ALLOC: AtomicUsize = AtomicUsize::new(0);
 
 // usize::MAX means "not resolved yet"; 0 means "no vDSO".
 static CLOCK_GETTIME_VDSO: AtomicUsize = AtomicUsize::new(usize::MAX);
-static GETCPU_VDSO: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+// The getcpu cache starts as a callable resolver so the hot path only has to
+// test for NULL, matching musl's lazy vDSO pointer trick.
+static GETCPU_VDSO: core::sync::atomic::AtomicPtr<c_void> =
+    core::sync::atomic::AtomicPtr::new(getcpu_init as *mut c_void);
 
 #[inline]
 unsafe fn read_u16(p: *const u8) -> u16 {
@@ -226,18 +230,23 @@ pub unsafe extern "C" fn clock_gettime(clockid: c_int, ts: *mut timespec) -> c_i
     }
 }
 
+unsafe extern "C" fn getcpu_init(cpu: *mut u32, node: *mut u32, unused: *mut c_void) -> c_long {
+    let p = vdso_lookup_either(b"__vdso_getcpu", b"__kernel_getcpu");
+    GETCPU_VDSO.store(p as *mut c_void, Ordering::Relaxed);
+    if p == 0 {
+        -(ENOSYS_VAL as c_long)
+    } else {
+        let f: unsafe extern "C" fn(*mut u32, *mut u32, *mut c_void) -> c_long =
+            core::mem::transmute(p);
+        f(cpu, node, unused)
+    }
+}
+
 /// sched_getcpu() fast path.  Returns false when the vDSO is unavailable or
 /// declines this CPU, in which case the caller issues the real syscall.
 #[inline]
 unsafe fn vdso_getcpu(cpu: *mut u32) -> bool {
-    let p = GETCPU_VDSO.load(Ordering::Relaxed);
-    let p = if p == usize::MAX {
-        let p = vdso_lookup_either(b"__vdso_getcpu", b"__kernel_getcpu");
-        GETCPU_VDSO.store(p, Ordering::Relaxed);
-        p
-    } else {
-        p
-    };
+    let p = GETCPU_VDSO.load(Ordering::Relaxed) as usize;
     if p == 0 {
         return false;
     }
