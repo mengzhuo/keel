@@ -73,3 +73,4 @@ Cargo.lock
 
 __pycache__/
 *.pyc
+/tests/fixtures/group_many_test

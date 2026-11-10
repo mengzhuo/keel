@@ -7,6 +7,10 @@
 #include <features.h>
 #include <sys/types.h>
 
+#ifdef _GNU_SOURCE
+#include <stdio.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,8 +32,8 @@ int getpwuid_r(uid_t, struct passwd *, char *, size_t, struct passwd **);
 void setpwent(void);
 void endpwent(void);
 struct passwd *getpwent(void);
-struct passwd *fgetpwent(void *);
-int putpwent(const struct passwd *, void *);
+struct passwd *fgetpwent(FILE *);
+int putpwent(const struct passwd *, FILE *);
 
 #ifdef __cplusplus
 }

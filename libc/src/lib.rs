@@ -18588,16 +18588,77 @@ static mut PWD_ENT: Passwd = Passwd {
     pw_uid: 0, pw_gid: 0, pw_gecos: core::ptr::null_mut(),
     pw_dir: core::ptr::null_mut(), pw_shell: core::ptr::null_mut(),
 };
-static mut PWD_BUF: [c_char; 1024] = [0; 1024];
+static mut PWD_LINE: *mut c_char = core::ptr::null_mut();
+static mut PWD_LINE_CAP: usize = 0;
+static mut PWD_BUF: *mut c_char = core::ptr::null_mut();
+static mut PWD_BUF_CAP: usize = 0;
 static mut PWD_FILE: *mut FILE = core::ptr::null_mut();
+
+unsafe fn ensure_pwd_buf(n: usize) -> bool {
+    if n <= PWD_BUF_CAP {
+        return true;
+    }
+    let mut cap = if PWD_BUF_CAP == 0 { 1024 } else { PWD_BUF_CAP };
+    while cap < n {
+        cap *= 2;
+    }
+    let p = realloc(PWD_BUF as *mut c_void, cap) as *mut c_char;
+    if p.is_null() {
+        return false;
+    }
+    PWD_BUF = p;
+    PWD_BUF_CAP = cap;
+    true
+}
 
 static mut GRP_ENT: Group = Group {
     gr_name: core::ptr::null_mut(), gr_passwd: core::ptr::null_mut(),
     gr_gid: 0, gr_mem: core::ptr::null_mut(),
 };
-static mut GRP_BUF: [c_char; 2048] = [0; 2048];
-static mut GRP_MEM: [*mut c_char; 32] = [core::ptr::null_mut(); 32];
+static mut GRP_LINE: *mut c_char = core::ptr::null_mut();
+static mut GRP_LINE_CAP: usize = 0;
+static mut GRP_BUF: *mut c_char = core::ptr::null_mut();
+static mut GRP_BUF_CAP: usize = 0;
+static mut GRP_MEM: *mut *mut c_char = core::ptr::null_mut();
+static mut GRP_MEM_CAP: usize = 0;
 static mut GRP_FILE: *mut FILE = core::ptr::null_mut();
+
+unsafe fn ensure_grp_buf(n: usize) -> bool {
+    if n <= GRP_BUF_CAP {
+        return true;
+    }
+    let mut cap = if GRP_BUF_CAP == 0 { 2048 } else { GRP_BUF_CAP };
+    while cap < n {
+        cap *= 2;
+    }
+    let p = realloc(GRP_BUF as *mut c_void, cap) as *mut c_char;
+    if p.is_null() {
+        return false;
+    }
+    GRP_BUF = p;
+    GRP_BUF_CAP = cap;
+    true
+}
+
+unsafe fn ensure_grp_mem(n: usize) -> bool {
+    if n <= GRP_MEM_CAP {
+        return true;
+    }
+    let mut cap = if GRP_MEM_CAP == 0 { 32 } else { GRP_MEM_CAP };
+    while cap < n {
+        cap *= 2;
+    }
+    let p = realloc(
+        GRP_MEM as *mut c_void,
+        cap * core::mem::size_of::<*mut c_char>(),
+    ) as *mut *mut c_char;
+    if p.is_null() {
+        return false;
+    }
+    GRP_MEM = p;
+    GRP_MEM_CAP = cap;
+    true
+}
 
 unsafe fn parse_passwd(line: *const c_char, ent: *mut Passwd, buf: *mut c_char, buflen: usize) -> bool {
     let mut src = line;
@@ -18654,12 +18715,18 @@ unsafe fn parse_group(line: *const c_char, ent: *mut Group, buf: *mut c_char, bu
     (*ent).gr_name = fields[0];
     (*ent).gr_passwd = fields[1];
     (*ent).gr_gid = crate::strtol(fields[2], core::ptr::null_mut(), 10) as u32;
-    let mut mi = 0usize;
+    let mut count = 1usize;
     let mut m = fields[3];
+    while *m != 0 {
+        if *m == b',' as c_char { count += 1; }
+        m = m.add(1);
+    }
+    if !ensure_grp_mem(count + 1) { return false; }
+    let mut mi = 0usize;
+    m = fields[3];
     if *m != 0 {
         loop {
-            if mi + 1 >= GRP_MEM.len() { break; }
-            GRP_MEM[mi] = m;
+            *GRP_MEM.add(mi) = m;
             mi += 1;
             while *m != 0 && *m != b',' as c_char { m = m.add(1); }
             if *m == 0 { break; }
@@ -18667,8 +18734,8 @@ unsafe fn parse_group(line: *const c_char, ent: *mut Group, buf: *mut c_char, bu
             m = m.add(1);
         }
     }
-    GRP_MEM[mi] = core::ptr::null_mut();
-    (*ent).gr_mem = GRP_MEM.as_mut_ptr();
+    *GRP_MEM.add(mi) = core::ptr::null_mut();
+    (*ent).gr_mem = GRP_MEM;
     true
 }
 
@@ -18706,10 +18773,17 @@ pub unsafe extern "C" fn setpwent() {
 #[no_mangle]
 pub unsafe extern "C" fn getpwent() -> *mut Passwd {
     if PWD_FILE.is_null() { setpwent(); if PWD_FILE.is_null() { return core::ptr::null_mut(); } }
-    let mut line = [0 as c_char; 1024];
     loop {
-        if crate::fgets(line.as_mut_ptr(), 1024, PWD_FILE).is_null() { return core::ptr::null_mut(); }
-        if parse_passwd(line.as_ptr(), &raw mut PWD_ENT, PWD_BUF.as_mut_ptr(), PWD_BUF.len()) {
+        let n = crate::getline(&raw mut PWD_LINE, &raw mut PWD_LINE_CAP, PWD_FILE);
+        if n < 0 { return core::ptr::null_mut(); }
+        let mut len = n as usize;
+        if len > 0 && *PWD_LINE.add(len - 1) == b'\n' as c_char {
+            *PWD_LINE.add(len - 1) = 0;
+            len -= 1;
+        }
+        let need = len + 1;
+        if !ensure_pwd_buf(need) { return core::ptr::null_mut(); }
+        if parse_passwd(PWD_LINE, &raw mut PWD_ENT, PWD_BUF, need) {
             return &raw mut PWD_ENT;
         }
     }
@@ -18737,10 +18811,17 @@ pub unsafe extern "C" fn getpwuid_r(uid: u32, pwd: *mut Passwd, _buf: *mut c_cha
 #[no_mangle]
 pub unsafe extern "C" fn fgetpwent(f: *mut FILE) -> *mut Passwd {
     if f.is_null() { return core::ptr::null_mut(); }
-    let mut line = [0 as c_char; 1024];
     loop {
-        if crate::fgets(line.as_mut_ptr(), 1024, f).is_null() { return core::ptr::null_mut(); }
-        if parse_passwd(line.as_ptr(), &raw mut PWD_ENT, PWD_BUF.as_mut_ptr(), PWD_BUF.len()) {
+        let n = crate::getline(&raw mut PWD_LINE, &raw mut PWD_LINE_CAP, f);
+        if n < 0 { return core::ptr::null_mut(); }
+        let mut len = n as usize;
+        if len > 0 && *PWD_LINE.add(len - 1) == b'\n' as c_char {
+            *PWD_LINE.add(len - 1) = 0;
+            len -= 1;
+        }
+        let need = len + 1;
+        if !ensure_pwd_buf(need) { return core::ptr::null_mut(); }
+        if parse_passwd(PWD_LINE, &raw mut PWD_ENT, PWD_BUF, need) {
             return &raw mut PWD_ENT;
         }
     }
@@ -18788,10 +18869,17 @@ pub unsafe extern "C" fn setgrent() {
 #[no_mangle]
 pub unsafe extern "C" fn getgrent() -> *mut Group {
     if GRP_FILE.is_null() { setgrent(); if GRP_FILE.is_null() { return core::ptr::null_mut(); } }
-    let mut line = [0 as c_char; 1024];
     loop {
-        if crate::fgets(line.as_mut_ptr(), 1024, GRP_FILE).is_null() { return core::ptr::null_mut(); }
-        if parse_group(line.as_ptr(), &raw mut GRP_ENT, GRP_BUF.as_mut_ptr(), GRP_BUF.len()) {
+        let n = crate::getline(&raw mut GRP_LINE, &raw mut GRP_LINE_CAP, GRP_FILE);
+        if n < 0 { return core::ptr::null_mut(); }
+        let mut len = n as usize;
+        if len > 0 && *GRP_LINE.add(len - 1) == b'\n' as c_char {
+            *GRP_LINE.add(len - 1) = 0;
+            len -= 1;
+        }
+        let need = len + 1;
+        if !ensure_grp_buf(need) { return core::ptr::null_mut(); }
+        if parse_group(GRP_LINE, &raw mut GRP_ENT, GRP_BUF, need) {
             return &raw mut GRP_ENT;
         }
     }
@@ -18819,10 +18907,17 @@ pub unsafe extern "C" fn getgrgid_r(gid: u32, grp: *mut Group, _buf: *mut c_char
 #[no_mangle]
 pub unsafe extern "C" fn fgetgrent(f: *mut FILE) -> *mut Group {
     if f.is_null() { return core::ptr::null_mut(); }
-    let mut line = [0 as c_char; 1024];
     loop {
-        if crate::fgets(line.as_mut_ptr(), 1024, f).is_null() { return core::ptr::null_mut(); }
-        if parse_group(line.as_ptr(), &raw mut GRP_ENT, GRP_BUF.as_mut_ptr(), GRP_BUF.len()) {
+        let n = crate::getline(&raw mut GRP_LINE, &raw mut GRP_LINE_CAP, f);
+        if n < 0 { return core::ptr::null_mut(); }
+        let mut len = n as usize;
+        if len > 0 && *GRP_LINE.add(len - 1) == b'\n' as c_char {
+            *GRP_LINE.add(len - 1) = 0;
+            len -= 1;
+        }
+        let need = len + 1;
+        if !ensure_grp_buf(need) { return core::ptr::null_mut(); }
+        if parse_group(GRP_LINE, &raw mut GRP_ENT, GRP_BUF, need) {
             return &raw mut GRP_ENT;
         }
     }

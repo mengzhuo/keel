@@ -7,6 +7,10 @@
 #include <features.h>
 #include <sys/types.h>
 
+#ifdef _GNU_SOURCE
+#include <stdio.h>
+#endif
+
 struct group {
     char *gr_name;
     char *gr_passwd;
@@ -21,6 +25,10 @@ int getgrnam_r(const char *, struct group *, char *, size_t, struct group **);
 struct group *getgrent(void);
 void setgrent(void);
 void endgrent(void);
+#ifdef _GNU_SOURCE
+struct group *fgetgrent(FILE *);
+int putgrent(const struct group *, FILE *);
+#endif
 int getgrouplist(const char *, gid_t, gid_t *, int *);
 int setgroups(size_t, const gid_t *);
 int initgroups(const char *, gid_t);
