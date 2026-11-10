@@ -228,6 +228,11 @@ static mut TLS_FILESZ: *mut u64 = core::ptr::null_mut();
 static mut TLS_MEMSZ: *mut u64 = core::ptr::null_mut();
 static mut TLS_IMAGE: *mut *const u8 = core::ptr::null_mut();
 static mut TLS_MODULE_COUNT: usize = 0;
+// Modules whose offsets were fixed before the initial TLS block was built can
+// use the register-only static descriptor.  Modules loaded later may not fit
+// in every thread's block (threads created before the dlopen keep their old
+// block), so their descriptors resolve through the per-thread dynamic path.
+static mut STATIC_TLS_COUNT: usize = 0;
 static mut TLS_GENERATION: u64 = 1;
 static TLS_LOCK: AtomicBool = AtomicBool::new(false);
 static mut LD_LIBRARY_PATH: *const u8 = core::ptr::null();
@@ -2219,17 +2224,29 @@ unsafe fn apply_rela_table(
             let new_insn = (insn & !(0xFFFu32 << 10)) | (imm << 10);
             core::ptr::write_unaligned(slot as *mut u32, new_insn);
         } else if r_type == R_AARCH64_TLSDESC || r_type == R_RISCV_TLSDESC {
-            let fs_off = tls_tprel_offset(obj_idx, r_sym_idx, r_addend);
+            let (module, sym_off) = resolve_tls_symbol(obj_idx, r_sym_idx);
+            let off_in_mod = sym_off as i64 + r_addend;
             let desc = slot as *mut [u64; 2];
-            (*desc)[0] = __tlsdesc_static as *const () as u64;
-            (*desc)[1] = fs_off as u64;
+            if module >= STATIC_TLS_COUNT && off_in_mod >= 0
+                && (off_in_mod as u64) <= 0xffff_ffff && module <= 0xffff_ffff
+            {
+                // [module:32][offset:32]; the resolver maps this thread's
+                // copy lazily, so a thread created before the dlopen still
+                // sees the module's initial .tdata and its own writes.
+                (*desc)[0] = __tlsdesc_dynamic as *const () as u64;
+                (*desc)[1] = ((module as u64) << 32) | off_in_mod as u64;
+            } else {
+                let fs_off = tls_tprel_offset(obj_idx, r_sym_idx, r_addend);
+                (*desc)[0] = __tlsdesc_static as *const () as u64;
+                (*desc)[1] = fs_off as u64;
+            }
             if cfg!(debug_assertions) {
                 write_stderr(b"ldso: TLSDESC slot=");
                 write_hex_stderr(slot as usize);
                 write_stderr(b" resolver=");
-                write_hex_stderr(__tlsdesc_static as *const () as usize);
-                write_stderr(b" offset=");
-                write_hex_stderr(fs_off as usize);
+                write_hex_stderr((*desc)[0] as usize);
+                write_stderr(b" arg=");
+                write_hex_stderr((*desc)[1] as usize);
                 write_stderr(b"\n");
             }
         }
@@ -2265,20 +2282,226 @@ unsafe fn run_constructors_for(idx: usize) {
     }
 }
 
-/// AArch64 TLS descriptor resolver for statically-linked modules. The descriptor
-/// is a two-word structure: [0] = resolver, [1] = precomputed TP offset. This
-/// resolver simply returns the offset stored in the second word.
+// TLS descriptor resolver for modules whose layout is fixed at startup.
+// The descriptor is a two-word structure: [0] = resolver, [1] = precomputed
+// TP offset.  The AArch64/RISC-V TLS descriptor ABI requires the resolver to
+// preserve every register except the return register and the condition flags:
+// the caller keeps TP in a caller-saved register across the call.  A normal
+// Rust function clobbers those registers (the generated aarch64 sequence keeps
+// TP in x2), so implement it in assembly exactly like musl.
+#[cfg(not(target_arch = "x86_64"))]
+extern "C" {
+    fn __tlsdesc_static(desc: *const u64) -> u64;
+}
+
+#[cfg(target_arch = "x86_64")]
 #[no_mangle]
 unsafe extern "C" fn __tlsdesc_static(desc: *const u64) -> u64 {
-    let arg = core::ptr::read_unaligned(desc.add(1));
-    if cfg!(debug_assertions) {
-        write_stderr(b"ldso: __tlsdesc_static desc=");
-        write_hex_stderr(desc as usize);
-        write_stderr(b" arg=");
-        write_hex_stderr(arg as usize);
-        write_stderr(b"\n");
+    // x86_64 does not use TLSDESC in this toolchain; keep a referenceable
+    // definition for the shared relocation path.
+    core::ptr::read_unaligned(desc.add(1))
+}
+
+#[cfg(target_arch = "aarch64")]
+core::arch::global_asm!(
+    ".globl __tlsdesc_static",
+    ".hidden __tlsdesc_static",
+    ".type __tlsdesc_static,%function",
+    "__tlsdesc_static:",
+    "ldr x0, [x0, #8]",
+    "ret",
+);
+
+#[cfg(target_arch = "riscv64")]
+core::arch::global_asm!(
+    ".globl __tlsdesc_static",
+    ".hidden __tlsdesc_static",
+    ".type __tlsdesc_static,%function",
+    "__tlsdesc_static:",
+    "ld a0, 8(a0)",
+    "jr t0",
+);
+
+// Dynamic descriptor: descriptor[1] packs (module << 32) | offset.  The
+// resolver must preserve every register except the result, so a small
+// assembly shim saves the caller-saved set and calls the Rust helper.
+#[cfg(not(target_arch = "x86_64"))]
+extern "C" {
+    fn __tlsdesc_dynamic(desc: *const u64) -> u64;
+}
+
+#[cfg(target_arch = "x86_64")]
+#[no_mangle]
+unsafe extern "C" fn __tlsdesc_dynamic(desc: *const u64) -> u64 {
+    __rc_tlsdesc_dynamic(desc) as u64
+}
+
+#[cfg(target_arch = "aarch64")]
+core::arch::global_asm!(
+    ".globl __tlsdesc_dynamic",
+    ".hidden __tlsdesc_dynamic",
+    ".type __tlsdesc_dynamic,%function",
+    "__tlsdesc_dynamic:",
+    "stp x1, x2, [sp, #-288]!",
+    "stp x3, x4, [sp, #16]",
+    "stp x5, x6, [sp, #32]",
+    "stp x7, x8, [sp, #48]",
+    "stp x9, x10, [sp, #64]",
+    "stp x11, x12, [sp, #80]",
+    "stp x13, x14, [sp, #96]",
+    "stp x15, x16, [sp, #112]",
+    "stp x17, x18, [sp, #128]",
+    "str x30, [sp, #144]",
+    "stp q0, q1, [sp, #160]",
+    "stp q2, q3, [sp, #192]",
+    "stp q4, q5, [sp, #224]",
+    "stp q6, q7, [sp, #256]",
+    "bl __rc_tlsdesc_dynamic",
+    "ldp q6, q7, [sp, #256]",
+    "ldp q4, q5, [sp, #224]",
+    "ldp q2, q3, [sp, #192]",
+    "ldp q0, q1, [sp, #160]",
+    "ldr x30, [sp, #144]",
+    "ldp x17, x18, [sp, #128]",
+    "ldp x15, x16, [sp, #112]",
+    "ldp x13, x14, [sp, #96]",
+    "ldp x11, x12, [sp, #80]",
+    "ldp x9, x10, [sp, #64]",
+    "ldp x7, x8, [sp, #48]",
+    "ldp x5, x6, [sp, #32]",
+    "ldp x3, x4, [sp, #16]",
+    "ldp x1, x2, [sp], #288",
+    "ret",
+);
+
+#[cfg(target_arch = "riscv64")]
+core::arch::global_asm!(
+    ".globl __tlsdesc_dynamic",
+    ".hidden __tlsdesc_dynamic",
+    ".type __tlsdesc_dynamic,%function",
+    "__tlsdesc_dynamic:",
+    "addi sp, sp, -224",
+    "sd t0, 0(sp)",
+    "sd t1, 8(sp)",
+    "sd t2, 16(sp)",
+    "sd t3, 24(sp)",
+    "sd t4, 32(sp)",
+    "sd t5, 40(sp)",
+    "sd t6, 48(sp)",
+    "sd a1, 56(sp)",
+    "sd a2, 64(sp)",
+    "sd a3, 72(sp)",
+    "sd a4, 80(sp)",
+    "sd a5, 88(sp)",
+    "sd a6, 96(sp)",
+    "sd a7, 104(sp)",
+    "sd ra, 112(sp)",
+    "fsd ft0, 120(sp)",
+    "fsd ft1, 128(sp)",
+    "fsd ft2, 136(sp)",
+    "fsd ft3, 144(sp)",
+    "fsd ft4, 152(sp)",
+    "fsd ft5, 160(sp)",
+    "fsd ft6, 168(sp)",
+    "fsd ft7, 176(sp)",
+    "fsd ft8, 184(sp)",
+    "fsd ft9, 192(sp)",
+    "fsd ft10, 200(sp)",
+    "fsd ft11, 208(sp)",
+    "call __rc_tlsdesc_dynamic",
+    "fld ft11, 208(sp)",
+    "fld ft10, 200(sp)",
+    "fld ft9, 192(sp)",
+    "fld ft8, 184(sp)",
+    "fld ft7, 176(sp)",
+    "fld ft6, 168(sp)",
+    "fld ft5, 160(sp)",
+    "fld ft4, 152(sp)",
+    "fld ft3, 144(sp)",
+    "fld ft2, 136(sp)",
+    "fld ft1, 128(sp)",
+    "fld ft0, 120(sp)",
+    "ld ra, 112(sp)",
+    "ld a7, 104(sp)",
+    "ld a6, 96(sp)",
+    "ld a5, 88(sp)",
+    "ld a4, 80(sp)",
+    "ld a3, 72(sp)",
+    "ld a2, 64(sp)",
+    "ld a1, 56(sp)",
+    "ld t6, 48(sp)",
+    "ld t5, 40(sp)",
+    "ld t4, 32(sp)",
+    "ld t3, 24(sp)",
+    "ld t2, 16(sp)",
+    "ld t1, 8(sp)",
+    "ld t0, 0(sp)",
+    "addi sp, sp, 224",
+    "jr t0",
+);
+
+#[repr(C)]
+struct TlsdescExt {
+    next: *mut TlsdescExt,
+    addr: *mut u8,
+    module: usize,
+}
+
+/// Resolve a TLSDESC access for a module that was loaded after startup.
+///
+/// Each thread keeps its own extension list at TCB+0x20 (the reserved slot).
+/// The list is per-thread, so no lock is needed; a signal handler that races
+/// with itself can only create a second, already initialized copy.
+#[no_mangle]
+pub unsafe extern "C" fn __rc_tlsdesc_dynamic(desc: *const u64) -> usize {
+    let encoded = core::ptr::read_unaligned(desc.add(1));
+    let module = (encoded >> 32) as usize;
+    let off = (encoded & 0xffff_ffff) as usize;
+    let tp = read_tp();
+    let tcb = (tp as isize + tls_tcb_offset_from_tp()) as *mut u64;
+    let mut node = core::ptr::read_unaligned(tcb.add(4)) as *mut TlsdescExt;
+    while !node.is_null() {
+        if (*node).module == module {
+            return ((*node).addr as usize).wrapping_add(off).wrapping_sub(tp);
+        }
+        node = (*node).next;
     }
-    arg
+    let memsz = *TLS_MEMSZ.add(module) as usize;
+    let filesz = *TLS_FILESZ.add(module) as usize;
+    let mut align = (**LOADED.add(module)).tls_align as usize;
+    if align == 0 {
+        align = 1;
+    }
+    if align > 1 << 20 {
+        align = 1 << 20;
+    }
+    // TLS offsets are relative to a module base aligned to tls_align, so the
+    // private copy must keep that alignment too.
+    let bytes = memsz.max(1).checked_add(align).unwrap_or(memsz.max(1));
+    let raw = map_zeroed(bytes);
+    let data = if raw.is_null() {
+        core::ptr::null_mut()
+    } else if align > 1 {
+        ((raw as usize + align - 1) & !(align - 1)) as *mut u8
+    } else {
+        raw
+    };
+    let node_ptr = map_zeroed(core::mem::size_of::<TlsdescExt>()) as *mut TlsdescExt;
+    if data.is_null() || node_ptr.is_null() {
+        // Out of address space: fall back to the layout-based offset.
+        return (*TLS_LAYOUT_OFFSET.add(module))
+            .wrapping_add(off)
+            .wrapping_sub(tls_var_area_offset_from_tp());
+    }
+    if filesz != 0 {
+        let copy = if filesz < memsz { filesz } else { memsz };
+        core::ptr::copy_nonoverlapping(*TLS_IMAGE.add(module), data, copy);
+    }
+    (*node_ptr).addr = data;
+    (*node_ptr).module = module;
+    (*node_ptr).next = core::ptr::read_unaligned(tcb.add(4)) as *mut TlsdescExt;
+    core::ptr::write_unaligned(tcb.add(4), node_ptr as u64);
+    (data as usize).wrapping_add(off).wrapping_sub(tp)
 }
 
 unsafe fn tls_lock() {
@@ -2312,6 +2535,7 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
         old_fs as *mut u8
     };
     let old_tcb = (old_fs as isize + tls_tcb_offset_from_tp()) as *const u64;
+    let old_tlsdesc = core::ptr::read_unaligned(old_tcb.add(4));
     let old_getrandom = core::ptr::read_unaligned(old_tcb.add(7));
     let old_thread = core::ptr::read_unaligned(old_tcb.add(8));
     if old_total > 0 {
@@ -2341,6 +2565,7 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
     // state this thread already allocated when growing its block; dropping
     // it would leak the page and force a fresh kernel reseed.  0x40 is the
     // pointer to the thread's Thread record and moves with the block.
+    core::ptr::write_unaligned((tcb as *mut u64).add(4), old_tlsdesc);
     core::ptr::write_unaligned((tcb as *mut u64).add(7), old_getrandom);
     core::ptr::write_unaligned((tcb as *mut u64).add(8), old_thread);
     write_tp(block.add(tls_tp_offset_from_block()) as usize);
@@ -3082,9 +3307,11 @@ unsafe fn init_tls_block(block: *mut u8) -> *mut u8 {
     core::ptr::write_unaligned((tcb as *mut u64).add(1), TLS_GENERATION);
     core::ptr::write_unaligned((tcb as *mut u64).add(2), TLS_TOTAL_SIZE as u64);
     core::ptr::write_unaligned((tcb as *mut u64).add(3), TLS_MODULE_COUNT as u64);
-    // 0x38 is libc's per-thread vDSO getrandom state pointer; 0x40 is the
-    // Thread record pointer.  A block carved out of an application stack is
-    // not zero-filled, so clear both.
+    // 0x20 is the per-thread dynamic TLSDESC list.  0x38 is libc's per-thread
+    // vDSO getrandom state pointer; 0x40 is the Thread record pointer.  A
+    // block carved out of an application stack is not zero-filled, so clear
+    // all three.
+    core::ptr::write_unaligned((tcb as *mut u64).add(4), 0u64);
     core::ptr::write_unaligned((tcb as *mut u64).add(7), 0u64);
     core::ptr::write_unaligned((tcb as *mut u64).add(8), 0u64);
     block.add(tls_tp_offset_from_block())
@@ -3737,6 +3964,7 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     register_self(ldso_base);
 
     compute_tls_layout();
+    STATIC_TLS_COUNT = LOADED_COUNT;
 
     process_all_relocations();
     // libc.so exports a link-time `__tls_get_addr` for static C++ runtimes.
