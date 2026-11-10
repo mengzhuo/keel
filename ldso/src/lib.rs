@@ -2447,22 +2447,20 @@ struct TlsdescExt {
     module: usize,
 }
 
-/// Resolve a TLSDESC access for a module that was loaded after startup.
+/// Return this thread's address for `off` inside a module loaded after
+/// startup, allocating the private copy on first use.  Returns null when the
+/// address space is exhausted.
 ///
 /// Each thread keeps its own extension list at TCB+0x20 (the reserved slot).
 /// The list is per-thread, so no lock is needed; a signal handler that races
 /// with itself can only create a second, already initialized copy.
-#[no_mangle]
-pub unsafe extern "C" fn __rc_tlsdesc_dynamic(desc: *const u64) -> usize {
-    let encoded = core::ptr::read_unaligned(desc.add(1));
-    let module = (encoded >> 32) as usize;
-    let off = (encoded & 0xffff_ffff) as usize;
+unsafe fn dynamic_tls_addr(module: usize, off: usize) -> *mut u8 {
     let tp = read_tp();
     let tcb = (tp as isize + tls_tcb_offset_from_tp()) as *mut u64;
     let mut node = core::ptr::read_unaligned(tcb.add(4)) as *mut TlsdescExt;
     while !node.is_null() {
         if (*node).module == module {
-            return ((*node).addr as usize).wrapping_add(off).wrapping_sub(tp);
+            return (*node).addr.add(off);
         }
         node = (*node).next;
     }
@@ -2488,10 +2486,7 @@ pub unsafe extern "C" fn __rc_tlsdesc_dynamic(desc: *const u64) -> usize {
     };
     let node_ptr = map_zeroed(core::mem::size_of::<TlsdescExt>()) as *mut TlsdescExt;
     if data.is_null() || node_ptr.is_null() {
-        // Out of address space: fall back to the layout-based offset.
-        return (*TLS_LAYOUT_OFFSET.add(module))
-            .wrapping_add(off)
-            .wrapping_sub(tls_var_area_offset_from_tp());
+        return core::ptr::null_mut();
     }
     if filesz != 0 {
         let copy = if filesz < memsz { filesz } else { memsz };
@@ -2501,7 +2496,23 @@ pub unsafe extern "C" fn __rc_tlsdesc_dynamic(desc: *const u64) -> usize {
     (*node_ptr).module = module;
     (*node_ptr).next = core::ptr::read_unaligned(tcb.add(4)) as *mut TlsdescExt;
     core::ptr::write_unaligned(tcb.add(4), node_ptr as u64);
-    (data as usize).wrapping_add(off).wrapping_sub(tp)
+    data.add(off)
+}
+
+/// Resolve a TLSDESC access for a module that was loaded after startup.
+#[no_mangle]
+pub unsafe extern "C" fn __rc_tlsdesc_dynamic(desc: *const u64) -> usize {
+    let encoded = core::ptr::read_unaligned(desc.add(1));
+    let module = (encoded >> 32) as usize;
+    let off = (encoded & 0xffff_ffff) as usize;
+    let addr = dynamic_tls_addr(module, off);
+    if !addr.is_null() {
+        return (addr as usize).wrapping_sub(read_tp());
+    }
+    // Out of address space: fall back to the layout-based offset.
+    (*TLS_LAYOUT_OFFSET.add(module))
+        .wrapping_add(off)
+        .wrapping_sub(tls_var_area_offset_from_tp())
 }
 
 unsafe fn tls_lock() {
@@ -3327,6 +3338,20 @@ pub struct TlsIndex {
 pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
     let module = (*ti).ti_module;
     let offset = (*ti).ti_offset;
+    // x86_64 has no dynamic TLSDESC descriptors, so its dlopen'ed modules
+    // keep using the expanded main block.  On the descriptor architectures,
+    // dlsym() and the traditional TLS model must resolve to the same
+    // per-thread copy as TLSDESC so writes through one are visible through
+    // the other.
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        if module >= STATIC_TLS_COUNT {
+            let addr = dynamic_tls_addr(module, offset);
+            if !addr.is_null() {
+                return addr;
+            }
+        }
+    }
     let fs_base = read_tp();
     let tcb = (fs_base as isize + tls_tcb_offset_from_tp()) as *mut u8;
     let thread_gen = core::ptr::read_unaligned((tcb as *const u64).add(1));
