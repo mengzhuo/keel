@@ -57,6 +57,7 @@ Cargo.lock
 /tests/fixtures/vdso_static_test
 /tests/fixtures/libvdso_tls.so
 /tests/fixtures/thread_many_test
+/tests/fixtures/dlopen_many_test
 /tests/fixtures/argenv_test
 /tests/fixtures/atfork_many_test
 
