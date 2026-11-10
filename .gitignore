@@ -56,6 +56,7 @@ Cargo.lock
 /tests/fixtures/vdso_test
 /tests/fixtures/vdso_static_test
 /tests/fixtures/libvdso_tls.so
+/tests/fixtures/thread_many_test
 
 # libc-test harness generated files
 /libc-test-harness/build/

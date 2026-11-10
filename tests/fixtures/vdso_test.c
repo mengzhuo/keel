@@ -114,6 +114,10 @@ int main(void) {
             puts("getrandom after TLS expansion failed");
             return 1;
         }
+        if (pthread_self() == 0) {
+            puts("pthread_self after TLS expansion failed");
+            return 1;
+        }
         dlclose(handle);
     }
 

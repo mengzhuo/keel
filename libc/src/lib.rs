@@ -1920,6 +1920,7 @@ pub unsafe extern "C" fn fork() -> c_int {
     }
     if ret == 0 {
         allocator_after_fork();
+        thread_allocator_after_fork();
         __fork_handler(1);
     } else {
         __fork_handler(0);
@@ -1986,6 +1987,10 @@ pub unsafe extern "C" fn vfork() -> c_int {
     // so use the portable fork semantics.
     let r = sys_fork();
     if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
+    if r == 0 {
+        allocator_after_fork();
+        thread_allocator_after_fork();
+    }
     r as c_int
 }
 
@@ -2750,8 +2755,12 @@ unsafe fn sys_futex(uaddr: *mut c_int,
     <Arch as Syscalls>::syscall6(SYS_FUTEX, uaddr as i64, futex_op as i64, val as i64, timeout as i64, uaddr2 as i64, val3 as i64)
 }
 
-const MAX_THREADS: usize = 1024;
+const THREAD_CHUNK: usize = 1024;
+const MAX_THREAD_CHUNKS: usize = 1024;
 const STACK_SIZE: usize = 1024 * 1024;
+// Per-thread pointer to its Thread record.  The TCB has room after errno
+// (0x30), the vDSO getrandom state (0x38), and this pointer (0x40).
+const THREAD_TCB_OFFSET: usize = 0x40;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -2777,9 +2786,10 @@ struct Thread {
     tsd: [*mut c_void; PTHREAD_KEYS_MAX],
     cancelbuf: *mut __ptcb,
     robust_list: robust_list_head,
+    free_next: *mut Thread,
 }
 
-static mut THREADS: [Thread; MAX_THREADS] = [Thread {
+static mut THREADS: [Thread; THREAD_CHUNK] = [Thread {
     tid: -1,
     detach_state: DT_JOINABLE,
     result: core::ptr::null_mut(),
@@ -2801,9 +2811,18 @@ static mut THREADS: [Thread; MAX_THREADS] = [Thread {
         futex_offset: 0,
         pending: core::ptr::null_mut(),
     },
-}; MAX_THREADS];
-const SLOT_WORDS: usize = (MAX_THREADS + usize::BITS as usize - 1) / usize::BITS as usize;
-static SLOT_USED: [AtomicUsize; SLOT_WORDS] = [const { AtomicUsize::new(0) }; SLOT_WORDS];
+    free_next: core::ptr::null_mut(),
+}; THREAD_CHUNK];
+static mut EXTRA_CHUNKS: [*mut Thread; MAX_THREAD_CHUNKS] =
+    [core::ptr::null_mut(); MAX_THREAD_CHUNKS];
+static EXTRA_CHUNK_COUNT: AtomicUsize = AtomicUsize::new(0);
+// Free list of thread slots, protected by THREAD_LOCK.  Slots are never
+// moved, so pthread_t values stay valid for the life of a thread.
+static mut FREE_THREADS: *mut Thread = core::ptr::null_mut();
+static mut THREAD_TABLE_READY: bool = false;
+static mut THREAD_LOCK: c_int = 0;
+static mut THREAD_WAITERS: c_int = 0;
+static ACTIVE_THREADS: AtomicUsize = AtomicUsize::new(0);
 static mut KEY_DTORS: [Option<unsafe extern "C" fn(*mut c_void)>; PTHREAD_KEYS_MAX] = [None; PTHREAD_KEYS_MAX];
 static NEXT_KEY: AtomicUsize = AtomicUsize::new(0);
 
@@ -2891,45 +2910,115 @@ unsafe fn spinlock_unlock(lock: *mut c_int, waiters: *mut c_int) {
     if a_load(waiters) > 0 { futex_wake(lock, 1); }
 }
 
-unsafe fn slot_index(slot: *const Thread) -> usize {
-    let base = core::ptr::addr_of!(THREADS[0]) as usize;
-    (slot as usize - base) / core::mem::size_of::<Thread>()
+unsafe fn thread_slot_count() -> usize {
+    THREAD_CHUNK + EXTRA_CHUNK_COUNT.load(Ordering::Acquire) * THREAD_CHUNK
+}
+
+unsafe fn thread_slot_at(index: usize) -> *mut Thread {
+    if index < THREAD_CHUNK {
+        core::ptr::addr_of_mut!(THREADS[index])
+    } else {
+        let extra = index - THREAD_CHUNK;
+        let chunk = extra / THREAD_CHUNK;
+        let offset = extra % THREAD_CHUNK;
+        (*core::ptr::addr_of!(EXTRA_CHUNKS[chunk])).add(offset)
+    }
 }
 
 unsafe fn release_thread_slot(slot: *const Thread) {
-    let idx = slot_index(slot);
-    if idx < MAX_THREADS {
-        let word = idx / usize::BITS as usize;
-        let bit = idx % usize::BITS as usize;
-        SLOT_USED[word].fetch_and(!(1usize << bit), Ordering::AcqRel);
-    }
+    let slot = slot as *mut Thread;
+    spinlock_lock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+    (*slot).tid = -1;
+    (*slot).free_next = FREE_THREADS;
+    FREE_THREADS = slot;
+    spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
 }
 
 unsafe fn alloc_thread_slot() -> Option<&'static mut Thread> {
-    for word in 0..SLOT_WORDS {
-        let mut used = SLOT_USED[word].load(Ordering::Acquire);
-        loop {
-            let free = !used;
-            if free == 0 {
-                break;
-            }
-            let bit = free.trailing_zeros() as usize;
-            let idx = word * usize::BITS as usize + bit;
-            if idx >= MAX_THREADS {
-                break;
-            }
-            match SLOT_USED[word].compare_exchange_weak(
-                used,
-                used | (1usize << bit),
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return Some(&mut THREADS[idx]),
-                Err(v) => used = v,
-            }
+    spinlock_lock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+    if !THREAD_TABLE_READY {
+        let mut i = THREAD_CHUNK;
+        while i > 0 {
+            i -= 1;
+            let slot = &mut THREADS[i];
+            slot.free_next = FREE_THREADS;
+            FREE_THREADS = slot;
         }
+        THREAD_TABLE_READY = true;
     }
-    None
+    let mut slot = FREE_THREADS;
+    if slot.is_null() {
+        let count = EXTRA_CHUNK_COUNT.load(Ordering::Relaxed);
+        if count >= MAX_THREAD_CHUNKS {
+            spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+            return None;
+        }
+        let bytes = THREAD_CHUNK * core::mem::size_of::<Thread>();
+        let chunk = sys_mmap(
+            core::ptr::null_mut(),
+            bytes,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS,
+            -1,
+            0,
+        ) as *mut Thread;
+        if chunk.is_null() || chunk as *mut u8 == MMAP_FAILED {
+            spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+            return None;
+        }
+        let mut i = THREAD_CHUNK;
+        while i > 1 {
+            i -= 1;
+            let s = chunk.add(i);
+            (*s).free_next = FREE_THREADS;
+            FREE_THREADS = s;
+        }
+        EXTRA_CHUNKS[count] = chunk;
+        EXTRA_CHUNK_COUNT.store(count + 1, Ordering::Release);
+        slot = chunk;
+    } else {
+        FREE_THREADS = (*slot).free_next;
+        (*slot).free_next = core::ptr::null_mut();
+    }
+    spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+    Some(&mut *slot)
+}
+
+/// The child of fork() keeps only the calling thread.  Rebuild the free list
+/// so slots belonging to vanished threads are reusable, and update the
+/// current thread's tid to the child's.
+unsafe fn thread_allocator_after_fork() {
+    a_store(&raw mut THREAD_LOCK, 0);
+    a_store(&raw mut THREAD_WAITERS, 0);
+    if !THREAD_TABLE_READY {
+        return;
+    }
+    let tp = tcb_slot(THREAD_TCB_OFFSET);
+    let current = if tp.is_null() {
+        core::ptr::null_mut()
+    } else {
+        core::ptr::read_unaligned(tp) as *mut Thread
+    };
+    let child_tid = sys_gettid() as c_int;
+    let count = thread_slot_count();
+    let mut free = core::ptr::null_mut();
+    let mut active = 0usize;
+    let mut i = 0usize;
+    while i < count {
+        let slot = thread_slot_at(i);
+        if slot == current {
+            (*slot).tid = child_tid;
+            (*slot).free_next = core::ptr::null_mut();
+            active += 1;
+        } else {
+            (*slot).tid = -1;
+            (*slot).free_next = free;
+            free = slot;
+        }
+        i += 1;
+    }
+    FREE_THREADS = free;
+    ACTIVE_THREADS.store(active, Ordering::Release);
 }
 
 unsafe fn run_key_dtors(slot: &mut Thread) {
@@ -2951,6 +3040,10 @@ unsafe fn run_key_dtors(slot: &mut Thread) {
 
 unsafe extern "C" fn thread_entry(slot: *mut c_void) -> *mut c_void {
     let slot = &mut *(slot as *mut Thread);
+    let tp = tcb_slot(THREAD_TCB_OFFSET);
+    if !tp.is_null() {
+        core::ptr::write_unaligned(tp, slot as *mut Thread as usize);
+    }
     // A reused slot may still carry the previous thread's robust-list state;
     // register a fresh list for this thread.
     slot.robust_list.list.next = core::ptr::null_mut();
@@ -2969,47 +3062,65 @@ unsafe extern "C" fn thread_entry(slot: *mut c_void) -> *mut c_void {
     slot.result = ret;
     a_store(&raw mut slot.detach_state, DT_EXITED);
     futex_wake(&raw mut slot.detach_state, 1);
+    if ACTIVE_THREADS.fetch_sub(1, Ordering::AcqRel) <= 1 {
+        exit(0);
+    }
     sys_exit_thread(0)
+}
+
+unsafe fn register_current_thread() -> Option<&'static mut Thread> {
+    let me = sys_gettid() as c_int;
+    let slot_ref = alloc_thread_slot()?;
+    let slot = slot_ref as *mut Thread;
+    (*slot).tid = me;
+    (*slot).detach_state = DT_JOINABLE;
+    (*slot).result = core::ptr::null_mut();
+    (*slot).cancel = 0;
+    (*slot).cancel_state = PTHREAD_CANCEL_ENABLE;
+    (*slot).cancel_type = PTHREAD_CANCEL_DEFERRED;
+    (*slot).cancelbuf = core::ptr::null_mut();
+    core::ptr::write_bytes((*slot).tsd.as_mut_ptr(), 0, PTHREAD_KEYS_MAX);
+    (*slot).robust_list.list.next = core::ptr::null_mut();
+    (*slot).robust_list.futex_offset = 0;
+    (*slot).robust_list.pending = core::ptr::null_mut();
+    let tp = tcb_slot(THREAD_TCB_OFFSET);
+    if !tp.is_null() {
+        core::ptr::write_unaligned(tp, slot as usize);
+    }
+    ACTIVE_THREADS.fetch_add(1, Ordering::AcqRel);
+    Some(&mut *slot)
 }
 
 unsafe fn find_thread() -> Option<&'static mut Thread> {
     let me = sys_gettid() as c_int;
-    let base = core::ptr::addr_of_mut!(THREADS[0]);
-    for i in 0..MAX_THREADS {
-        let slot = base.add(i);
-        if core::ptr::read_volatile(&raw const (*slot).tid) == me {
-            return Some(&mut *slot);
+    let tp = tcb_slot(THREAD_TCB_OFFSET);
+    if !tp.is_null() {
+        let p = core::ptr::read_unaligned(tp) as *mut Thread;
+        if !p.is_null() && (*p).tid == me {
+            return Some(&mut *p);
         }
     }
-    // Auto-register the current thread (usually the main thread) on first use.
-    pthread_self();
-    for i in 0..MAX_THREADS {
-        let slot = base.add(i);
+    let count = thread_slot_count();
+    let mut i = 0usize;
+    while i < count {
+        let slot = thread_slot_at(i);
         if core::ptr::read_volatile(&raw const (*slot).tid) == me {
+            if !tp.is_null() {
+                core::ptr::write_unaligned(tp, slot as usize);
+            }
             return Some(&mut *slot);
         }
+        i += 1;
     }
-    None
+    register_current_thread()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn pthread_self() -> PthreadT {
-    let me = sys_gettid() as c_int;
-    let base = core::ptr::addr_of_mut!(THREADS[0]);
-    for i in 0..MAX_THREADS {
-        let slot = base.add(i);
-        if core::ptr::read_volatile(&raw const (*slot).tid) == me {
-            return slot as PthreadT;
-        }
+    match find_thread() {
+        Some(slot) => slot as *mut Thread as PthreadT,
+        None => 0,
     }
-    // Register the main thread lazily in a free slot.
-    if let Some(slot) = alloc_thread_slot() {
-        let slot = slot as *mut Thread;
-        (*slot).tid = me;
-        (*slot).detach_state = DT_JOINABLE;
-        return slot as PthreadT;
-    }
-    0
 }
 
 #[no_mangle]
@@ -3111,8 +3222,10 @@ pub unsafe extern "C" fn pthread_create(
     let tid_ptr = &raw mut (*slot).tid;
     let flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD
         | CLONE_SYSVSEM | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
+    ACTIVE_THREADS.fetch_add(1, Ordering::AcqRel);
     let tid = __rc_clone(thread_entry as *const () as usize, stack_top, flags, slot as *mut c_void, tid_ptr, fs_base as c_ulong, tid_ptr);
     if tid < 0 {
+        ACTIVE_THREADS.fetch_sub(1, Ordering::AcqRel);
         (*slot).tid = -1;
         if stack_owned { sys_munmap(stack, stack_size); }
         if tls_size > 0 { sys_munmap(tls_base, tls_size); }
@@ -3207,13 +3320,7 @@ pub unsafe extern "C" fn pthread_exit(retval: *mut c_void) -> ! {
         futex_wake(&slot.detach_state as *const c_int as *mut c_int, 1);
 
         // If this is the last thread, run atexit handlers via exit().
-        let mut active = 0usize;
-        for i in 0..MAX_THREADS {
-            if THREADS[i].tid > 0 {
-                active += 1;
-            }
-        }
-        if active == 1 {
+        if ACTIVE_THREADS.fetch_sub(1, Ordering::AcqRel) <= 1 {
             exit(0);
         }
     }
@@ -4267,8 +4374,14 @@ pub unsafe extern "C" fn pthread_key_create(key: *mut pthread_key_t, dtor: Optio
 #[no_mangle]
 pub unsafe extern "C" fn pthread_key_delete(key: pthread_key_t) -> c_int {
     KEY_DTORS[key as usize] = None;
-    for i in 0..MAX_THREADS {
-        if THREADS[i].tid > 0 { THREADS[i].tsd[key as usize] = core::ptr::null_mut(); }
+    let count = thread_slot_count();
+    let mut i = 0usize;
+    while i < count {
+        let slot = thread_slot_at(i);
+        if core::ptr::read_volatile(&raw const (*slot).tid) > 0 {
+            (*slot).tsd[key as usize] = core::ptr::null_mut();
+        }
+        i += 1;
     }
     0
 }
@@ -14689,6 +14802,7 @@ unsafe fn static_tls_init_block(block: *mut u8) -> *mut u8 {
     core::ptr::write_unaligned((tcb as *mut u64).add(5), STATIC_TLS_CANARY); // 0x28
     core::ptr::write_unaligned((tcb as *mut u64).add(6), 0); // errno at 0x30
     core::ptr::write_unaligned((tcb as *mut u64).add(7), 0); // vDSO getrandom state at 0x38
+    core::ptr::write_unaligned((tcb as *mut u64).add(8), 0); // Thread record at 0x40
     tp
 }
 
@@ -14865,6 +14979,11 @@ pub unsafe extern "C" fn __libc_start_main(
     __auxv = aux.add(1) as *const usize;
     init_static_tls();
     errno_init();
+    // Register the main thread during startup.  pthread_exit() uses the
+    // thread table to decide whether it is the last thread; if the main
+    // thread only registered lazily, a worker exiting first could call
+    // exit() while the main thread was still alive.
+    pthread_self();
 
     __environ = envp as *mut *mut c_char;
     environ = __environ; // sync environ alias

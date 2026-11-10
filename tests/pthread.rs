@@ -21,6 +21,16 @@ fn pthread_functions_under_libc_so() {
 }
 
 #[test]
+fn pthread_many_concurrent() {
+    let _guard = PTHREAD_TEST_LOCK.lock();
+    let output = common::run_fixture("thread_many", &[]);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "thread many ok\n"
+    );
+}
+
+#[test]
 fn pthread_full_test() {
     let _guard = PTHREAD_TEST_LOCK.lock();
     let output = common::run_fixture("pthread_full", &[]);

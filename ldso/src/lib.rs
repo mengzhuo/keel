@@ -2103,6 +2103,7 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
     };
     let old_tcb = (old_fs as isize + tls_tcb_offset_from_tp()) as *const u64;
     let old_getrandom = core::ptr::read_unaligned(old_tcb.add(7));
+    let old_thread = core::ptr::read_unaligned(old_tcb.add(8));
     if old_total > 0 {
         core::ptr::copy_nonoverlapping(old_var_base, block.add(tls_var_area_offset_from_block()), old_total);
     }
@@ -2128,8 +2129,10 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
     core::ptr::write_unaligned((tcb as *mut u64).add(3), TLS_MODULE_COUNT as u64);
     // 0x38 is libc's per-thread vDSO getrandom state pointer.  Keep the
     // state this thread already allocated when growing its block; dropping
-    // it would leak the page and force a fresh kernel reseed.
+    // it would leak the page and force a fresh kernel reseed.  0x40 is the
+    // pointer to the thread's Thread record and moves with the block.
     core::ptr::write_unaligned((tcb as *mut u64).add(7), old_getrandom);
+    core::ptr::write_unaligned((tcb as *mut u64).add(8), old_thread);
     write_tp(block.add(tls_tp_offset_from_block()) as usize);
 }
 
@@ -2835,9 +2838,11 @@ unsafe fn init_tls_block(block: *mut u8) -> *mut u8 {
     core::ptr::write_unaligned((tcb as *mut u64).add(1), TLS_GENERATION);
     core::ptr::write_unaligned((tcb as *mut u64).add(2), TLS_TOTAL_SIZE as u64);
     core::ptr::write_unaligned((tcb as *mut u64).add(3), TLS_MODULE_COUNT as u64);
-    // 0x38 is libc's per-thread vDSO getrandom state pointer.  A block
-    // carved out of an application stack is not zero-filled, so clear it.
+    // 0x38 is libc's per-thread vDSO getrandom state pointer; 0x40 is the
+    // Thread record pointer.  A block carved out of an application stack is
+    // not zero-filled, so clear both.
     core::ptr::write_unaligned((tcb as *mut u64).add(7), 0u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(8), 0u64);
     block.add(tls_tp_offset_from_block())
 }
 
