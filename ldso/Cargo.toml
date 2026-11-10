@@ -3,7 +3,7 @@ name = "crabc-ldso"
 version = "0.7.6"
 edition = "2021"
 description = "A Rust dynamic linker for musl-linked ELF binaries"
-license = "MIT OR Apache-2.0"
+license = "BSD-3-Clause"
 repository = "https://github.com/mengzhuo/crabc"
 readme = "README.md"
 

@@ -26,4 +26,4 @@ Output is in `target/debug/libc.so` and `target/debug/libc.a`.
 
 ## License
 
-MIT OR Apache-2.0
+[BSD-3-Clause](../LICENSE)

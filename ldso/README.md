@@ -33,4 +33,4 @@ Or directly:
 
 ## License
 
-MIT OR Apache-2.0
+[BSD-3-Clause](../LICENSE)

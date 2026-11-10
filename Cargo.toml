@@ -16,7 +16,7 @@ name = "crabc"
 version = "0.7.6"
 edition = "2021"
 description = "A Rust musl-compatible libc with a dynamic linker"
-license = "MIT OR Apache-2.0"
+license = "BSD-3-Clause"
 repository = "https://github.com/mengzhuo/crabc"
 readme = "README.md"
 

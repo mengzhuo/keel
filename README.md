@@ -1,6 +1,6 @@
 # crabc libc
 
-crabc is an MIT/Apache-2.0 licensed implementation of the musl C library ABI
+crabc is a BSD-3-Clause licensed implementation of the musl C library ABI
 and dynamic linker for Linux, written in Rust. It runs unmodified musl-linked
 binaries on x86\_64, aarch64 and riscv64 when `libldso.so` is used as the
 interpreter, and provides `libc.a` for static linking. crabc is built on the
@@ -54,4 +54,4 @@ workspace is published as the `crabc`, `crabc-libc` and `crabc-ldso` crates.
 Documentation: [comparison](docs/comparison.md), [workloads](docs/workloads.md),
 [LTP](docs/ltp.md), [performance](docs/performance.md).
 
-crabc is licensed under MIT OR Apache-2.0.
+crabc is licensed under [BSD-3-Clause](LICENSE).

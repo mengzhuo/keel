@@ -66,7 +66,7 @@ mkpkg() {
                 -I "version:$V" \
                 -I "description:$DESC" \
                 -I "arch:$ARCH" \
-                -I "license:MIT OR Apache-2.0" \
+                -I "license:BSD-3-Clause" \
                 -I "origin:crabc" \
                 -I "maintainer:Meng Zhuo <mengzhuo@iscas.ac.cn>" \
                 -I "url:https://github.com/mengzhuo/crabc" \
