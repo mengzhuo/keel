@@ -130,8 +130,8 @@ const PH_MEMSZ: usize = 40;
 const PH_ALIGN: usize = 48;
 
 const SYMTAB_ENT_SIZE: usize = 24;
-const MAX_LOADED: usize = 64;
-const MAX_DEPS: usize = MAX_LOADED;
+const MAX_LOADED: usize = 256;
+const MAX_DEPS: usize = 64;
 const NO_IDX: u16 = 0xffff;
 const TCB_SIZE: usize = 256;
 const DSO_BASE_START: u64 = 0x200000000;
@@ -3581,10 +3581,6 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
         envc += 1;
     }
 
-    // ponytail: max 128 args, 512 env vars — covers any realistic binary
-    let max_args = if argc > 128 { 128 } else { argc };
-    let max_env = if envc > 512 { 512 } else { envc };
-
     let orig_auxv = read_orig_auxv(orig_sp, envc);
 
     // Give the program a usable main stack. The previous 256 KiB was small
@@ -3611,22 +3607,51 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
     }
     let mut sp = stack_base as usize + stack_size;
 
-    let mut new_argv: [usize; 128] = [0; 128];
-    for i in 0..max_args {
+    // Do not cap argv/envp at a fixed array size.  The temporary pointer
+    // array lives in an anonymous mapping and is unmapped before the jump.
+    let ptr_words = match argc.checked_add(envc).and_then(|n| n.checked_add(2)) {
+        Some(n) => n,
+        None => die(95, b"argv_env_overflow", 0),
+    };
+    let ptr_bytes = match ptr_words.checked_mul(8) {
+        Some(n) => n,
+        None => die(95, b"argv_env_overflow", 0),
+    };
+    let ptr_map = sys_mmap(
+        core::ptr::null_mut(),
+        ptr_bytes,
+        PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS,
+        -1,
+        0,
+    );
+    if ptr_map as usize == MAP_FAILED {
+        die(96, b"argv_env_mmap", ptr_bytes);
+    }
+    let ptrs = ptr_map as *mut usize;
+    let new_argv = ptrs;
+    let new_envp = ptrs.add(argc);
+
+    for i in 0..argc {
         let s = *((argv_start + i * 8) as *const u64) as *const u8;
         let len = str_len(s);
+        if sp < stack_base as usize + len + 1 + 4096 {
+            die(97, b"argv_env_stack", 0);
+        }
         sp -= len + 1;
         core::ptr::copy_nonoverlapping(s, sp as *mut u8, len + 1);
-        new_argv[i] = sp;
+        *new_argv.add(i) = sp;
     }
 
-    let mut new_envp: [usize; 512] = [0; 512];
-    for i in 0..max_env {
+    for i in 0..envc {
         let s = *((envp_start + i * 8) as *const u64) as *const u8;
         let len = str_len(s);
+        if sp < stack_base as usize + len + 1 + 4096 {
+            die(97, b"argv_env_stack", 0);
+        }
         sp -= len + 1;
         core::ptr::copy_nonoverlapping(s, sp as *mut u8, len + 1);
-        new_envp[i] = sp;
+        *new_envp.add(i) = sp;
     }
 
     // musl's crt1 needs AT_RANDOM for the stack canary; preserve it on the new stack.
@@ -3646,8 +3671,9 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
     // 16-byte align before structured data so argc lands on a boundary
     sp &= !15usize;
 
-    // Pad before auxv so argc lands on 16-byte boundary (no gap between argv[] and argc)
-    if (max_env + max_args) % 2 == 0 {
+    // Pad before auxv so argc lands on a 16-byte boundary (no gap between
+    // argv[] and argc).  envp/argv arrays plus argc are (envc+argc+3) words.
+    if (envc + argc) % 2 == 0 {
         sp -= 8;
         *(sp as *mut u64) = 0;
     }
@@ -3684,20 +3710,22 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
     *aux.add(26) = AT_NULL;
     *aux.add(27) = 0;
 
-    sp -= (max_env + 1) * 8;
-    for i in 0..max_env {
-        *((sp + i * 8) as *mut u64) = new_envp[i] as u64;
+    sp -= (envc + 1) * 8;
+    for i in 0..envc {
+        *((sp + i * 8) as *mut u64) = *new_envp.add(i) as u64;
     }
-    *((sp + max_env * 8) as *mut u64) = 0;
+    *((sp + envc * 8) as *mut u64) = 0;
 
-    sp -= (max_args + 1) * 8;
-    for i in 0..max_args {
-        *((sp + i * 8) as *mut u64) = new_argv[i] as u64;
+    sp -= (argc + 1) * 8;
+    for i in 0..argc {
+        *((sp + i * 8) as *mut u64) = *new_argv.add(i) as u64;
     }
-    *((sp + max_args * 8) as *mut u64) = 0;
+    *((sp + argc * 8) as *mut u64) = 0;
 
     sp -= 8;
     *(sp as *mut u64) = argc as u64;
+
+    let _ = sys_munmap(ptr_map, ptr_bytes);
 
     #[cfg(target_arch = "x86_64")]
     core::arch::asm!(

@@ -4,8 +4,6 @@
 // pthread_atfork() handler registry and fork hook, musl-compatible.
 // Included from libc/src/lib.rs; fork() must call __fork_handler(-1/0/1).
 
-const MAX_ATFORK: usize = 64;
-
 #[derive(Copy, Clone)]
 struct atfork_funcs {
     prepare: Option<unsafe extern "C" fn()>,
@@ -13,10 +11,9 @@ struct atfork_funcs {
     child: Option<unsafe extern "C" fn()>,
 }
 
-const EMPTY: atfork_funcs = atfork_funcs { prepare: None, parent: None, child: None };
-
-// ponytail: static array, no malloc; upgrade to linked list + malloc if >64 handlers needed
-static mut ATFORK_FUNCS: [atfork_funcs; MAX_ATFORK] = [EMPTY; MAX_ATFORK];
+// The registry grows with realloc; musl also allocates one node per handler.
+static mut ATFORK_FUNCS: *mut atfork_funcs = core::ptr::null_mut();
+static mut ATFORK_CAP: usize = 0;
 static ATFORK_NFUNCS: AtomicUsize = AtomicUsize::new(0);
 static ATFORK_LOCK: AtomicI32 = AtomicI32::new(0);
 
@@ -40,15 +37,13 @@ unsafe fn atfork_unlock() {
 // who != 0: child (forward order, releases lock)
 #[no_mangle]
 pub unsafe extern "C" fn __fork_handler(who: c_int) {
-    let n = ATFORK_NFUNCS.load(Ordering::Relaxed);
-    if n == 0 {
-        return;
-    }
-
-    let base = core::ptr::addr_of!(ATFORK_FUNCS).cast::<atfork_funcs>();
     if who < 0 {
         atfork_lock();
-        let n = ATFORK_NFUNCS.load(Ordering::Relaxed);
+        let n = ATFORK_NFUNCS.load(Ordering::Acquire);
+        let base = ATFORK_FUNCS;
+        if n == 0 || base.is_null() {
+            return;
+        }
         let mut i = n;
         while i > 0 {
             i -= 1;
@@ -58,15 +53,18 @@ pub unsafe extern "C" fn __fork_handler(who: c_int) {
             }
         }
     } else {
-        let n = ATFORK_NFUNCS.load(Ordering::Relaxed);
-        for i in 0..n {
-            let entry = &*base.add(i);
-            if who == 0 {
-                if let Some(f) = entry.parent {
+        let n = ATFORK_NFUNCS.load(Ordering::Acquire);
+        let base = ATFORK_FUNCS;
+        if n != 0 && !base.is_null() {
+            for i in 0..n {
+                let entry = &*base.add(i);
+                if who == 0 {
+                    if let Some(f) = entry.parent {
+                        f();
+                    }
+                } else if let Some(f) = entry.child {
                     f();
                 }
-            } else if let Some(f) = entry.child {
-                f();
             }
         }
         atfork_unlock();
@@ -81,13 +79,21 @@ pub unsafe extern "C" fn pthread_atfork(
 ) -> c_int {
     atfork_lock();
     let n = ATFORK_NFUNCS.load(Ordering::Relaxed);
-    if n >= MAX_ATFORK {
-        atfork_unlock();
-        return ENOMEM;
+    if n == ATFORK_CAP {
+        let new_cap = if ATFORK_CAP == 0 { 8 } else { ATFORK_CAP * 2 };
+        let new = crate::realloc(
+            ATFORK_FUNCS as *mut c_void,
+            new_cap * core::mem::size_of::<atfork_funcs>(),
+        ) as *mut atfork_funcs;
+        if new.is_null() {
+            atfork_unlock();
+            return ENOMEM;
+        }
+        ATFORK_FUNCS = new;
+        ATFORK_CAP = new_cap;
     }
-    let dst = core::ptr::addr_of_mut!(ATFORK_FUNCS).cast::<atfork_funcs>().add(n);
-    *dst = atfork_funcs { prepare, parent, child };
-    ATFORK_NFUNCS.store(n + 1, Ordering::Relaxed);
+    *ATFORK_FUNCS.add(n) = atfork_funcs { prepare, parent, child };
+    ATFORK_NFUNCS.store(n + 1, Ordering::Release);
     atfork_unlock();
     0
 }

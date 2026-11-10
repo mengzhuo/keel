@@ -22,3 +22,9 @@ fn pthread_atfork_handlers_fire_in_order() {
         stdout
     );
 }
+
+#[test]
+fn pthread_atfork_many_handlers() {
+    let output = common::run_fixture("atfork_many", &["-pthread"]);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "atfork many ok\n");
+}
