@@ -1,40 +1,8 @@
-use std::process::Command;
+mod common;
 
 #[test]
 fn ldso_runs_real_printf_binary() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fixtures = manifest_dir.join("tests/fixtures");
-
-    let ldso_path = manifest_dir.join("target/debug/libldso.so");
-    assert!(ldso_path.exists(), "libldso.so not found at {}", ldso_path.display());
-
-    let libc_path = manifest_dir.join("target/debug/libc.so");
-    assert!(libc_path.exists(), "libc.so not found at {}", libc_path.display());
-
-    let hello_src = fixtures.join("hello.c");
-    let hello_bin = fixtures.join("hello");
-    let status = Command::new("musl-gcc")
-        .args([
-            "-fPIE",
-            "-pie",
-            "-Wl,--dynamic-linker",
-            ldso_path.to_str().unwrap(),
-            "-L",
-            manifest_dir.join("target/debug").to_str().unwrap(),
-            hello_src.to_str().unwrap(),
-            "-Wl,--allow-shlib-undefined",
-                        "-lc",
-            "-o",
-            hello_bin.to_str().unwrap(),
-        ])
-        .status()
-        .expect("failed to run musl-gcc for hello");
-    assert!(status.success(), "musl-gcc hello compilation failed");
-
-    let output = Command::new(&hello_bin)
-        .env("LD_LIBRARY_PATH", manifest_dir.join("target/debug").to_str().unwrap())
-        .output()
-        .expect("failed to run hello");
+    let output = common::run_named("hello", "hello", &[]);
 
     assert!(
         output.status.success(),

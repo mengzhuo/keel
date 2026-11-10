@@ -46,13 +46,18 @@ cargo test --test math       # one test file, after the build above
 
 ## Test Pattern
 
-Each `tests/<name>.rs` (canonical: `tests/math.rs`):
+Most `tests/<name>.rs` (canonical: `tests/math.rs`) use `tests/common/mod.rs`:
 
-1. compiles `tests/fixtures/<name>_test.c` with `musl-gcc -fPIE -pie -I include/ ... -Wl,--dynamic-linker target/debug/libldso.so -L target/debug -lc -Wl,--allow-shlib-undefined`;
-2. runs it with `LD_LIBRARY_PATH=target/debug`;
-3. asserts exact stdout (for example `"math ok\n"`).
+1. `common::run_fixture(name, extra)` compiles `tests/fixtures/<name>_test.c` with
+   `musl-gcc -fPIE -pie -I include/ ... -Wl,--dynamic-linker
+   target/debug/libldso.so -L target/debug -lc -Wl,--allow-shlib-undefined`;
+2. it runs the binary with `LD_LIBRARY_PATH=target/debug`;
+3. the test asserts exact stdout (for example `"math ok\n"`).
 
-Math fixtures add `-frounding-math`; on x86_64 also `-mlong-double-64`. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/wave4.rs` and `tests/wave5.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup.
+Pass extra compiler flags through the `extra` slice. Math adds
+`-fno-builtin -frounding-math`; on x86_64 also `-mlong-double-64`. Tests
+that build DSOs, static binaries or custom loader layouts still invoke the
+toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/wave4.rs` and `tests/wave5.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup.
 
 `libc` and `ldso` set `test = false`; all coverage is through these root integration tests.
 
