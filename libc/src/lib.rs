@@ -12357,13 +12357,7 @@ pub unsafe extern "C" fn isatty(fd: c_int) -> c_int {
 
 #[no_mangle]
 pub unsafe extern "C" fn getlogin() -> *mut c_char {
-    static mut LOGIN_BUF: [c_char; 32] = [0; 32];
-    let pw = getpwuid(crate::getuid());
-    if pw.is_null() { return core::ptr::null_mut(); }
-    let n = crate::strlen((*pw).pw_name);
-    if n + 1 > LOGIN_BUF.len() { return core::ptr::null_mut(); }
-    core::ptr::copy_nonoverlapping((*pw).pw_name, LOGIN_BUF.as_mut_ptr(), n + 1);
-    LOGIN_BUF.as_mut_ptr()
+    crate::getenv(b"LOGNAME\0".as_ptr() as *const c_char)
 }
 
 #[no_mangle]
@@ -14422,21 +14416,31 @@ pub unsafe extern "C" fn getmntent_r(
     f: *mut FILE,
     mnt: *mut MntEnt,
     mut linebuf: *mut c_char,
-    _buflen: c_int,
+    buflen: c_int,
 ) -> *mut MntEnt {
     let use_internal = linebuf as usize == SENTINEL_PTR;
 
     (*mnt).mnt_freq = 0;
     (*mnt).mnt_passno = 0;
 
-    // ponytail: static 4KB line buffer for getmntent
-    static mut INTERNAL_BUF: [c_char; 4096] = [0; 4096];
+    static mut MNT_LINE: *mut c_char = core::ptr::null_mut();
+    static mut MNT_LINE_CAP: usize = 0;
 
     loop {
-        if use_internal {
-            linebuf = core::ptr::addr_of_mut!(INTERNAL_BUF).cast::<c_char>();
-        }
-        let res = mntent_fgets(linebuf, 4096, f);
+        let res = if use_internal {
+            let n = getline(&raw mut MNT_LINE, &raw mut MNT_LINE_CAP, f);
+            if n < 0 {
+                return core::ptr::null_mut();
+            }
+            linebuf = MNT_LINE;
+            MNT_LINE
+        } else {
+            if buflen <= 0 {
+                ERRNO!() = EINVAL;
+                return core::ptr::null_mut();
+            }
+            mntent_fgets(linebuf, buflen as usize, f)
+        };
         if res.is_null() {
             return core::ptr::null_mut();
         }
@@ -18528,15 +18532,11 @@ pub unsafe extern "C" fn sethostname(name: *const core::ffi::c_char, len: usize)
 
 #[no_mangle]
 pub unsafe extern "C" fn getlogin_r(name: *mut core::ffi::c_char, bufsize: usize) -> i32 {
-    // Try to get from environment
-    let user = crate::getenv(b"USER\0".as_ptr() as *const core::ffi::c_char);
-    if user.is_null() { return 2; }
-    let mut i = 0;
-    while i < bufsize - 1 && *user.add(i) != 0 {
-        *name.add(i) = *user.add(i);
-        i += 1;
-    }
-    *name.add(i) = 0;
+    let user = getlogin();
+    if user.is_null() { return ENXIO_VAL; }
+    let len = crate::strlen(user);
+    if len >= bufsize { return 34; } // ERANGE
+    core::ptr::copy_nonoverlapping(user, name, len + 1);
     0
 }
 
@@ -19957,18 +19957,15 @@ pub unsafe extern "C" fn euidaccess(pathname: *const core::ffi::c_char, mode: i3
 
 #[no_mangle]
 pub unsafe extern "C" fn fgetln(f: *mut core::ffi::c_void, lenp: *mut usize) -> *mut core::ffi::c_char {
-    static mut BUF: [core::ffi::c_char; 4096] = [0; 4096];
-    let mut i = 0;
-    while i < 4095 {
-        let c = getc(f as *mut FILE);
-        if c < 0 { break; }
-        BUF[i] = c as c_char;
-        i += 1;
-        if c == '\n' as i32 { break; }
+    static mut BUF: *mut core::ffi::c_char = core::ptr::null_mut();
+    static mut CAP: usize = 0;
+    let n = getline(&raw mut BUF, &raw mut CAP, f as *mut FILE);
+    if n <= 0 {
+        if !lenp.is_null() { *lenp = 0; }
+        return core::ptr::null_mut();
     }
-    BUF[i] = 0;
-    if !lenp.is_null() { *lenp = i; }
-    if i == 0 { core::ptr::null_mut() } else { BUF.as_mut_ptr() }
+    if !lenp.is_null() { *lenp = n as usize; }
+    BUF
 }
 
 #[no_mangle]
@@ -20029,11 +20026,11 @@ pub unsafe extern "C" fn gethostid() -> i64 {
 
 #[no_mangle]
 pub unsafe extern "C" fn getpass(prompt: *const core::ffi::c_char) -> *mut core::ffi::c_char {
-    static mut BUF: [core::ffi::c_char; 128] = [0; 128];
+    static mut BUF: [core::ffi::c_char; 256] = [0; 256];
     // Write prompt
     crate::write(2, prompt as *const core::ffi::c_void, crate::strlen(prompt));
     // Read password (simplified - no echo disable)
-    let n = crate::read(0, BUF.as_mut_ptr() as *mut core::ffi::c_void, 127);
+    let n = crate::read(0, BUF.as_mut_ptr() as *mut core::ffi::c_void, 255);
     if n > 0 {
         let end = if BUF[(n - 1) as usize] == '\n' as c_char { n - 1 } else { n };
         BUF[end as usize] = 0;

@@ -46,7 +46,9 @@ pub unsafe extern "C" fn __ldso_register_dlinfo(f: LdsoDlinfoFn) {
 // /proc/self/maps
 // ------------------------------------------------------------------
 
-static mut MAPS_PATH: [c_char; 512] = [0; 512];
+static mut MAPS_PATH: [c_char; PATH_MAX_V] = [0; PATH_MAX_V];
+static mut MAPS_LINE: *mut c_char = core::ptr::null_mut();
+static mut MAPS_LINE_CAP: usize = 0;
 
 unsafe fn maps_parse_hex(p: *const u8) -> (u64, *const u8) {
     let mut v: u64 = 0;
@@ -74,12 +76,11 @@ unsafe fn maps_lookup(addr: usize) -> (u64, u64, *const c_char, bool) {
     MAPS_PATH[0] = 0;
     let f = crate::fopen(b"/proc/self/maps\0".as_ptr() as *const c_char, b"r\0".as_ptr() as *const c_char);
     if f.is_null() { return (0, 0, MAPS_PATH.as_ptr(), false); }
-    let mut line = [0 as c_char; 1024];
     let mut start_out = 0u64;
     let mut off_out = 0u64;
     let mut found = false;
-    while !crate::fgets(line.as_mut_ptr(), line.len() as c_int, f).is_null() {
-        let p = line.as_ptr() as *const u8;
+    while crate::getline(&raw mut MAPS_LINE, &raw mut MAPS_LINE_CAP, f) >= 0 {
+        let p = MAPS_LINE as *const u8;
         let (start, after) = maps_parse_hex(p);
         if *after != b'-' { continue; }
         let (end, after2) = maps_parse_hex(after.add(1));
@@ -166,7 +167,7 @@ unsafe fn elf_bias_for(path: *const c_char, start: u64, off: u64) -> u64 {
 // ELF symbol lookup (for dladdr)
 // ------------------------------------------------------------------
 
-static mut DLADDR_NAME: [c_char; 512] = [0; 512];
+static mut DLADDR_NAME: [c_char; PATH_MAX_V] = [0; PATH_MAX_V];
 
 unsafe fn rd16(p: *const u8) -> u16 { core::ptr::read_unaligned(p as *const u16) }
 unsafe fn rd32(p: *const u8) -> u32 { core::ptr::read_unaligned(p as *const u32) }
@@ -295,7 +296,7 @@ pub unsafe extern "C" fn dladdr(addr: *const c_void, info: *mut DlInfo) -> c_int
 // dl_iterate_phdr
 // ------------------------------------------------------------------
 
-static mut EXE_PATH: [c_char; 512] = [0; 512];
+static mut EXE_PATH: [c_char; PATH_MAX_V] = [0; PATH_MAX_V];
 
 unsafe fn read_exe_path() -> *const c_char {
     let n = crate::readlink(
@@ -317,9 +318,8 @@ unsafe fn main_program_info() -> (u64, *const u8, u16) {
     if *exe != 0 {
         let f = crate::fopen(b"/proc/self/maps\0".as_ptr() as *const c_char, b"r\0".as_ptr() as *const c_char);
         if !f.is_null() {
-            let mut line = [0 as c_char; 1024];
-            while !crate::fgets(line.as_mut_ptr(), line.len() as c_int, f).is_null() {
-                let p = line.as_ptr() as *const u8;
+            while crate::getline(&raw mut MAPS_LINE, &raw mut MAPS_LINE_CAP, f) >= 0 {
+                let p = MAPS_LINE as *const u8;
                 let (start, after) = maps_parse_hex(p);
                 if *after != b'-' { continue; }
                 let (_end, after2) = maps_parse_hex(after.add(1));

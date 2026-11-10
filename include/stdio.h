@@ -175,6 +175,10 @@ FILE *fopencookie(void *, const char *, cookie_io_functions_t);
 
 /* musl 1.2.6 compatibility macros */
 #define L_cuserid 20
+#if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
+char *cuserid(char *);
+char *fgetln(FILE *, size_t *);
+#endif
 #define P_tmpdir "/tmp"
 #define RENAME_EXCHANGE (1 << 1)
 #define RENAME_NOREPLACE (1 << 0)

@@ -1287,7 +1287,7 @@ unsafe fn loaded_object_by_identity(dev: u64, ino: u64) -> Option<usize> {
 unsafe fn resolve_fd_path(fd: i64) -> usize {
     // Keep the /proc path in its own buffer: readlinkat reads the path while
     // writing the result, so aliasing the two would be undefined.
-    let mut proc_path = [0u8; 32];
+    let mut proc_path = [0u8; 64];
     let prefix = b"/proc/self/fd/";
     let mut pos = 0usize;
     for &b in prefix {
@@ -2418,9 +2418,9 @@ unsafe fn lookup_symbol_in_object(obj_idx: usize, name: *const u8, name_len: usi
     fallback
 }
 
-static mut DLERROR_BUF: [u8; 128] = [0; 128];
+static mut DLERROR_BUF: [u8; 4096] = [0; 4096];
 static mut DLERROR_SET: bool = false;
-const DLERROR_BUF_SIZE: usize = 128;
+const DLERROR_BUF_SIZE: usize = 4096;
 
 unsafe fn set_dlerror(msg: &[u8]) {
     let len = if msg.len() >= DLERROR_BUF_SIZE {
