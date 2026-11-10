@@ -56,7 +56,16 @@ jobs:
         run: cargo build --workspace
 
       - name: Run integration tests
-        run: cargo test --workspace
+        run: |
+          set -o pipefail
+          cargo test --workspace --no-fail-fast 2>&1 | tee /tmp/integration-tests.log
+
+      - name: Report failed tests
+        if: failure()
+        run: |
+          grep -E '^test .* FAILED|FAILED|panicked at|error: test failed' /tmp/integration-tests.log | tail -80 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
 
       - name: Install riscv64 musl target
         if: matrix.arch == 'riscv64'
