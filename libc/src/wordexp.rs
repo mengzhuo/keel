@@ -23,8 +23,6 @@ const WRDE_BADVAL_V: c_int = 3;
 const WRDE_CMDSUB_V: c_int = 4;
 const WRDE_SYNTAX_V: c_int = 5;
 
-const WORDEXP_CAP: usize = 4096;
-
 struct WordList {
     items: *mut *mut c_char,
     n: usize,
@@ -61,15 +59,66 @@ unsafe fn wl_free(list: *mut WordList) {
 }
 
 struct WordBuf {
-    buf: [u8; WORDEXP_CAP],
+    inline: [u8; 4096],
+    heap: *mut u8,
     len: usize,
+    cap: usize,
     has_glob: bool,
     quoted: bool,
 }
 
+unsafe fn wb_data(w: *mut WordBuf) -> *mut u8 {
+    if (*w).heap.is_null() {
+        (*w).inline.as_mut_ptr()
+    } else {
+        (*w).heap
+    }
+}
+
+unsafe fn wb_reserve(w: *mut WordBuf, extra: usize) -> bool {
+    let need = match (*w).len.checked_add(extra) {
+        Some(n) => n,
+        None => return false,
+    };
+    if need <= (*w).cap {
+        return true;
+    }
+    let mut cap = if (*w).cap == 0 { 64 } else { (*w).cap };
+    while cap < need {
+        cap = match cap.checked_mul(2) {
+            Some(n) => n,
+            None => return false,
+        };
+    }
+    let from_inline = (*w).heap.is_null();
+    let p = if from_inline {
+        crate::malloc(cap)
+    } else {
+        crate::realloc((*w).heap as *mut c_void, cap)
+    } as *mut u8;
+    if p.is_null() {
+        return false;
+    }
+    if from_inline {
+        core::ptr::copy_nonoverlapping((*w).inline.as_ptr(), p, (*w).len);
+    }
+    (*w).heap = p;
+    (*w).cap = cap;
+    true
+}
+
+unsafe fn wb_free(w: *mut WordBuf) {
+    if !(*w).heap.is_null() {
+        crate::free((*w).heap as *mut c_void);
+        (*w).heap = core::ptr::null_mut();
+    }
+    (*w).len = 0;
+    (*w).cap = 4096;
+}
+
 unsafe fn wb_push(w: *mut WordBuf, c: u8, quoted: bool) -> c_int {
-    if (*w).len + 1 >= WORDEXP_CAP { return WRDE_NOSPACE_V; }
-    (*w).buf[(*w).len] = c;
+    if !wb_reserve(w, 1) { return WRDE_NOSPACE_V; }
+    *wb_data(w).add((*w).len) = c;
     (*w).len += 1;
     if quoted {
         (*w).quoted = true;
@@ -80,8 +129,8 @@ unsafe fn wb_push(w: *mut WordBuf, c: u8, quoted: bool) -> c_int {
 }
 
 unsafe fn wb_push_str(w: *mut WordBuf, s: *const u8, len: usize, quoted: bool) -> c_int {
-    if (*w).len + len >= WORDEXP_CAP { return WRDE_NOSPACE_V; }
-    core::ptr::copy_nonoverlapping(s, (*w).buf.as_mut_ptr().add((*w).len), len);
+    if !wb_reserve(w, len) { return WRDE_NOSPACE_V; }
+    core::ptr::copy_nonoverlapping(s, wb_data(w).add((*w).len), len);
     (*w).len += len;
     if !quoted {
         for i in 0..len {
@@ -261,6 +310,12 @@ unsafe fn command_sub(
     Ok(i)
 }
 
+unsafe fn we_fail(list: *mut WordList, w: *mut WordBuf, code: c_int) -> c_int {
+    wb_free(w);
+    wl_free(list);
+    code
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn wordexp(s: *const c_char, p: *mut WordexpT, flags: c_int) -> c_int {
     if s.is_null() || p.is_null() { return WRDE_SYNTAX_V; }
@@ -271,7 +326,7 @@ pub unsafe extern "C" fn wordexp(s: *const c_char, p: *mut WordexpT, flags: c_in
     loop {
         while src[i] == b' ' || src[i] == b'\t' || src[i] == b'\n' { i += 1; }
         if src[i] == 0 { break; }
-        let mut w = WordBuf { buf: [0u8; WORDEXP_CAP], len: 0, has_glob: false, quoted: false };
+        let mut w = WordBuf { inline: [0u8; 4096], heap: core::ptr::null_mut(), len: 0, cap: 4096, has_glob: false, quoted: false };
         let mut done = false;
         while !done {
             let c = src[i];
@@ -282,12 +337,11 @@ pub unsafe extern "C" fn wordexp(s: *const c_char, p: *mut WordexpT, flags: c_in
                     i += 1;
                     loop {
                         if src[i] == 0 {
-                            wl_free(&mut list);
-                            return WRDE_SYNTAX_V;
+                            return we_fail(&mut list, &mut w, WRDE_SYNTAX_V);
                         }
                         if src[i] == b'\'' { i += 1; break; }
                         let r = wb_push(&mut w, src[i], true);
-                        if r != 0 { wl_free(&mut list); return r; }
+                        if r != 0 { return we_fail(&mut list, &mut w, r); }
                         i += 1;
                     }
                     w.quoted = true;
@@ -296,37 +350,36 @@ pub unsafe extern "C" fn wordexp(s: *const c_char, p: *mut WordexpT, flags: c_in
                     i += 1;
                     loop {
                         if src[i] == 0 {
-                            wl_free(&mut list);
-                            return WRDE_SYNTAX_V;
+                            return we_fail(&mut list, &mut w, WRDE_SYNTAX_V);
                         }
                         if src[i] == b'"' { i += 1; break; }
                         if src[i] == b'\\' {
                             let n = src[i + 1];
                             if n == b'$' || n == b'`' || n == b'"' || n == b'\\' {
                                 let r = wb_push(&mut w, n, true);
-                                if r != 0 { wl_free(&mut list); return r; }
+                                if r != 0 { return we_fail(&mut list, &mut w, r); }
                                 i += 2;
                                 continue;
                             }
                             let r = wb_push(&mut w, src[i], true);
-                            if r != 0 { wl_free(&mut list); return r; }
+                            if r != 0 { return we_fail(&mut list, &mut w, r); }
                             i += 1;
                             continue;
                         }
                         if src[i] == b'`' || (src[i] == b'$' && src[i + 1] == b'(') {
                             match command_sub(src, i, &mut w, flags) {
                                 Ok(ni) => { i = ni; continue; }
-                                Err(e) => { wl_free(&mut list); return e; }
+                                Err(e) => { return we_fail(&mut list, &mut w, e); }
                             }
                         }
                         if src[i] == b'$' {
                             match expand_var(src, i, &mut w, flags) {
                                 Ok(ni) => { i = ni; continue; }
-                                Err(e) => { wl_free(&mut list); return e; }
+                                Err(e) => { return we_fail(&mut list, &mut w, e); }
                             }
                         }
                         let r = wb_push(&mut w, src[i], true);
-                        if r != 0 { wl_free(&mut list); return r; }
+                        if r != 0 { return we_fail(&mut list, &mut w, r); }
                         i += 1;
                     }
                     w.quoted = true;
@@ -334,50 +387,49 @@ pub unsafe extern "C" fn wordexp(s: *const c_char, p: *mut WordexpT, flags: c_in
                 b'\\' => {
                     i += 1;
                     if src[i] == 0 {
-                        wl_free(&mut list);
-                        return WRDE_SYNTAX_V;
+                        return we_fail(&mut list, &mut w, WRDE_SYNTAX_V);
                     }
                     let r = wb_push(&mut w, src[i], true);
-                    if r != 0 { wl_free(&mut list); return r; }
+                    if r != 0 { return we_fail(&mut list, &mut w, r); }
                     i += 1;
                 }
                 b'$' => {
                     if src[i + 1] == b'(' {
                         match command_sub(src, i, &mut w, flags) {
                             Ok(ni) => { i = ni; }
-                            Err(e) => { wl_free(&mut list); return e; }
+                            Err(e) => { return we_fail(&mut list, &mut w, e); }
                         }
                     } else {
                         match expand_var(src, i, &mut w, flags) {
                             Ok(ni) => { i = ni; }
-                            Err(e) => { wl_free(&mut list); return e; }
+                            Err(e) => { return we_fail(&mut list, &mut w, e); }
                         }
                     }
                 }
                 b'`' => {
                     match command_sub(src, i, &mut w, flags) {
                         Ok(ni) => { i = ni; }
-                        Err(e) => { wl_free(&mut list); return e; }
+                        Err(e) => { return we_fail(&mut list, &mut w, e); }
                     }
                 }
                 b'*' | b'?' | b'[' => {
                     w.has_glob = true;
                     let r = wb_push(&mut w, c, false);
-                    if r != 0 { wl_free(&mut list); return r; }
+                    if r != 0 { return we_fail(&mut list, &mut w, r); }
                     i += 1;
                 }
                 _ => {
                     let r = wb_push(&mut w, c, false);
-                    if r != 0 { wl_free(&mut list); return r; }
+                    if r != 0 { return we_fail(&mut list, &mut w, r); }
                     i += 1;
                 }
             }
         }
         if w.len == 0 && !w.quoted { continue; }
-        w.buf[w.len] = 0;
+        *wb_data(&mut w).add(w.len) = 0;
         if w.has_glob && !w.quoted {
             let mut g: GlobT = core::mem::zeroed();
-            let r = crate::glob(w.buf.as_ptr() as *const c_char, 0x10 | 0x04, None, &mut g); // NOCHECK|NOSORT
+            let r = crate::glob(wb_data(&mut w) as *const c_char, 0x10 | 0x04, None, &mut g); // NOCHECK|NOSORT
             if r == 0 {
                 for k in 0..g.gl_pathc {
                     let gp = *g.gl_pathv.add(k);
@@ -386,11 +438,12 @@ pub unsafe extern "C" fn wordexp(s: *const c_char, p: *mut WordexpT, flags: c_in
                 }
                 crate::globfree(&mut g);
             } else {
-                wl_push(&mut list, w.buf.as_ptr(), w.len);
+                wl_push(&mut list, wb_data(&mut w), w.len);
             }
         } else {
-            wl_push(&mut list, w.buf.as_ptr(), w.len);
+            wl_push(&mut list, wb_data(&mut w), w.len);
         }
+        wb_free(&mut w);
     }
 
     let old = if flags & WRDE_APPEND_V != 0 { (*p).we_wordc } else { 0 };

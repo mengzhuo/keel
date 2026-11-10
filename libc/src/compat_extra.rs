@@ -29,14 +29,238 @@ struct AioSlot {
     ret: isize,
     err: c_int,
     active: bool,
+    next: *mut AioSlot,
+    prev: *mut AioSlot,
 }
 
-static mut AIO_SLOTS: [AioSlot; 32] = [AioSlot {
-    cb: core::ptr::null_mut(),
-    ret: 0,
-    err: 0,
-    active: false,
-}; 32];
+// Completion records are allocated on demand and recycled through a free
+// list, mirroring musl's dynamic AIO bookkeeping.
+static mut AIO_HEAD: *mut AioSlot = core::ptr::null_mut();
+static mut AIO_FREE: *mut AioSlot = core::ptr::null_mut();
+static AIO_LOCK: AtomicI32 = AtomicI32::new(0);
+
+unsafe fn aio_lock() {
+    while AIO_LOCK
+        .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+}
+
+unsafe fn aio_unlock() {
+    AIO_LOCK.store(0, Ordering::Release);
+}
+
+unsafe fn aio_alloc() -> *mut AioSlot {
+    let slot = if AIO_FREE.is_null() {
+        crate::malloc(core::mem::size_of::<AioSlot>()) as *mut AioSlot
+    } else {
+        let slot = AIO_FREE;
+        AIO_FREE = (*slot).next;
+        slot
+    };
+    if !slot.is_null() {
+        (*slot).cb = core::ptr::null_mut();
+        (*slot).ret = 0;
+        (*slot).err = 0;
+        (*slot).active = false;
+        (*slot).next = core::ptr::null_mut();
+        (*slot).prev = core::ptr::null_mut();
+    }
+    slot
+}
+
+unsafe fn aio_get(cb: *mut Aiocb) -> *mut AioSlot {
+    let mut slot = AIO_HEAD;
+    while !slot.is_null() {
+        if (*slot).cb == cb {
+            return slot;
+        }
+        slot = (*slot).next;
+    }
+    let slot = aio_alloc();
+    if slot.is_null() {
+        return core::ptr::null_mut();
+    }
+    (*slot).cb = cb;
+    (*slot).next = AIO_HEAD;
+    if !AIO_HEAD.is_null() {
+        (*AIO_HEAD).prev = slot;
+    }
+    AIO_HEAD = slot;
+    slot
+}
+
+unsafe fn aio_find(cb: *const Aiocb) -> *mut AioSlot {
+    let mut slot = AIO_HEAD;
+    while !slot.is_null() {
+        if (*slot).cb == cb as *mut Aiocb && (*slot).active {
+            return slot;
+        }
+        slot = (*slot).next;
+    }
+    core::ptr::null_mut()
+}
+
+unsafe fn aio_unlink(slot: *mut AioSlot) {
+    let prev = (*slot).prev;
+    let next = (*slot).next;
+    if prev.is_null() {
+        AIO_HEAD = next;
+    } else {
+        (*prev).next = next;
+    }
+    if !next.is_null() {
+        (*next).prev = prev;
+    }
+    (*slot).prev = core::ptr::null_mut();
+    (*slot).next = core::ptr::null_mut();
+}
+
+unsafe fn aio_finish(cb: *mut Aiocb, ret: isize, err: c_int) -> bool {
+    aio_lock();
+    let slot = aio_get(cb);
+    if slot.is_null() {
+        aio_unlock();
+        return false;
+    }
+    (*slot).ret = ret;
+    (*slot).err = err;
+    (*slot).active = true;
+    aio_unlock();
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aio_read(aiocbp: *mut Aiocb) -> c_int {
+    if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
+    let r = crate::pread(
+        (*aiocbp).aio_fildes,
+        (*aiocbp).aio_buf,
+        (*aiocbp).aio_nbytes,
+        (*aiocbp).aio_offset,
+    );
+    let ok = if r < 0 {
+        aio_finish(aiocbp, -1, ERRNO!())
+    } else {
+        aio_finish(aiocbp, r, 0)
+    };
+    if !ok { ERRNO!() = EAGAIN; return -1; }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aio_write(aiocbp: *mut Aiocb) -> c_int {
+    if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
+    let r = crate::pwrite(
+        (*aiocbp).aio_fildes,
+        (*aiocbp).aio_buf as *const u8,
+        (*aiocbp).aio_nbytes,
+        (*aiocbp).aio_offset,
+    );
+    let ok = if r < 0 {
+        aio_finish(aiocbp, -1, ERRNO!())
+    } else {
+        aio_finish(aiocbp, r, 0)
+    };
+    if !ok { ERRNO!() = EAGAIN; return -1; }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aio_fsync(op: c_int, aiocbp: *mut Aiocb) -> c_int {
+    if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
+    let r = if op == 1 { crate::fdatasync((*aiocbp).aio_fildes) } else { crate::fsync((*aiocbp).aio_fildes) };
+    let ok = if r < 0 {
+        aio_finish(aiocbp, -1, ERRNO!())
+    } else {
+        aio_finish(aiocbp, 0, 0)
+    };
+    if !ok { ERRNO!() = EAGAIN; return -1; }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aio_error(aiocbp: *const Aiocb) -> c_int {
+    if aiocbp.is_null() { return EINVAL; }
+    aio_lock();
+    let slot = aio_find(aiocbp);
+    let err = if slot.is_null() { EINVAL } else { (*slot).err };
+    aio_unlock();
+    err
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aio_return(aiocbp: *mut Aiocb) -> isize {
+    if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
+    aio_lock();
+    let slot = aio_find(aiocbp);
+    if slot.is_null() {
+        aio_unlock();
+        ERRNO!() = EINVAL;
+        return -1;
+    }
+    let ret = (*slot).ret;
+    (*slot).active = false;
+    (*slot).cb = core::ptr::null_mut();
+    (*slot).ret = 0;
+    (*slot).err = 0;
+    aio_unlink(slot);
+    (*slot).next = AIO_FREE;
+    AIO_FREE = slot;
+    aio_unlock();
+    ret
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aio_cancel(fd: c_int, aiocbp: *mut Aiocb) -> c_int {
+    aio_lock();
+    if !aiocbp.is_null() {
+        let slot = aio_find(aiocbp);
+        let canceled = !slot.is_null() && (*slot).active && (*aiocbp).aio_fildes == fd;
+        if canceled {
+            (*slot).ret = -1;
+            (*slot).err = ECANCELED;
+        }
+        aio_unlock();
+        return if canceled { 1 } else { 2 };
+    }
+    let mut canceled = false;
+    let mut slot = AIO_HEAD;
+    while !slot.is_null() {
+        if (*slot).active && !(*slot).cb.is_null() && (*(*slot).cb).aio_fildes == fd {
+            (*slot).ret = -1;
+            (*slot).err = ECANCELED;
+            canceled = true;
+        }
+        slot = (*slot).next;
+    }
+    aio_unlock();
+    if canceled { 1 } else { 2 }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aio_suspend(
+    aiocb_list: *const *const Aiocb,
+    nent: c_int,
+    _timeout: *const timespec,
+) -> c_int {
+    if nent <= 0 || aiocb_list.is_null() { ERRNO!() = EINVAL; return -1; }
+    // Every request completes synchronously, so all of them are already done.
+    aio_lock();
+    for i in 0..nent as usize {
+        let cb = *aiocb_list.add(i);
+        if cb.is_null() { continue; }
+        if aio_find(cb).is_null() {
+            aio_unlock();
+            ERRNO!() = EINVAL;
+            return -1;
+        }
+    }
+    aio_unlock();
+    0
+}
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -50,147 +274,6 @@ pub struct SigEvent {
 const SIGEV_SIGNAL_V: c_int = 0;
 const SIGEV_NONE_V: c_int = 1;
 const SIGEV_THREAD_V: c_int = 2;
-
-unsafe fn aio_slot(cb: *mut Aiocb) -> *mut AioSlot {
-    let base = core::ptr::addr_of_mut!(AIO_SLOTS[0]);
-    for i in 0..AIO_SLOTS.len() {
-        let s = base.add(i);
-        if (*s).cb == cb { return s; }
-    }
-    for i in 0..AIO_SLOTS.len() {
-        let s = base.add(i);
-        if !(*s).active {
-            (*s).cb = cb;
-            return s;
-        }
-    }
-    base
-}
-
-unsafe fn aio_record(cb: *mut Aiocb, ret: isize, err: c_int) {
-    let s = aio_slot(cb);
-    (*s).cb = cb;
-    (*s).ret = ret;
-    (*s).err = err;
-    (*s).active = true;
-}
-
-unsafe fn aio_find(cb: *const Aiocb) -> *mut AioSlot {
-    let base = core::ptr::addr_of_mut!(AIO_SLOTS[0]);
-    for i in 0..AIO_SLOTS.len() {
-        let s = base.add(i);
-        if (*s).cb == cb as *mut Aiocb && (*s).active { return s; }
-    }
-    core::ptr::null_mut()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn aio_read(aiocbp: *mut Aiocb) -> c_int {
-    if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
-    let r = crate::pread(
-        (*aiocbp).aio_fildes,
-        (*aiocbp).aio_buf,
-        (*aiocbp).aio_nbytes,
-        (*aiocbp).aio_offset,
-    );
-    if r < 0 {
-        aio_record(aiocbp, -1, ERRNO!());
-    } else {
-        aio_record(aiocbp, r, 0);
-    }
-    0
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn aio_write(aiocbp: *mut Aiocb) -> c_int {
-    if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
-    let r = crate::pwrite(
-        (*aiocbp).aio_fildes,
-        (*aiocbp).aio_buf as *const u8,
-        (*aiocbp).aio_nbytes,
-        (*aiocbp).aio_offset,
-    );
-    if r < 0 {
-        aio_record(aiocbp, -1, ERRNO!());
-    } else {
-        aio_record(aiocbp, r, 0);
-    }
-    0
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn aio_fsync(op: c_int, aiocbp: *mut Aiocb) -> c_int {
-    if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
-    let r = if op == 1 { crate::fdatasync((*aiocbp).aio_fildes) } else { crate::fsync((*aiocbp).aio_fildes) };
-    if r < 0 {
-        aio_record(aiocbp, -1, ERRNO!());
-    } else {
-        aio_record(aiocbp, 0, 0);
-    }
-    0
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn aio_error(aiocbp: *const Aiocb) -> c_int {
-    if aiocbp.is_null() { return EINVAL; }
-    let s = aio_find(aiocbp);
-    if s.is_null() { return EINVAL; }
-    if !(*s).active { return EINVAL; }
-    (*s).err
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn aio_return(aiocbp: *mut Aiocb) -> isize {
-    if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
-    let s = aio_find(aiocbp);
-    if s.is_null() { ERRNO!() = EINVAL; return -1; }
-    let r = (*s).ret;
-    (*s).active = false;
-    (*s).cb = core::ptr::null_mut();
-    r
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn aio_cancel(fd: c_int, aiocbp: *mut Aiocb) -> c_int {
-    if !aiocbp.is_null() {
-        let s = aio_find(aiocbp);
-        if !s.is_null() && (*s).active && (*aiocbp).aio_fildes == fd {
-            aio_record(aiocbp, -1, ECANCELED);
-            return 1; // AIO_CANCELED
-        }
-        return 2; // AIO_ALLDONE
-    }
-    let base = core::ptr::addr_of_mut!(AIO_SLOTS[0]);
-    let mut canceled = false;
-    for i in 0..AIO_SLOTS.len() {
-        let s = base.add(i);
-        if (*s).active && !(*s).cb.is_null() && (*(*s).cb).aio_fildes == fd {
-            (*s).ret = -1;
-            (*s).err = ECANCELED;
-            canceled = true;
-        }
-    }
-    if canceled { 1 } else { 2 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn aio_suspend(
-    aiocb_list: *const *const Aiocb,
-    nent: c_int,
-    _timeout: *const timespec,
-) -> c_int {
-    if nent <= 0 || aiocb_list.is_null() { ERRNO!() = EINVAL; return -1; }
-    // Every request completes synchronously, so all of them are already done.
-    for i in 0..nent as usize {
-        let cb = *aiocb_list.add(i);
-        if cb.is_null() { continue; }
-        if aio_find(cb).is_null() {
-            ERRNO!() = EINVAL;
-            return -1;
-        }
-    }
-    0
-}
 
 unsafe fn aio_notify(sev: *const SigEvent) {
     if sev.is_null() { return; }
