@@ -149,8 +149,9 @@ pub fn run_named_with_env(
         .unwrap_or_else(|error| panic!("failed to run {}: {error}", bin.display()));
     assert!(
         output.status.success(),
-        "{src_name} exited with {:?}, stderr: {}",
+        "{src_name} exited with {:?}, stdout: {}, stderr: {}",
         output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     output
