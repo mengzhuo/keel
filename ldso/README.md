@@ -25,9 +25,11 @@ Or directly:
 
 - Self-relocating `_start` entry point
 - Loads `DT_NEEDED` dependencies
-- Handles TLS (Thread-Local Storage) for both x86_64 (TLS_BELOW_TP) and aarch64 (TLS_ABOVE_TP)
+- Handles TLS (Thread-Local Storage) for x86_64 (TLS_BELOW_TP), aarch64 and
+  riscv64 (TLS_ABOVE_TP)
 - Processes all standard ELF relocation types
-- TLSDESC resolver for aarch64
+- TLSDESC resolver for aarch64 and riscv64
+- Architecture selection and syscall numbers live in `src/arch.rs`
 
 ## License
 

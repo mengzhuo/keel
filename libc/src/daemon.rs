@@ -1,5 +1,5 @@
 // daemon() - ported from musl/src/legacy/daemon.c
-// Include in libc/src/lib.rs in the "unistd.h: process primitives" section.
+// Included from libc/src/lib.rs in the "unistd.h: process primitives" section.
 
 const ROOT_PATH: &[u8] = b"/\0";
 const DEV_NULL: &[u8] = b"/dev/null\0";

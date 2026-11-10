@@ -94,7 +94,7 @@ runtime footprint is one file; crabc needs `libc.so` plus `libldso.so`.
 | musl `libc.so` | 666 KB | — | — |
 | Alpine `.apk` | 606 KB | 596 KB | 570 KB |
 
-For comparison, the 0.4.2 packages were 1.40 MB / 1.41 MB / 1.32 MB.
+For comparison, the historical 0.4.2 packages were 1.40 MB / 1.41 MB / 1.32 MB.
 
 Static links use `libc.a` (9.7 MB as a Rust archive). Link with
 `-Wl,--gc-sections`: a static hello is 26.5 KB versus musl's 17.8 KB, but

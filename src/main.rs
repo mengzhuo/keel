@@ -1,3 +1,8 @@
+// Standalone mapper for static ELF and static-PIE binaries.
+//
+// ELF parsing, segment mapping and relocation live in loader_core.rs; the
+// architecture/syscall layer lives in arch.rs.
+
 mod arch;
 mod loader_core;
 

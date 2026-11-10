@@ -20,8 +20,9 @@ Output is in `target/debug/libc.so` and `target/debug/libc.a`.
 
 - Implements ~350+ C library functions (stdio, stdlib, string, math, pthread, etc.)
 - `no_std` — no Rust standard library dependency
-- Targets musl ABI for x86_64 and aarch64
-- Supports long double via `f128` on aarch64
+- Targets the musl ABI for x86_64, aarch64 and riscv64
+- Supports `f128` long double on aarch64 and riscv64
+- Architecture selection and syscall numbers live in `src/arch.rs`
 
 ## License
 

@@ -1,3 +1,10 @@
+// Architecture layer for libc.
+//
+// Included from lib.rs.  Everything below is selected with target_arch:
+// the syscall ABI, the active Arch alias and the syscall-number tables.
+// Keep per-architecture changes in this file rather than scattering cfg
+// blocks through the libc functional areas.
+
 // ============================================================
 // Architecture selection
 // ============================================================

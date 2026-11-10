@@ -9,12 +9,12 @@ principle that a libc should be small, easy to audit and safe to maintain;
 
 crabc tracks musl 1.2.6 and exports its full public symbol surface. It is
 validated with musl's own libc-test and a differential harness that runs the
-same binaries under musl and crabc. CI also checks that every musl ABI macro is present on x86\_64, aarch64 and
-riscv64, expands to the same tokens as musl in both C and C++, and that
-numeric header macros agree with the corresponding Rust constants. It is
-faster than musl on both
-x86\_64 and riscv64 (qemu-user) in the microbenchmark suite; process startup
-is the one structural exception. See `docs/performance.md`.
+same binaries under musl and crabc. CI also checks that every musl ABI macro
+is present on x86\_64, aarch64 and riscv64, expands to the same tokens as musl
+in both C and C++, and that numeric header macros agree with the corresponding
+Rust constants. It is faster than musl on both x86\_64 and riscv64 (qemu-user)
+in the microbenchmark suite; process startup is the one structural exception.
+See `docs/performance.md`.
 
 Real, unmodified Alpine binaries are tracked in the
 [workload matrix](docs/workloads.md): BusyBox, curl, Git, SQLite, nginx,
@@ -36,7 +36,7 @@ eyra, and other projects.
 
 ## Status and scope
 
-crabc is experimental (`0.4.x`). It is not a production-ready drop-in
+crabc is experimental (`0.7.x`). It is not a production-ready drop-in
 replacement for musl. The validated scope is the workload matrix and LTP
 report above; functionality outside that scope is not claimed.
 

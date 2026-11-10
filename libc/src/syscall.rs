@@ -1,5 +1,5 @@
 // syscall() - variadic syscall forwarding, musl-compatible.
-// Add to libc/src/lib.rs in the "syscall wrappers" section.
+// Included from libc/src/lib.rs in the "syscall wrappers" section.
 // Matches musl x86_64 convention: rax=num, rdi,rsi,rdx,r10,r8,r9; rcx,r11 clobbered.
 
 #[no_mangle]

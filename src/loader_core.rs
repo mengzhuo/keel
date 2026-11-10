@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+// ELF parsing, segment mapping and relocation for the standalone loader.
+// Architecture and raw syscall details live in arch.rs.
+
 use crate::arch::sys_mmap;
 
 #[repr(C)]

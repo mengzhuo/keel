@@ -1,3 +1,9 @@
+// Architecture layer for libldso.
+//
+// Included from lib.rs.  Contains the raw syscall ABI, the active Arch alias
+// and the syscall numbers used by the loader.  The public syscall wrappers
+// (sys_open, sys_mmap, ...) remain in lib.rs.
+
 // ============================================================
 // Architecture selection
 // ============================================================

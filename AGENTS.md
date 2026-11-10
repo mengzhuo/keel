@@ -196,7 +196,7 @@ rounds.
 
 ## Current Baseline
 
-Verified on 2026-11-07:
+Verified on 2026-11-10:
 
 ```text
 cargo test --workspace          # green
@@ -206,6 +206,8 @@ cargo test --workspace          # green
 ./run.sh math                   # 195 PASS, 4 SKIP, 0 FAIL
 scripts/parity-check.sh all     # 0 unexpected diffs vs musl 1.2.6
 scripts/riscv-smoke.sh          # riscv64 cross-build + qemu fixtures, 0 failures
+scripts/macro-parity.sh         # 0 mismatches, 0 missing ABI macros (3 arches, C/C++)
+tests/header_rust_consistency.py # 1382/1382 numeric header macros match Rust
 
 LTP 20250930, x86_64, 1488 syscalls tags:
   musl baseline                 # 112 FAIL, 139 TCONF

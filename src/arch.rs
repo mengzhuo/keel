@@ -1,5 +1,10 @@
 #![allow(dead_code)]
 
+// Architecture layer for the standalone loader.
+//
+// Used as a normal module from main.rs.  Contains the raw syscall ABI, the
+// active Arch alias, SYS_MMAP and the loader's sys_mmap wrapper.
+
 // ============================================================
 // Architecture selection
 // ============================================================

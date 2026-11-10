@@ -6,7 +6,7 @@ suite used by the kernel and by musl itself. It exercises far more of the libc
 ABI than a normal application does, including the corners that only a test
 suite reaches.
 
-Everything below is a snapshot from **2026-11-07** on x86\_64. The full
+Everything below is a snapshot from **2026-11-09** on x86\_64. The full
 `syscalls` suite takes about 30-35 minutes per runtime; the smaller suites are
 much faster.
 

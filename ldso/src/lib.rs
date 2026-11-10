@@ -1,3 +1,9 @@
+// crabc dynamic linker.
+//
+// Loads the executable and DT_NEEDED objects, resolves symbols, applies
+// relocations, sets up TLS and transfers control to the program entry point.
+// The architecture/syscall layer is in arch.rs.
+
 #![no_std]
 #![no_main]
 #![allow(dead_code, deref_nullptr, static_mut_refs)]

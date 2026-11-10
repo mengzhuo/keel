@@ -45,7 +45,7 @@ crabc.  Do not run `apk fix musl` while crabc owns those paths.
 Development files mirror `musl-dev`:
 
 ```text
-/usr/include/...            217 musl-dev-compatible headers plus crabc extras
+/usr/include/...            224 headers: all 217 musl-dev headers plus 7 crabc extras
 /usr/lib/libc.a             crabc static libc
 /usr/lib/crt1.o             non-PIE startup object
 /usr/lib/Scrt1.o            PIE startup object
@@ -71,6 +71,11 @@ constructors and initial-exec TLS are initialized by the libc startup path.
 installs its multi-module resolver before constructors, while static
 executables use the single-module fallback.  Dynamic, static and static-PIE
 C++ programs have been built and run.
+
+All public headers are checked in CI against musl 1.2.6: every musl ABI macro
+must be present, expand to the same tokens in C and C++, and numeric macros
+must agree with the Rust implementation.  The only allowlisted expansion
+difference is crabc's 64-bit x86_64 `long double` ABI.
 
 `crabc-dev` declares `provides: libc-dev musl-dev` and
 `replaces: musl-dev`.  Because it provides the `musl-dev` name itself,
