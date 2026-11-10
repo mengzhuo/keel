@@ -336,7 +336,7 @@ unsafe fn main_program_info() -> (u64, *const u8, u16) {
                 }
                 while *q2 == b' ' { q2 = q2.add(1); }
                 if *q2 == 0 { continue; }
-                let mut path = [0 as c_char; 512];
+                let mut path = [0 as c_char; PATH_MAX_V];
                 let mut i = 0usize;
                 while *q2 != 0 && *q2 != b'\n' && i + 1 < path.len() {
                     path[i] = *q2 as c_char;

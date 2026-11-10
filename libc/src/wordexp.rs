@@ -142,13 +142,6 @@ unsafe fn wb_push_str(w: *mut WordBuf, s: *const u8, len: usize, quoted: bool) -
     0
 }
 
-unsafe fn env_value(name: *const u8, len: usize) -> *mut c_char {
-    let mut buf = [0 as c_char; 256];
-    if len >= buf.len() { return core::ptr::null_mut(); }
-    for i in 0..len { buf[i] = *name.add(i) as c_char; }
-    buf[len] = 0;
-    crate::getenv(buf.as_ptr())
-}
 
 /// Expand `$name` or `${name}`; returns the new index or an error code.
 unsafe fn expand_var(
@@ -157,24 +150,32 @@ unsafe fn expand_var(
     w: *mut WordBuf,
     flags: c_int,
 ) -> Result<usize, c_int> {
+    let cap = s.len().max(1);
+    let name = crate::malloc(cap) as *mut u8;
+    if name.is_null() { return Err(WRDE_NOSPACE_V); }
     let mut i = i_start + 1;
-    let mut name = [0u8; 256];
     let mut nl = 0usize;
     if s[i] == b'{' {
         i += 1;
         while s[i] != 0 && s[i] != b'}' {
-            if nl + 1 >= name.len() { return Err(WRDE_NOSPACE_V); }
-            name[nl] = s[i];
+            if nl + 1 >= cap {
+                crate::free(name as *mut c_void);
+                return Err(WRDE_NOSPACE_V);
+            }
+            *name.add(nl) = s[i];
             nl += 1;
             i += 1;
         }
-        if s[i] != b'}' { return Err(WRDE_SYNTAX_V); }
+        if s[i] != b'}' {
+            crate::free(name as *mut c_void);
+            return Err(WRDE_SYNTAX_V);
+        }
         i += 1;
     } else {
-        while nl + 1 < name.len() {
+        while nl + 1 < cap {
             let c = s[i];
             if (c >= b'A' && c <= b'Z') || (c >= b'a' && c <= b'z') || (c >= b'0' && c <= b'9') || c == b'_' {
-                name[nl] = c;
+                *name.add(nl) = c;
                 nl += 1;
                 i += 1;
             } else {
@@ -184,11 +185,13 @@ unsafe fn expand_var(
         if nl == 0 {
             // A lone '$' is literal.
             let r = wb_push(w, b'$', false);
+            crate::free(name as *mut c_void);
             if r != 0 { return Err(r); }
             return Ok(i_start + 1);
         }
     }
-    if nl == 1 && name[0] == b'$' {
+    *name.add(nl) = 0;
+    if nl == 1 && *name == b'$' {
         let mut pidbuf = [0 as c_char; 16];
         let pid = crate::getpid();
         let mut n = 0usize;
@@ -200,10 +203,12 @@ unsafe fn expand_var(
         while n > 0 { n -= 1; pidbuf[o] = digits[n] as c_char; o += 1; }
         pidbuf[o] = 0;
         let r = wb_push_str(w, pidbuf.as_ptr() as *const u8, o, false);
+        crate::free(name as *mut c_void);
         if r != 0 { return Err(r); }
         return Ok(i);
     }
-    let val = env_value(name.as_ptr(), nl);
+    let val = crate::getenv(name as *const c_char);
+    crate::free(name as *mut c_void);
     if val.is_null() {
         if flags & WRDE_UNDEF_V != 0 { return Err(WRDE_BADVAL_V); }
         return Ok(i);
@@ -221,18 +226,20 @@ unsafe fn command_sub(
     flags: c_int,
 ) -> Result<usize, c_int> {
     if flags & WRDE_NOCMD_V != 0 { return Err(WRDE_CMDSUB_V); }
+    let cap = s.len().max(1);
+    let cmd = crate::malloc(cap) as *mut u8;
+    if cmd.is_null() { return Err(WRDE_NOSPACE_V); }
     let mut i = i_start;
-    let mut cmd = [0u8; 2048];
     let mut cl = 0usize;
     if s[i] == b'`' {
         i += 1;
         while s[i] != 0 && s[i] != b'`' {
-            if cl + 1 >= cmd.len() { return Err(WRDE_NOSPACE_V); }
-            cmd[cl] = s[i];
+            if cl + 1 >= cap { crate::free(cmd as *mut c_void); return Err(WRDE_NOSPACE_V); }
+            *cmd.add(cl) = s[i];
             cl += 1;
             i += 1;
         }
-        if s[i] != b'`' { return Err(WRDE_SYNTAX_V); }
+        if s[i] != b'`' { crate::free(cmd as *mut c_void); return Err(WRDE_SYNTAX_V); }
         i += 1;
     } else {
         // $( ... ) with nesting.
@@ -241,31 +248,31 @@ unsafe fn command_sub(
         while s[i] != 0 {
             let c = s[i];
             if c == b'\\' && s[i + 1] != 0 {
-                if cl + 1 >= cmd.len() { return Err(WRDE_NOSPACE_V); }
-                cmd[cl] = c;
+                if cl + 1 >= cap { crate::free(cmd as *mut c_void); return Err(WRDE_NOSPACE_V); }
+                *cmd.add(cl) = c;
                 cl += 1;
                 i += 1;
-                if cl + 1 >= cmd.len() { return Err(WRDE_NOSPACE_V); }
-                cmd[cl] = s[i];
+                if cl + 1 >= cap { crate::free(cmd as *mut c_void); return Err(WRDE_NOSPACE_V); }
+                *cmd.add(cl) = s[i];
                 cl += 1;
                 i += 1;
                 continue;
             }
             if c == b'\'' {
                 // Copy the quoted section verbatim.
-                if cl + 1 >= cmd.len() { return Err(WRDE_NOSPACE_V); }
-                cmd[cl] = c;
+                if cl + 1 >= cap { crate::free(cmd as *mut c_void); return Err(WRDE_NOSPACE_V); }
+                *cmd.add(cl) = c;
                 cl += 1;
                 i += 1;
                 while s[i] != 0 && s[i] != b'\'' {
-                    if cl + 1 >= cmd.len() { return Err(WRDE_NOSPACE_V); }
-                    cmd[cl] = s[i];
+                    if cl + 1 >= cap { crate::free(cmd as *mut c_void); return Err(WRDE_NOSPACE_V); }
+                    *cmd.add(cl) = s[i];
                     cl += 1;
                     i += 1;
                 }
                 if s[i] == b'\'' {
-                    if cl + 1 >= cmd.len() { return Err(WRDE_NOSPACE_V); }
-                    cmd[cl] = s[i];
+                    if cl + 1 >= cap { crate::free(cmd as *mut c_void); return Err(WRDE_NOSPACE_V); }
+                    *cmd.add(cl) = s[i];
                     cl += 1;
                     i += 1;
                 }
@@ -276,37 +283,52 @@ unsafe fn command_sub(
                 depth -= 1;
                 if depth == 0 { i += 1; break; }
             }
-            if cl + 1 >= cmd.len() { return Err(WRDE_NOSPACE_V); }
-            cmd[cl] = c;
+            if cl + 1 >= cap { crate::free(cmd as *mut c_void); return Err(WRDE_NOSPACE_V); }
+            *cmd.add(cl) = c;
             cl += 1;
             i += 1;
         }
-        if depth != 0 { return Err(WRDE_SYNTAX_V); }
+        if depth != 0 { crate::free(cmd as *mut c_void); return Err(WRDE_SYNTAX_V); }
     }
-    cmd[cl] = 0;
-    let f = crate::popen(cmd.as_ptr() as *const c_char, b"r\0".as_ptr() as *const c_char);
-    if f.is_null() { return Ok(i); }
-    let mut out = [0u8; 4096];
-    let n = crate::fread(out.as_mut_ptr() as *mut c_void, 1, out.len() - 1, f);
+    *cmd.add(cl) = 0;
+    let f = crate::popen(cmd as *const c_char, b"r\0".as_ptr() as *const c_char);
+    if f.is_null() {
+        crate::free(cmd as *mut c_void);
+        return Ok(i);
+    }
+
+    let mut out: *mut c_char = core::ptr::null_mut();
+    let mut out_cap = 0usize;
+    let n = crate::getdelim(&raw mut out, &raw mut out_cap, 0, f);
     crate::pclose(f);
-    let mut l = n;
-    while l > 0 && (out[l - 1] == b'\n' || out[l - 1] == b'\r') { l -= 1; }
+    crate::free(cmd as *mut c_void);
+    let mut l = if n > 0 { n as usize } else { 0 };
+    while l > 0 && (out.add(l - 1) as *const u8).read() != 0
+        && ((out.add(l - 1) as *const u8).read() == b'\n' || (out.add(l - 1) as *const u8).read() == b'\r') {
+        l -= 1;
+    }
     // Word splitting on the command output.
     let mut p = 0usize;
-    let mut first = true;
     while p < l {
-        while p < l && (out[p] == b' ' || out[p] == b'\t' || out[p] == b'\n') { p += 1; }
+        while p < l {
+            let c = (out.add(p) as *const u8).read();
+            if c != b' ' && c != b'\t' && c != b'\n' { break; }
+            p += 1;
+        }
         if p >= l { break; }
         let st = p;
-        while p < l && out[p] != b' ' && out[p] != b'\t' && out[p] != b'\n' { p += 1; }
-        if !first {
-            // Caller appends to the current word; insert a separator by
-            // returning a space marker is not possible here, so concatenate.
+        while p < l {
+            let c = (out.add(p) as *const u8).read();
+            if c == b' ' || c == b'\t' || c == b'\n' { break; }
+            p += 1;
         }
-        let r = wb_push_str(w, out.as_ptr().add(st), p - st, false);
-        if r != 0 { return Err(r); }
-        first = false;
+        let r = wb_push_str(w, out.add(st) as *const u8, p - st, false);
+        if r != 0 {
+            if !out.is_null() { crate::free(out as *mut c_void); }
+            return Err(r);
+        }
     }
+    if !out.is_null() { crate::free(out as *mut c_void); }
     Ok(i)
 }
 

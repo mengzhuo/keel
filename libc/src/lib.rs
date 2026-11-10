@@ -1996,18 +1996,27 @@ pub unsafe extern "C" fn vfork() -> c_int {
 
 #[no_mangle]
 pub unsafe extern "C" fn execl(path: *const c_char, arg: *const c_char, mut args: ...) -> c_int {
-    let mut argv: [*const c_char; 256] = [core::ptr::null(); 256];
-    argv[0] = arg;
+    let mut cap = 16usize;
+    let mut argv = malloc(cap * core::mem::size_of::<*const c_char>()) as *mut *const c_char;
+    if argv.is_null() { ERRNO!() = ENOMEM; return -1; }
+    *argv.add(0) = arg;
     let mut n: usize = 1;
     loop {
         let a: *const c_char = args.next_arg();
         if a.is_null() { break; }
-        if n >= 255 { return -1; }
-        argv[n] = a;
+        if n + 1 >= cap {
+            cap = match cap.checked_mul(2) { Some(v) => v, None => { free(argv as *mut c_void); ERRNO!() = ENOMEM; return -1; } };
+            let grown = realloc(argv as *mut c_void, cap * core::mem::size_of::<*const c_char>()) as *mut *const c_char;
+            if grown.is_null() { free(argv as *mut c_void); ERRNO!() = ENOMEM; return -1; }
+            argv = grown;
+        }
+        *argv.add(n) = a;
         n += 1;
     }
-    argv[n] = core::ptr::null();
-    sys_execve(path, argv.as_ptr(), __environ as *const *const c_char) as c_int
+    *argv.add(n) = core::ptr::null();
+    let r = sys_execve(path, argv, __environ as *const *const c_char);
+    free(argv as *mut c_void);
+    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
 }
 
 // ============================================================
@@ -17702,19 +17711,27 @@ pub unsafe extern "C" fn execv(path: *const core::ffi::c_char, argv: *const *con
 
 #[no_mangle]
 pub unsafe extern "C" fn execlp(file: *const core::ffi::c_char, _args: ...) -> i32 {
-    // Build argv from varargs
-    let mut argv: [*const core::ffi::c_char; 64] = [core::ptr::null(); 64];
-    let mut i = 0;
+    let mut cap = 16usize;
+    let mut argv = malloc(cap * core::mem::size_of::<*const core::ffi::c_char>()) as *mut *const core::ffi::c_char;
+    if argv.is_null() { ERRNO!() = ENOMEM; return -1; }
+    let mut i = 0usize;
     let mut args = _args;
     loop {
         let arg = args.next_arg::<*const core::ffi::c_char>();
         if arg.is_null() { break; }
-        argv[i] = arg;
+        if i + 1 >= cap {
+            cap = match cap.checked_mul(2) { Some(v) => v, None => { free(argv as *mut c_void); ERRNO!() = ENOMEM; return -1; } };
+            let grown = realloc(argv as *mut c_void, cap * core::mem::size_of::<*const core::ffi::c_char>()) as *mut *const core::ffi::c_char;
+            if grown.is_null() { free(argv as *mut c_void); ERRNO!() = ENOMEM; return -1; }
+            argv = grown;
+        }
+        *argv.add(i) = arg;
         i += 1;
-        if i >= 63 { break; }
     }
-    argv[i] = core::ptr::null();
-    execvp(file, argv.as_ptr())
+    *argv.add(i) = core::ptr::null();
+    let r = execvp(file, argv);
+    free(argv as *mut c_void);
+    r
 }
 
 #[no_mangle]
