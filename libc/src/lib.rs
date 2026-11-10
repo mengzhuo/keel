@@ -17,7 +17,7 @@
 
 use core::ffi::{c_char, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong, c_void, VaList};
 use core::ptr::null_mut;
-use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicPtr, AtomicUsize, Ordering};
 
 macro_rules! ERRNO {
     () => { *errno_ptr() };
@@ -2756,7 +2756,6 @@ unsafe fn sys_futex(uaddr: *mut c_int,
 }
 
 const THREAD_CHUNK: usize = 1024;
-const MAX_THREAD_CHUNKS: usize = 1024;
 const STACK_SIZE: usize = 1024 * 1024;
 // Per-thread pointer to its Thread record.  The TCB has room after errno
 // (0x30), the vDSO getrandom state (0x38), and this pointer (0x40).
@@ -2813,8 +2812,13 @@ static mut THREADS: [Thread; THREAD_CHUNK] = [Thread {
     },
     free_next: core::ptr::null_mut(),
 }; THREAD_CHUNK];
-static mut EXTRA_CHUNKS: [*mut Thread; MAX_THREAD_CHUNKS] =
-    [core::ptr::null_mut(); MAX_THREAD_CHUNKS];
+#[repr(C)]
+struct ThreadChunk {
+    next: *mut ThreadChunk,
+    base: *mut Thread,
+}
+static THREAD_CHUNK_LIST: AtomicPtr<ThreadChunk> =
+    AtomicPtr::new(core::ptr::null_mut());
 static EXTRA_CHUNK_COUNT: AtomicUsize = AtomicUsize::new(0);
 // Free list of thread slots, protected by THREAD_LOCK.  Slots are never
 // moved, so pthread_t values stay valid for the life of a thread.
@@ -2919,9 +2923,18 @@ unsafe fn thread_slot_at(index: usize) -> *mut Thread {
         core::ptr::addr_of_mut!(THREADS[index])
     } else {
         let extra = index - THREAD_CHUNK;
-        let chunk = extra / THREAD_CHUNK;
+        let chunk_index = extra / THREAD_CHUNK;
         let offset = extra % THREAD_CHUNK;
-        (*core::ptr::addr_of!(EXTRA_CHUNKS[chunk])).add(offset)
+        let mut chunk = THREAD_CHUNK_LIST.load(Ordering::Acquire);
+        let mut i = 0usize;
+        while i < chunk_index && !chunk.is_null() {
+            chunk = (*chunk).next;
+            i += 1;
+        }
+        if chunk.is_null() {
+            return core::ptr::null_mut();
+        }
+        (*chunk).base.add(offset)
     }
 }
 
@@ -2948,34 +2961,34 @@ unsafe fn alloc_thread_slot() -> Option<&'static mut Thread> {
     }
     let mut slot = FREE_THREADS;
     if slot.is_null() {
-        let count = EXTRA_CHUNK_COUNT.load(Ordering::Relaxed);
-        if count >= MAX_THREAD_CHUNKS {
-            spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
-            return None;
-        }
-        let bytes = THREAD_CHUNK * core::mem::size_of::<Thread>();
-        let chunk = sys_mmap(
+        let bytes = core::mem::size_of::<ThreadChunk>()
+            + THREAD_CHUNK * core::mem::size_of::<Thread>();
+        let raw = sys_mmap(
             core::ptr::null_mut(),
             bytes,
             PROT_READ | PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS,
             -1,
             0,
-        ) as *mut Thread;
-        if chunk.is_null() || chunk as *mut u8 == MMAP_FAILED {
+        ) as *mut u8;
+        if raw.is_null() || raw == MMAP_FAILED {
             spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
             return None;
         }
+        let header = raw as *mut ThreadChunk;
+        let base = raw.add(core::mem::size_of::<ThreadChunk>()) as *mut Thread;
+        (*header).base = base;
         let mut i = THREAD_CHUNK;
         while i > 1 {
             i -= 1;
-            let s = chunk.add(i);
+            let s = base.add(i);
             (*s).free_next = FREE_THREADS;
             FREE_THREADS = s;
         }
-        EXTRA_CHUNKS[count] = chunk;
-        EXTRA_CHUNK_COUNT.store(count + 1, Ordering::Release);
-        slot = chunk;
+        (*header).next = THREAD_CHUNK_LIST.load(Ordering::Relaxed);
+        THREAD_CHUNK_LIST.store(header, Ordering::Release);
+        EXTRA_CHUNK_COUNT.fetch_add(1, Ordering::AcqRel);
+        slot = base;
     } else {
         FREE_THREADS = (*slot).free_next;
         (*slot).free_next = core::ptr::null_mut();
@@ -8968,26 +8981,39 @@ pub unsafe extern "C" fn __cxa_finalize(_dso: *mut c_void) {}
 #[no_mangle]
 pub static mut __environ: *mut *mut c_char = core::ptr::null_mut();
 
-// ponytail: simple env tracking for allocated entries; O(n) scan
-const ENV_MAX_ALLOCED: usize = 256;
-static mut ENV_ALLOCED: [*mut c_char; ENV_MAX_ALLOCED] = [core::ptr::null_mut(); ENV_MAX_ALLOCED];
+// Growable tracking of strings allocated by setenv/putenv.  Realloc keeps
+// this unbounded; if it fails the new string is simply left untracked.
+static mut ENV_ALLOCED: *mut *mut c_char = core::ptr::null_mut();
 static mut ENV_ALLOCED_N: usize = 0;
+static mut ENV_ALLOCED_CAP: usize = 0;
 
 unsafe fn env_rm_add(old: *mut c_char, mut new: *mut c_char) {
     for i in 0..ENV_ALLOCED_N {
-        if ENV_ALLOCED[i] == old {
-            ENV_ALLOCED[i] = new;
+        if (*ENV_ALLOCED.add(i)) == old {
+            *ENV_ALLOCED.add(i) = new;
             if !old.is_null() {
                 free(old as *mut c_void);
             }
             return;
-        } else if ENV_ALLOCED[i].is_null() && !new.is_null() {
-            ENV_ALLOCED[i] = new;
+        } else if (*ENV_ALLOCED.add(i)).is_null() && !new.is_null() {
+            *ENV_ALLOCED.add(i) = new;
             new = core::ptr::null_mut();
         }
     }
-    if !new.is_null() && ENV_ALLOCED_N < ENV_MAX_ALLOCED {
-        ENV_ALLOCED[ENV_ALLOCED_N] = new;
+    if !new.is_null() {
+        if ENV_ALLOCED_N == ENV_ALLOCED_CAP {
+            let new_cap = if ENV_ALLOCED_CAP == 0 { 16 } else { ENV_ALLOCED_CAP * 2 };
+            let grown = realloc(
+                ENV_ALLOCED as *mut c_void,
+                new_cap * core::mem::size_of::<*mut c_char>(),
+            ) as *mut *mut c_char;
+            if grown.is_null() {
+                return;
+            }
+            ENV_ALLOCED = grown;
+            ENV_ALLOCED_CAP = new_cap;
+        }
+        *ENV_ALLOCED.add(ENV_ALLOCED_N) = new;
         ENV_ALLOCED_N += 1;
     }
 }
