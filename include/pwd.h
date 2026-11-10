@@ -32,8 +32,10 @@ int getpwuid_r(uid_t, struct passwd *, char *, size_t, struct passwd **);
 void setpwent(void);
 void endpwent(void);
 struct passwd *getpwent(void);
+#ifdef _GNU_SOURCE
 struct passwd *fgetpwent(FILE *);
 int putpwent(const struct passwd *, FILE *);
+#endif
 
 #ifdef __cplusplus
 }
