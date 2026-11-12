@@ -52,6 +52,10 @@ exit status and the same relevant stdout as the musl baseline.
 The scripts use only the packaged binaries; no recompilation, no patches and no
 crabc-specific build flags are involved.
 
+This matrix is a smoke test.  For the programs' own test suites — CPython's
+`test` package, Git's `t/` scripts and `nginx-tests` — see
+[workload-suites.md](workload-suites.md).
+
 ## Known issues and scope
 
 There are **no passing-to-failing differences** in this matrix. The notes below

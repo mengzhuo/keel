@@ -1,0 +1,46 @@
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Workload suites
+
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: 'Suites to run (python, git, nginx)'
+        required: false
+        default: 'python git nginx'
+  schedule:
+    # Weekly, Monday 03:17 UTC.
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Build release libraries
+        run: cargo build --release -p crabc-libc -p crabc-ldso --target x86_64-unknown-linux-gnu
+
+      - name: Run upstream test suites
+        env:
+          ALPINE_MIRROR: ${{ vars.ALPINE_MIRROR || 'https://dl-cdn.alpinelinux.org' }}
+        run: |
+          sudo ALPINE_MIRROR="$ALPINE_MIRROR" \
+            ./scripts/workload-suites.sh ${{ inputs.suites || 'python git nginx' }}
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workload-suite-reports
+          path: workload-suites/reports/
+          retention-days: 30
