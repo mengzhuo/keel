@@ -350,6 +350,21 @@ int main(void) {
         CHECK(poll(&pfd, 1, 0) == 0, "poll zero timeout");
     }
 
+    /* mktime/localtime must handle negative tm_year: musl's year fast
+     * path is limited to 1902..2038 by an unsigned comparison. */
+    {
+        struct tm in;
+        struct tm out;
+        memset(&in, 0, sizeof in);
+        in.tm_year = -1800; /* year 100 */
+        in.tm_mday = 10;
+        in.tm_isdst = -1;
+        time_t v = mktime(&in);
+        CHECK(v != (time_t)-1, "mktime early year");
+        CHECK(localtime_r(&v, &out) != NULL, "localtime early year");
+        CHECK(out.tm_year == -1800 && out.tm_mday == 10, "early year roundtrip");
+    }
+
     /* regmatch_t must use musl's regoff_t (long), not int: BusyBox and
      * other prebuilt binaries are compiled against musl's headers. */
     {

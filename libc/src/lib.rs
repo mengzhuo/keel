@@ -10630,7 +10630,9 @@ const SECS_THROUGH_MONTH: [i32; 12] = [
 const DAYS_IN_MONTH: [i32; 12] = [31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 31, 29];
 
 unsafe fn year_to_secs(year: i64, is_leap: &mut bool) -> i64 {
-    if year - 2 <= 136 {
+    // musl compares (year-2) as unsigned: the small-year fast path is only
+    // valid for 1902..2038.  A signed comparison miscomputes negative years.
+    if (year.wrapping_sub(2) as u64) <= 136 {
         let y = year as i32;
         let mut leaps = (y - 68) >> 2;
         if (y - 68) & 3 == 0 { leaps -= 1; *is_leap = true; } else { *is_leap = false; }
@@ -10770,19 +10772,18 @@ pub unsafe extern "C" fn gmtime_r(t: *const TimeT, tm: *mut tm) -> *mut tm {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn localtime(t: *const TimeT) -> *mut tm { gmtime(t) }
+pub unsafe extern "C" fn localtime(t: *const TimeT) -> *mut tm {
+    tz_localtime_r(t, &raw mut TM_BUF)
+}
 
 #[no_mangle]
-pub unsafe extern "C" fn localtime_r(t: *const TimeT, tm: *mut tm) -> *mut tm { gmtime_r(t, tm) }
+pub unsafe extern "C" fn localtime_r(t: *const TimeT, tm: *mut tm) -> *mut tm {
+    tz_localtime_r(t, tm)
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn mktime(tm: *mut tm) -> TimeT {
-    let t = tm_to_secs(tm as *const tm);
-    if !secs_to_tm(t, &mut *tm) { ERRNO!() = EOVERFLOW; return -1; }
-    (*tm).tm_isdst = 0;
-    (*tm).tm_gmtoff = 0;
-    (*tm).tm_zone = core::ptr::addr_of!(UTC_STR).cast::<c_char>();
-    t as TimeT
+    tz_mktime(tm)
 }
 
 #[no_mangle]
@@ -10816,9 +10817,21 @@ pub unsafe extern "C" fn asctime_r(tm: *const tm, buf: *mut c_char) -> *mut c_ch
     *buf.add(p) = b' ' as c_char; p += 1;
     for k in 0..3 { *buf.add(p) = *mn.as_ptr().add(k) as c_char; p += 1; }
     *buf.add(p) = b' ' as c_char; p += 1;
+    // %.3s %.3s%3d: the day is right-aligned in a three-column field.
     let v = (*tm).tm_mday;
-    *buf.add(p) = (b'0' + (v / 10) as u8) as c_char; p += 1;
-    *buf.add(p) = (b'0' + (v % 10) as u8) as c_char; p += 1;
+    if v < 10 {
+        *buf.add(p) = b' ' as c_char; p += 1;
+        *buf.add(p) = b' ' as c_char; p += 1;
+        *buf.add(p) = (b'0' + v as u8) as c_char; p += 1;
+    } else if v < 100 {
+        *buf.add(p) = b' ' as c_char; p += 1;
+        *buf.add(p) = (b'0' + (v / 10) as u8) as c_char; p += 1;
+        *buf.add(p) = (b'0' + (v % 10) as u8) as c_char; p += 1;
+    } else {
+        *buf.add(p) = (b'0' + (v / 100) as u8) as c_char; p += 1;
+        *buf.add(p) = (b'0' + ((v / 10) % 10) as u8) as c_char; p += 1;
+        *buf.add(p) = (b'0' + (v % 10) as u8) as c_char; p += 1;
+    }
     *buf.add(p) = b' ' as c_char; p += 1;
     let hh = (*tm).tm_hour;
     *buf.add(p) = (b'0' + (hh / 10) as u8) as c_char; p += 1;
@@ -10832,24 +10845,44 @@ pub unsafe extern "C" fn asctime_r(tm: *const tm, buf: *mut c_char) -> *mut c_ch
     *buf.add(p) = (b'0' + (ss / 10) as u8) as c_char; p += 1;
     *buf.add(p) = (b'0' + (ss % 10) as u8) as c_char; p += 1;
     *buf.add(p) = b' ' as c_char; p += 1;
-    let yr = (*tm).tm_year + 1900;
-    let mut tmp = [0u8; 4];
-    let mut v2 = yr;
-    for k in (0..4).rev() { tmp[k] = b'0' + (v2 % 10) as u8; v2 /= 10; }
-    for k in 0..4 { *buf.add(p) = tmp[k] as c_char; p += 1; }
+    // %d: negative and >4-digit years are valid in musl asctime.
+    let yr = (*tm).tm_year as i64 + 1900;
+    let mut tmp = [0u8; 16];
+    let mut n = 0usize;
+    let mut v2 = if yr < 0 { -yr } else { yr };
+    if v2 == 0 {
+        tmp[n] = b'0';
+        n += 1;
+    } else {
+        while v2 > 0 && n < tmp.len() {
+            tmp[n] = b'0' + (v2 % 10) as u8;
+            v2 /= 10;
+            n += 1;
+        }
+    }
+    if yr < 0 {
+        *buf.add(p) = b'-' as c_char;
+        p += 1;
+    }
+    for k in (0..n).rev() {
+        *buf.add(p) = tmp[k] as c_char;
+        p += 1;
+    }
     *buf.add(p) = b'\n' as c_char; p += 1;
     *buf.add(p) = 0;
     buf
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ctime(t: *const TimeT) -> *mut c_char { asctime(gmtime(t)) }
+pub unsafe extern "C" fn ctime(t: *const TimeT) -> *mut c_char {
+    let tm = localtime(t);
+    if tm.is_null() { core::ptr::null_mut() } else { asctime(tm) }
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn ctime_r(t: *const TimeT, buf: *mut c_char) -> *mut c_char {
     let mut tmp: tm = core::mem::zeroed();
-    gmtime_r(t, &mut tmp);
-    asctime_r(&tmp, buf)
+    if localtime_r(t, &mut tmp).is_null() { core::ptr::null_mut() } else { asctime_r(&tmp, buf) }
 }
 
 // ============================================================
@@ -11525,8 +11558,7 @@ pub static mut tzname: [*mut c_char; 2] = [b"UTC\0".as_ptr() as *mut c_char, b"U
 
 #[no_mangle]
 pub unsafe extern "C" fn tzset() {
-    daylight = 0;
-    timezone = 0;
+    tz_set();
 }
 
 // ============================================================
@@ -15228,6 +15260,7 @@ pub struct regmatch_t {
 }
 
 include!("regex.rs");
+include!("tz.rs");
 
 #[cfg(test)]
 mod libc_unit_stub {

@@ -68,14 +68,11 @@ NGINX_TESTS=(
     autoindex.t rewrite.t headers.t gzip.t map.t ssi.t limit_req.t access_log.t
 )
 
-# Upstream/environment failures present in both runs are ignored.  These are
-# crabc-only differences that are understood and tracked:
-#   test_ssl      TLS 1.3 wrong-cert alert race when the whole module runs
-#   test_time     TZ database/POSIX TZ support is not implemented
-#   test_datetime same TZ gap (astimezone/localtime)
-#   test_logging  same TZ gap (DST-aware log rotation)
+# Upstream/environment failures present in both runs are ignored.  test_ssl
+# is the only known crabc-only difference: its TLS 1.3 wrong-cert alert race
+# can fail when the whole module runs, while the single test normally passes.
 PYTHON_KNOWN_DIFFS=(
-    test_ssl test_time test_datetime test_logging
+    test_ssl
 )
 
 MOUNTS=()

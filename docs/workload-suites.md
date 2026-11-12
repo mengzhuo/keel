@@ -14,7 +14,7 @@ the host kernel and network sandbox.  Run them manually or from the scheduled
 
 | Suite | Source | Scope | Result (2026-11-12) |
 |---|---|---|---|
-| CPython | Alpine `python3-tests` 3.12.16 | 40 modules, 13,737 tests | 58 modules OK; TZ differences only |
+| CPython | Alpine `python3-tests` 3.12.16 | 40 modules, 13,737 tests | 62 modules OK; only an SSL timing test differs |
 | Git | `git/t` 2.52.1, installed `git` 2.52.0 | 7 foundational t/ scripts, 599 tests | 6 scripts pass under both; one racy test in t0000 |
 | nginx | `nginx/nginx-tests` `bb4d348` | 8 HTTP tests | 8/8 under both |
 
@@ -59,28 +59,19 @@ The latest run used crabc 0.7.8 plus the loader/TLS/regex fixes below.
 ### CPython
 
 ```text
-musl:  59 modules OK,  9 failed, 13,737 tests run
-crabc: 58 modules OK, 10 failed, 13,737 tests run
+musl:  62 modules OK, 6 failed, 13,737 tests run
+crabc: 62 modules OK, 6 failed, 13,737 tests run
 ```
 
 The baseline failures are environment-related and occur with stock musl too:
 `test_asyncio.test_events`, `test_ctypes`, `test_locale`,
 `test_multiprocessing`, `test_os`, and occasionally `test_re`.
 
-The only crabc-only difference is time-zone support:
+Time-zone support is implemented in `libc/src/tz.rs` (TZif v1/v2/v3 and
+POSIX `TZ` rules), so `test_time`, `test_datetime` and `test_logging` pass
+under crabc.
 
-- `test_time` — `tzset()` is a stub and `localtime()` is `gmtime()`, so
-  `TZ=EST5EDT` does not change the result.
-- `test_datetime` — the same gap in `astimezone()` and naive
-  `datetime.timestamp()`.
-- `test_logging` (not always reached) — DST-aware log rotation depends on
-  the same local-time conversion.
-
-This is a real feature gap, not an ABI mismatch: crabc currently has no
-`/usr/share/zoneinfo` reader and no POSIX `TZ` rule parser.  It is tracked
-here rather than hidden by excluding the modules.
-
-`test_ssl` is a timing-sensitive upstream test.  The TLS 1.3 wrong-certificate
+`test_ssl` is the only crabc-only difference.  The TLS 1.3 wrong-certificate
 case can see `ECONNRESET` instead of the expected alert when the whole module
 runs; the single test usually passes on its own.  It is listed as a known
 difference so it does not hide other SSL regressions.
@@ -127,6 +118,9 @@ Each of these was reproduced by a suite and fixed on `main` after 0.7.8:
 - The regex engine did not support `.`, compiled `+` as a possibly-empty
   match, and sized its backtracking stack from the bytecode instead of the
   input.  This broke BusyBox `expr`, `sed -g` and Git's test helpers.
+- `mktime`/`localtime` lacked time-zone support, and `year_to_secs` used a
+  signed year range check where musl uses an unsigned one (breaking years
+  before 1902).  `ctime` also used `gmtime` instead of `localtime`.
 
 These are exactly the class of bug a small smoke workload misses: they need
 the program's own tests, or at least its real command-line tools, to reach
