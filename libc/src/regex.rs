@@ -25,6 +25,7 @@ const OP_JUMP: u8 = 4;
 const OP_SPLIT: u8 = 5;
 const OP_BOL: u8 = 6;
 const OP_EOL: u8 = 7;
+const OP_ANY: u8 = 8;
 
 // regex_t layout: re_nsub(8) + __opaque(8) + __padding[4](32) + __nsub2(8) + __padding2(1) = 57 bytes
 // __opaque is at offset 8
@@ -222,6 +223,14 @@ fn compile_sequence(
             continue;
         }
 
+        if b == b'.' {
+            let atom = ctx.pos;
+            if !emit(ctx, OP_ANY) { return false; }
+            ctx.last_atom_start = atom;
+            i += 1;
+            continue;
+        }
+
         if b == b'^' && i == start {
             let atom = ctx.pos;
             if !emit(ctx, OP_BOL) { return false; }
@@ -241,7 +250,7 @@ fn compile_sequence(
             let prev_start = ctx.last_atom_start;
             let prev_end = ctx.pos;
             let op = unsafe { *(*ctx.code).code.add(prev_start) };
-            if op == OP_CHAR || op == OP_BRACKET || op == OP_BOL || op == OP_EOL {
+            if op == OP_CHAR || op == OP_BRACKET || op == OP_ANY || op == OP_BOL || op == OP_EOL {
                 let prev_len = prev_end - prev_start;
                 let mut prev = [0u8; 32];
                 for k in 0..prev_len {
@@ -261,15 +270,18 @@ fn compile_sequence(
                         patch32((*ctx.code).code, jmp + 1, sp as u32);
                     }
                 } else if b == b'+' {
-                    let jmp = ctx.pos;
-                    if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
+                    // Emit one mandatory copy of the atom before the split;
+                    // jumping to the split first would let '+' match empty.
+                    let atom_start = ctx.pos;
+                    for k in 0..prev_len { if !emit(ctx, prev[k]) { return false; } }
                     let sp = ctx.pos;
                     if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
-                    for k in 0..prev_len { if !emit(ctx, prev[k]) { return false; } }
+                    let jmp = ctx.pos;
+                    if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
                     let after = ctx.pos;
                     unsafe {
-                        patch32((*ctx.code).code, jmp + 1, sp as u32);
                         patch32((*ctx.code).code, sp + 1, after as u32);
+                        patch32((*ctx.code).code, jmp + 1, atom_start as u32);
                     }
                 } else {
                     let sp = ctx.pos;
@@ -439,6 +451,11 @@ unsafe fn read32(code: *const u8, at: usize) -> usize {
         | ((*code.add(at + 3) as usize) << 24)
 }
 
+struct MatchStack {
+    frames: *mut MatchFrame,
+    cap: usize,
+}
+
 fn match_regex_impl(
     code: &CompiledRegex,
     input: *const c_char,
@@ -446,16 +463,18 @@ fn match_regex_impl(
     pmatch: *mut crate::regmatch_t,
     eflags: c_int,
 ) -> c_int {
-    let frames = match (code.ncode + 1).checked_mul(core::mem::size_of::<MatchFrame>()) {
+    let initial = (code.ncode + 1).max(8);
+    let bytes = match initial.checked_mul(core::mem::size_of::<MatchFrame>()) {
         Some(n) => n,
         None => return REG_ESPACE,
     };
-    let stack = unsafe { crate::malloc(frames) } as *mut MatchFrame;
-    if stack.is_null() {
+    let frames = unsafe { crate::malloc(bytes) } as *mut MatchFrame;
+    if frames.is_null() {
         return REG_ESPACE;
     }
-    let r = match_regex_inner(code, input, nmatch, pmatch, eflags, stack);
-    unsafe { crate::free(stack as *mut c_void) };
+    let mut stack = MatchStack { frames, cap: initial };
+    let r = match_regex_inner(code, input, nmatch, pmatch, eflags, &mut stack);
+    unsafe { crate::free(stack.frames as *mut c_void) };
     r
 }
 
@@ -465,25 +484,24 @@ fn match_regex_inner(
     nmatch: usize,
     pmatch: *mut crate::regmatch_t,
     eflags: c_int,
-    stack: *mut MatchFrame,
+    stack: &mut MatchStack,
 ) -> c_int {
     let slen = unsafe { crate::strlen(input) };
     let notbol = (eflags & REG_NOTBOL) != 0;
     let noteol = (eflags & REG_NOTEOL) != 0;
     let bytecode = code.code;
     let ncode = code.ncode;
-    let stack_cap = ncode + 1;
 
     for start in 0..=slen {
         let mut top: usize = 0;
-        unsafe { *stack.add(top) = MatchFrame { pc: 0, sp: start, at_bol: start == 0 }; }
+        unsafe { *stack.frames.add(top) = MatchFrame { pc: 0, sp: start, at_bol: start == 0 }; }
         top += 1;
         let mut found = false;
         let mut match_end = 0usize;
 
         while top > 0 {
             top -= 1;
-            let frame = unsafe { *stack.add(top) };
+            let frame = unsafe { *stack.frames.add(top) };
             let mut pc = frame.pc;
             let mut sp = frame.sp;
             let mut at_bol = frame.at_bol;
@@ -516,6 +534,12 @@ fn match_regex_inner(
                         at_bol = false;
                         pc += 5;
                     }
+                    OP_ANY => {
+                        if sp >= slen { break; }
+                        sp += 1;
+                        at_bol = false;
+                        pc += 1;
+                    }
                     OP_MATCH => {
                         if !noteol || sp == slen {
                             found = true;
@@ -529,14 +553,33 @@ fn match_regex_inner(
                     OP_SPLIT => {
                         let alt = unsafe { read32(bytecode, pc + 1) };
                         let next = pc + 5;
-                        if top + 2 <= stack_cap {
-                            unsafe {
-                                *stack.add(top) = MatchFrame { pc: alt, sp, at_bol };
-                                top += 1;
-                                *stack.add(top) = MatchFrame { pc: next, sp, at_bol };
+                        if top + 2 > stack.cap {
+                            let mut cap = stack.cap;
+                            while cap < top + 2 {
+                                cap = match cap.checked_mul(2) {
+                                    Some(n) => n,
+                                    None => return REG_ESPACE,
+                                };
                             }
-                            top += 1;
+                            let bytes = match cap.checked_mul(core::mem::size_of::<MatchFrame>()) {
+                                Some(n) => n,
+                                None => return REG_ESPACE,
+                            };
+                            let p = unsafe {
+                                crate::realloc(stack.frames as *mut c_void, bytes)
+                            } as *mut MatchFrame;
+                            if p.is_null() {
+                                return REG_ESPACE;
+                            }
+                            stack.frames = p;
+                            stack.cap = cap;
                         }
+                        unsafe {
+                            *stack.frames.add(top) = MatchFrame { pc: alt, sp, at_bol };
+                            top += 1;
+                            *stack.frames.add(top) = MatchFrame { pc: next, sp, at_bol };
+                        }
+                        top += 1;
                         break;
                     }
                     OP_BOL => {

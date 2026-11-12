@@ -1258,10 +1258,14 @@ pub unsafe extern "C" fn sigprocmask(
         &filtered
     };
     let r = sys_rt_sigprocmask(how, set_ptr, oldset, core::mem::size_of::<SigSetT>());
+    if r < 0 {
+        ERRNO!() = (-r) as c_int;
+        return -1;
+    }
     if !oldset.is_null() {
         *oldset &= !internal_mask;
     }
-    if r < 0 { -1 } else { 0 }
+    0
 }
 
 #[inline]
@@ -4548,7 +4552,8 @@ pub unsafe extern "C" fn pthread_kill(thread: PthreadT, sig: c_int) -> c_int {
 
 #[no_mangle]
 pub unsafe extern "C" fn pthread_sigmask(how: c_int, set: *const SigSetT, oldset: *mut SigSetT) -> c_int {
-    sigprocmask(how, set, oldset)
+    // POSIX pthread functions return the error number itself, not -1/errno.
+    if sigprocmask(how, set, oldset) < 0 { ERRNO!() } else { 0 }
 }
 
 
@@ -11881,7 +11886,7 @@ static ERR_STRS: [&[u8]; 134] = [
 pub unsafe extern "C" fn strerror(errnum: c_int) -> *mut c_char {
     if errnum < 0 || errnum as usize >= ERR_STRS.len() {
         // ponytail: static buf for unknown errors
-        static mut UNKNOWN_BUF: [c_char; 32] = [0; 32];
+        static mut UNKNOWN_BUF: [c_char; 64] = [0; 64];
         let prefix = b"Unknown error \0";
         let mut i = 0;
         while prefix[i] != 0 {
@@ -15204,7 +15209,8 @@ include!("getopt_impl.rs");
 // regex.h
 // ============================================================
 
-type regoff_t = c_int;
+// musl defines regoff_t as _Addr (long on every Linux target), not int.
+type regoff_t = c_long;
 
 #[repr(C)]
 pub struct regex_t {
@@ -20160,9 +20166,27 @@ pub unsafe extern "C" fn ppoll(fds: *mut core::ffi::c_void, nfds: u32, timeout: 
     syscall_ret(<Arch as Syscalls>::syscall5(SYS_PPOLL, fds as i64, nfds as i64, timeout as i64, sigmask as i64, 8)) as i32
 }
 
+#[repr(C)]
+struct PselectSigmask {
+    ss: *const u64,
+    ss_len: usize,
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn pselect(nfds: i32, readfds: *mut u8, writefds: *mut u8, exceptfds: *mut u8, timeout: *const core::ffi::c_void, sigmask: *const u64) -> i32 {
-    syscall_ret(<Arch as Syscalls>::syscall6(SYS_PSELECT6, nfds as i64, readfds as i64, writefds as i64, exceptfds as i64, timeout as i64, sigmask as i64)) as i32
+    // pselect6 takes a { sigset_t *, size_t } pair, not the sigset pointer.
+    // GNU make blocks SIGCHLD and depends on this temporary mask, so passing
+    // the pointer directly deadlocks parallel builds.
+    let arg = PselectSigmask {
+        ss: sigmask,
+        ss_len: core::mem::size_of::<SigSetT>(),
+    };
+    let arg_ptr = if sigmask.is_null() {
+        0
+    } else {
+        &arg as *const PselectSigmask as i64
+    };
+    syscall_ret(<Arch as Syscalls>::syscall6(SYS_PSELECT6, nfds as i64, readfds as i64, writefds as i64, exceptfds as i64, timeout as i64, arg_ptr)) as i32
 }
 
 // ============================================================
@@ -22266,7 +22290,7 @@ static mut HOST_ENT: HostEnt = HostEnt {
     h_addr_list: core::ptr::null_mut(),
 };
 static mut HOST_NAME: [c_char; 256] = [0; 256];
-static mut HOST_ALIASES: [*mut c_char; 1] = [core::ptr::null_mut()];
+static mut HOST_ALIASES: [*mut c_char; 8] = [core::ptr::null_mut(); 8];
 static mut HOST_ADDR: [u8; 16] = [0; 16];
 static mut HOST_ADDR_PTRS: [*mut c_char; 2] = [core::ptr::null_mut(); 2];
 
@@ -22397,53 +22421,63 @@ pub unsafe extern "C" fn gethostbyname2(name: *const c_char, af: c_int) -> *mut 
 
 #[no_mangle]
 pub unsafe extern "C" fn gethostbyaddr(addr: *const c_void, len: u32, type_: c_int) -> *mut HostEnt {
-    if addr.is_null() || type_ != AF_INET || len != 4 { h_errno = HOST_NOT_FOUND; return core::ptr::null_mut(); }
-    let a = addr as *const u8;
-    let mut name = [0u8; 128];
-    let mut pos = 0;
-    for i in 0..4 {
-        let v = *a.add(3 - i) as u32;
-        if v >= 100 { name[pos] = b'0' + (v / 100) as u8; pos += 1; }
-        if v >= 10 { name[pos] = b'0' + ((v / 10) % 10) as u8; pos += 1; }
-        name[pos] = b'0' + (v % 10) as u8; pos += 1;
-        name[pos] = b'.'; pos += 1;
-    }
-    let suffix = b"in-addr.arpa";
-    for &c in suffix { name[pos] = c; pos += 1; }
-    name[pos] = 0;
-    let mut answer = [0u8; 512];
-    let r = res_query(name.as_ptr() as *const c_char, 1, 12, answer.as_mut_ptr(), answer.len() as c_int);
-    if r < 12 { h_errno = HOST_NOT_FOUND; return core::ptr::null_mut(); }
-    let end = answer.as_ptr().add(r as usize);
-    let qd = dns_read_u16(answer.as_ptr().add(4)) as usize;
-    let an = dns_read_u16(answer.as_ptr().add(6)) as usize;
-    let mut p = answer.as_ptr().add(12);
-    for _ in 0..qd { p = dns_skip_name(p, end); p = p.add(4); }
-    for _ in 0..an {
-        p = dns_skip_name(p, end);
-        if p.add(10) > end { break; }
-        let typ = dns_read_u16(p);
-        let rdlen = dns_read_u16(p.add(8)) as usize;
-        let rdata = p.add(10);
-        if typ == 12 && dns_expand_name(rdata, answer.as_ptr(), HOST_NAME.as_mut_ptr(), HOST_NAME.len()) {
-            let mut o = crate::strlen(HOST_NAME.as_ptr());
-            if o > 0 && HOST_NAME[o - 1] == b'.' as c_char { o -= 1; }
-            HOST_NAME[o] = 0;
-            core::ptr::copy_nonoverlapping(a, HOST_ADDR.as_mut_ptr(), 4);
-            HOST_ENT.h_name = HOST_NAME.as_mut_ptr();
-            HOST_ENT.h_aliases = HOST_ALIASES.as_mut_ptr();
-            HOST_ENT.h_addrtype = AF_INET;
-            HOST_ENT.h_length = 4;
-            HOST_ADDR_PTRS[0] = HOST_ADDR.as_mut_ptr() as *mut c_char;
-            HOST_ADDR_PTRS[1] = core::ptr::null_mut();
-            HOST_ENT.h_addr_list = HOST_ADDR_PTRS.as_mut_ptr();
-            h_errno = 0;
-            return &raw mut HOST_ENT;
+    // musl implements gethostbyaddr() on top of getnameinfo(), so /etc/hosts
+    // and the DNS reverse path behave identically for both APIs.
+    let (addr_len, salen) = match type_ {
+        AF_INET => (4usize, 16u32),
+        AF_INET6 => (16usize, 28u32),
+        _ => {
+            h_errno = HOST_NOT_FOUND;
+            return core::ptr::null_mut();
         }
-        p = rdata.add(rdlen);
+    };
+    if addr.is_null() || len as usize != addr_len {
+        h_errno = HOST_NOT_FOUND;
+        return core::ptr::null_mut();
     }
-    h_errno = HOST_NOT_FOUND;
-    core::ptr::null_mut()
+    let mut sa = [0u8; 28];
+    *(sa.as_mut_ptr() as *mut u16) = type_ as u16;
+    if type_ == AF_INET {
+        core::ptr::copy_nonoverlapping(addr as *const u8, sa.as_mut_ptr().add(4), 4);
+    } else {
+        core::ptr::copy_nonoverlapping(addr as *const u8, sa.as_mut_ptr().add(8), 16);
+    }
+    let mut name = [0 as c_char; 256];
+    let rc = getnameinfo(
+        sa.as_ptr() as *const c_void,
+        salen,
+        name.as_mut_ptr(),
+        name.len() as u32,
+        core::ptr::null_mut(),
+        0,
+        0,
+    );
+    if rc != 0 {
+        h_errno = match rc {
+            EAI_AGAIN_V => TRY_AGAIN,
+            EAI_NONAME_V => HOST_NOT_FOUND,
+            _ => NO_RECOVERY,
+        };
+        return core::ptr::null_mut();
+    }
+    let l = crate::strlen(name.as_ptr());
+    if l >= HOST_NAME.len() {
+        h_errno = NO_RECOVERY;
+        return core::ptr::null_mut();
+    }
+    core::ptr::copy_nonoverlapping(name.as_ptr(), HOST_NAME.as_mut_ptr(), l + 1);
+    core::ptr::copy_nonoverlapping(addr as *const u8, HOST_ADDR.as_mut_ptr(), addr_len);
+    HOST_ENT.h_name = HOST_NAME.as_mut_ptr();
+    HOST_ALIASES[0] = HOST_NAME.as_mut_ptr();
+    HOST_ALIASES[1] = core::ptr::null_mut();
+    HOST_ENT.h_aliases = HOST_ALIASES.as_mut_ptr();
+    HOST_ENT.h_addrtype = type_;
+    HOST_ENT.h_length = addr_len as c_int;
+    HOST_ADDR_PTRS[0] = HOST_ADDR.as_mut_ptr() as *mut c_char;
+    HOST_ADDR_PTRS[1] = core::ptr::null_mut();
+    HOST_ENT.h_addr_list = HOST_ADDR_PTRS.as_mut_ptr();
+    h_errno = 0;
+    &raw mut HOST_ENT
 }
 
 // ============================================================

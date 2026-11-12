@@ -31,6 +31,7 @@
 #include <aio.h>
 #include <getopt.h>
 #include <poll.h>
+#include <regex.h>
 
 struct memcookie { char data[64]; size_t len, pos; };
 static ssize_t mc_read(void *c, char *b, size_t n) {
@@ -347,6 +348,22 @@ int main(void) {
     {
         struct pollfd pfd = { .fd = -1, .events = 0, .revents = 0 };
         CHECK(poll(&pfd, 1, 0) == 0, "poll zero timeout");
+    }
+
+    /* regmatch_t must use musl's regoff_t (long), not int: BusyBox and
+     * other prebuilt binaries are compiled against musl's headers. */
+    {
+        regex_t re;
+        regmatch_t m;
+        CHECK(sizeof(regmatch_t) == 2 * sizeof(long), "regmatch_t ABI");
+        CHECK(regcomp(&re, "b+", REG_EXTENDED) == 0, "regcomp");
+        CHECK(regexec(&re, "abbc", 1, &m, 0) == 0, "regexec");
+        CHECK(m.rm_so == 1 && m.rm_eo == 3, "regexec offsets");
+        regfree(&re);
+        CHECK(regcomp(&re, "a.c", REG_EXTENDED) == 0, "regcomp dot");
+        CHECK(regexec(&re, "xxabcxx", 1, &m, 0) == 0 &&
+              m.rm_so == 2 && m.rm_eo == 5, "regexec dot");
+        regfree(&re);
     }
 
     /* membarrier may be restricted by the kernel; just exercise the ABI. */

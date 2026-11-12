@@ -908,6 +908,7 @@ unsafe fn nd_make_addrinfo(
     protocol: c_int,
     addr: *const u8,
     port: u16,
+    scope: u32,
     flags: c_int,
     canon: *const c_char,
 ) -> *mut AddrInfo {
@@ -928,6 +929,7 @@ unsafe fn nd_make_addrinfo(
     if family == AF_INET6 {
         *(sa as *mut u16) = AF_INET6 as u16;
         *(sa.add(2) as *mut u16) = port.to_be();
+        *(sa.add(24) as *mut u32) = scope;
         core::ptr::copy_nonoverlapping(addr, sa.add(8), 16);
     } else {
         *(sa as *mut u16) = AF_INET as u16;
@@ -1000,6 +1002,7 @@ pub unsafe extern "C" fn getaddrinfo(
 
     let mut addrs: [[u8; 16]; 8] = [[0; 16]; 8];
     let mut fams: [c_int; 8] = [0; 8];
+    let mut scopes: [u32; 8] = [0; 8];
     let mut count = 0usize;
     let mut canon: [c_char; 256] = [0; 256];
 
@@ -1035,12 +1038,48 @@ pub unsafe extern "C" fn getaddrinfo(
                 count += 1;
             }
         }
-        if !numeric && inet_pton(AF_INET6, node, tmp.as_mut_ptr() as *mut c_void) == 1 {
-            numeric = true;
-            if family == 0 || family == AF_INET6 {
-                addrs[count] = tmp;
-                fams[count] = AF_INET6;
-                count += 1;
+        // RFC 4007 scope suffix: fe80::1%eth0 or fe80::1%3.
+        let mut ip6: *const c_char = node;
+        let mut ip6buf = [0 as c_char; 64];
+        let mut scope_id: u32 = 0;
+        let mut has_scope = false;
+        let mut i = 0usize;
+        while *node.add(i) != 0 {
+            if *node.add(i) == b'%' as c_char {
+                if i >= ip6buf.len() { return EAI_NONAME_V; }
+                core::ptr::copy_nonoverlapping(node, ip6buf.as_mut_ptr(), i);
+                ip6buf[i] = 0;
+                ip6 = ip6buf.as_ptr();
+                has_scope = true;
+                break;
+            }
+            i += 1;
+        }
+        if !numeric {
+            if inet_pton(AF_INET6, ip6, tmp.as_mut_ptr() as *mut c_void) == 1 {
+                numeric = true;
+                if family == 0 || family == AF_INET6 {
+                    if has_scope {
+                        let p = node.add(i + 1);
+                        let mut end: *mut c_char = core::ptr::null_mut();
+                        let v = crate::strtoul(p, &mut end, 10);
+                        let linklocal = (tmp[0] == 0xfe && (tmp[1] & 0xc0) == 0x80)
+                            || (tmp[0] == 0xff && (tmp[1] & 0x0f) == 0x02);
+                        if end.is_null() || *end != 0 {
+                            if !linklocal { return EAI_NONAME_V; }
+                            let idx = crate::if_nametoindex(p);
+                            if idx == 0 { return EAI_NONAME_V; }
+                            scope_id = idx;
+                        } else {
+                            if v > u32::MAX as u64 { return EAI_NONAME_V; }
+                            scope_id = v as u32;
+                        }
+                    }
+                    addrs[count] = tmp;
+                    fams[count] = AF_INET6;
+                    scopes[count] = scope_id;
+                    count += 1;
+                }
             }
         }
         if flags & AI_NUMERICHOST_V != 0 && !numeric {
@@ -1114,7 +1153,7 @@ pub unsafe extern "C" fn getaddrinfo(
             }
             let proto = if protocol != 0 { protocol } else if st == SOCK_STREAM { 6 } else { 17 };
             let cp = if emitted == 0 { canonptr } else { core::ptr::null() };
-            let ai = nd_make_addrinfo(fams[i], st, proto, addrs[i].as_ptr(), port, flags, cp);
+            let ai = nd_make_addrinfo(fams[i], st, proto, addrs[i].as_ptr(), port, scopes[i], flags, cp);
             if ai.is_null() {
                 freeaddrinfo(head);
                 return EAI_MEMORY_V;

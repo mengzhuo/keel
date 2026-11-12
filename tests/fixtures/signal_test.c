@@ -3,7 +3,12 @@
 
 #include "signal.h"
 #include "stdio.h"
+#include <errno.h>
+#include <pthread.h>
 #include <sys/mman.h>
+#include <sys/select.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 static void *mmap_anon(size_t size) {
     return mmap(NULL, size, PROT_READ | PROT_WRITE,
@@ -12,6 +17,11 @@ static void *mmap_anon(size_t size) {
 
 static volatile int got_signal = 0;
 static volatile int on_altstack = 0;
+static volatile int got_chld = 0;
+
+static void chld_handler(int sig) {
+    got_chld = sig;
+}
 
 static void usr1_handler(int sig) {
     got_signal = sig;
@@ -49,6 +59,10 @@ int main(void) {
     sigaction(SIGUSR1, &sa, &old_sa);
 
     sigemptyset(&set);
+    errno = 0;
+    if (sigprocmask(1700, &set, NULL) != -1 || errno != EINVAL) return 30;
+    if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0) return 31;
+    if (pthread_sigmask(1700, &set, NULL) != EINVAL) return 32;
     sigaddset(&set, SIGUSR1);
     sigprocmask(SIG_BLOCK, &set, &oldmask);
 
@@ -116,6 +130,31 @@ int main(void) {
     if (got_signal != SIGUSR1) return 21;
 
     sigaction(SIGUSR1, &old_sa, NULL);
+
+    {
+        struct sigaction ca, oldca;
+        sigset_t block, empty, saved;
+        struct timespec ts = {5, 0};
+        ca.sa_handler = chld_handler;
+        ca.sa_flags = 0;
+        sigemptyset(&ca.sa_mask);
+        sigaction(SIGCHLD, &ca, &oldca);
+        sigemptyset(&block);
+        sigaddset(&block, SIGCHLD);
+        sigprocmask(SIG_BLOCK, &block, &saved);
+        pid_t pid = fork();
+        if (pid < 0) return 33;
+        if (pid == 0) _exit(0);
+        sigemptyset(&empty);
+        got_chld = 0;
+        errno = 0;
+        int pr = pselect(0, NULL, NULL, NULL, &ts, &empty);
+        if (pr != -1 || errno != EINTR || got_chld != SIGCHLD) return 34;
+        int status;
+        if (waitpid(pid, &status, 0) != pid) return 35;
+        sigprocmask(SIG_SETMASK, &saved, NULL);
+        sigaction(SIGCHLD, &oldca, NULL);
+    }
 
     puts("signal ok");
     return 0;

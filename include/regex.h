@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-typedef int regoff_t;
+typedef long regoff_t;
 typedef struct {
     size_t re_nsub;
     void *__opaque;
@@ -31,7 +31,6 @@ typedef struct {
 #define REG_NOSUB 8
 #define REG_NOTBOL 1
 #define REG_NOTEOL 2
-#define REG_STARTEND 4
 #define REG_NOMATCH 1
 #define REG_BADPAT 2
 #define REG_ECOLLATE 3
