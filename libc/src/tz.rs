@@ -6,7 +6,7 @@
 
 use core::sync::atomic::AtomicBool;
 
-const TZNAME_MAX: usize = 255;
+const TZNAME_LEN: usize = 255;
 const PATH_BUF: usize = 512;
 
 static TZ_LOCK: AtomicBool = AtomicBool::new(false);
@@ -19,13 +19,13 @@ static mut TZ_TYPES: *const u8 = core::ptr::null();
 static mut TZ_ABBREVS: *const u8 = core::ptr::null();
 static mut TZ_ABBREVS_END: *const u8 = core::ptr::null();
 
-static mut TZ_STD_NAME: [c_char; TZNAME_MAX + 1] = [0; TZNAME_MAX + 1];
-static mut TZ_DST_NAME: [c_char; TZNAME_MAX + 1] = [0; TZNAME_MAX + 1];
+static mut TZ_STD_NAME: [c_char; TZNAME_LEN + 1] = [0; TZNAME_LEN + 1];
+static mut TZ_DST_NAME: [c_char; TZNAME_LEN + 1] = [0; TZNAME_LEN + 1];
 static mut TZ_DST_OFF: i32 = 0;
 static mut TZ_R0: [i32; 5] = [0; 5];
 static mut TZ_R1: [i32; 5] = [0; 5];
 
-static mut TZ_OLD: [c_char; TZNAME_MAX + 1] = [0; TZNAME_MAX + 1];
+static mut TZ_OLD: [c_char; TZNAME_LEN + 1] = [0; TZNAME_LEN + 1];
 static mut TZ_OLD_LEN: usize = usize::MAX;
 
 static TZ_UTC: [c_char; 4] = [b'U' as c_char, b'T' as c_char, b'C' as c_char, 0];
@@ -132,7 +132,7 @@ unsafe fn getname(d: *mut c_char, p: &mut *const c_char) {
     if **p == b'<' as c_char {
         *p = (*p).add(1);
         while **p != 0 && **p != b'>' as c_char {
-            if i < TZNAME_MAX {
+            if i < TZNAME_LEN {
                 *d.add(i) = **p;
                 i += 1;
             }
@@ -143,14 +143,14 @@ unsafe fn getname(d: *mut c_char, p: &mut *const c_char) {
         }
     } else {
         while is_alpha(**p) {
-            if i < TZNAME_MAX {
+            if i < TZNAME_LEN {
                 *d.add(i) = **p;
                 i += 1;
             }
             *p = (*p).add(1);
         }
     }
-    *d.add(core::cmp::min(i, TZNAME_MAX)) = 0;
+    *d.add(core::cmp::min(i, TZNAME_LEN)) = 0;
 }
 
 unsafe fn getrule(p: &mut *const c_char, rule: &mut [i32; 5]) {
@@ -325,7 +325,7 @@ unsafe fn do_tzset() {
     let mut posix_form = false;
     if *s != b':' as c_char {
         let mut p = s;
-        let mut dummy = [0 as c_char; TZNAME_MAX + 1];
+        let mut dummy = [0 as c_char; TZNAME_LEN + 1];
         getname(dummy.as_mut_ptr(), &mut p);
         if p != s
             && (*p == b'+' as c_char
@@ -362,7 +362,7 @@ unsafe fn do_tzset() {
                 }
                 i += 1;
             }
-            if l <= TZNAME_MAX && !has_dot {
+            if l <= TZNAME_LEN && !has_dot {
                 let prefixes: [&[u8]; 3] = [
                     b"/usr/share/zoneinfo/",
                     b"/share/zoneinfo/",
