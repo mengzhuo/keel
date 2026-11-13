@@ -195,6 +195,7 @@ cd libc-test-harness
 - It creates symlinks in `$LIBC_TEST_DIR/src/<subset>/`, so it mutates the external libc-test checkout.
 - Run one subset at a time. All subsets share `build/`, `fake-libs/`, and `reports/`; concurrent runs race and corrupt counts.
 - `math` intentionally SKIPs `acoshl`, `asinhl`, `lgammal`, and `tgammal`: upstream uses 80-bit long-double vectors while keel's x86_64 ABI is 64-bit. This is recorded in `SKIP_TESTS` in `run.sh`.
+- On aarch64, `functional/strtold` and `functional/tls_local_exec` are skipped because long double is still computed through `f64` and TLS alignment above 64 bytes is not implemented.
 - As root, `regression/pthread_atfork-errno-clobber` is also skipped: `RLIMIT_NPROC` is not enforced for root, so musl itself succeeds at `fork()` in that environment.
 
 ## musl Parity Check

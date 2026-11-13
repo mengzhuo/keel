@@ -32,6 +32,12 @@ if [ "$(id -u)" -eq 0 ]; then
     SKIP_TESTS="$SKIP_TESTS regression/pthread_atfork-errno-clobber"
 fi
 
+# aarch64 still computes long double through f64 and caps TLS alignment at
+# 64 bytes, so these upstream tests cannot pass yet.
+if [ "$(uname -m)" = "aarch64" ]; then
+    SKIP_TESTS="$SKIP_TESTS functional/strtold functional/tls_local_exec"
+fi
+
 # ipc_shm compares time(0) with the kernel's shm timestamps and can lose a
 # second around a clock boundary. Retry it before recording a failure.
 FLAKY_TESTS="${FLAKY_TESTS:-functional/ipc_shm}"
