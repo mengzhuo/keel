@@ -10,7 +10,7 @@
 #   keel-dev     headers, libc.a, CRT objects, linker stubs
 #   keel-utils   getconf/getent/iconv/ldd/ldconfig (Rust multicall binary)
 #
-# Usage: VERSION=0.8.0 scripts/package-apk.sh
+# Usage: VERSION=0.1.0 scripts/package-apk.sh
 #        CONTAINER_RUNTIME=podman scripts/package-apk.sh
 #
 # Expects the release artifacts produced by:

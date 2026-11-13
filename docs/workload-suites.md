@@ -54,7 +54,7 @@ Useful environment variables:
 
 ## Results
 
-The latest run used keel 0.8.0.
+The latest run used keel 0.1.0.
 
 ### CPython
 
@@ -101,7 +101,7 @@ from `/usr/lib/nginx/modules`.
 
 ## Bugs this harness found
 
-Each of these was reproduced by a suite and is included in 0.8.0:
+Each of these was reproduced by a suite and is included in 0.1.0:
 
 - `gethostbyaddr()` ignored `/etc/hosts`; it now goes through
   `getnameinfo()` like musl.

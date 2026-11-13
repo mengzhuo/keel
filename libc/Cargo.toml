@@ -1,6 +1,6 @@
 [package]
 name = "keel-libc"
-version = "0.8.0"
+version = "0.1.0"
 edition = "2021"
 description = "A Rust no_std musl-compatible libc implementation"
 license = "BSD-3-Clause"

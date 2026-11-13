@@ -37,7 +37,7 @@ eyra, and other projects.
 
 ## Status and scope
 
-keel is experimental (`0.8.x`). It is not a production-ready drop-in
+keel is experimental (`0.1.x`). It is not a production-ready drop-in
 replacement for musl. The validated scope is the workload matrix and LTP
 report above; functionality outside that scope is not claimed.
 

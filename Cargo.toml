@@ -13,7 +13,7 @@ opt-level = "s"
 
 [package]
 name = "keel-rt"
-version = "0.8.0"
+version = "0.1.0"
 edition = "2021"
 description = "A Rust musl-compatible libc with a dynamic linker"
 license = "BSD-3-Clause"

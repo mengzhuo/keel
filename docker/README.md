@@ -9,12 +9,12 @@ manager's libc in production.
 
 ```bash
 # x86_64 (or the host architecture)
-docker build -f docker/Dockerfile -t keel:0.8.0 .
+docker build -f docker/Dockerfile -t keel:0.1.0 .
 
 # Multi-arch (requires buildx and a registry/loading backend)
 docker buildx build \
   --platform linux/amd64,linux/arm64,linux/riscv64 \
-  -f docker/Dockerfile -t keel:0.8.0 .
+  -f docker/Dockerfile -t keel:0.1.0 .
 ```
 
 The image downloads the keel release APK from GitHub. To use a local mirror
@@ -22,10 +22,10 @@ The image downloads the keel release APK from GitHub. To use a local mirror
 
 ```bash
 docker build -f docker/Dockerfile \
-  --build-arg KEEL_VERSION=0.8.0 \
-  --build-arg KEEL_APK_URL=http://mirror.example/keel-0.8.0-r0.x86_64.apk \
-  --build-arg KEEL_UTILS_URL=http://mirror.example/keel-utils-0.8.0-r0.x86_64.apk \
-  -t keel:0.8.0 .
+  --build-arg KEEL_VERSION=0.1.0 \
+  --build-arg KEEL_APK_URL=http://mirror.example/keel-0.1.0-r0.x86_64.apk \
+  --build-arg KEEL_UTILS_URL=http://mirror.example/keel-utils-0.1.0-r0.x86_64.apk \
+  -t keel:0.1.0 .
 ```
 
 Behind an HTTP proxy:
@@ -34,14 +34,14 @@ Behind an HTTP proxy:
 docker build --network host \
   --build-arg http_proxy=http://proxy:3128 \
   --build-arg https_proxy=http://proxy:3128 \
-  -f docker/Dockerfile -t keel:0.8.0 .
+  -f docker/Dockerfile -t keel:0.1.0 .
 ```
 
 ## Run
 
 ```bash
-docker run --rm -it keel:0.8.0 sh
-docker run --rm keel:0.8.0 /bin/echo hello
+docker run --rm -it keel:0.1.0 sh
+docker run --rm keel:0.1.0 /bin/echo hello
 ```
 
 At runtime, `LD_LIBRARY_PATH=/usr/lib/keel` is set so DSOs that record
