@@ -59,8 +59,8 @@ and the reproduction scripts rather than the absolute values.
 | `stat` | 1463 ns | 1456 ns | 1.00x |
 | `getenv` | 88.6 ns | 37.0 ns | 0.42x |
 | `pthread_mutex` lock/unlock | 12.3 ns | 6.5 ns | 0.52x |
-| `pthread_create`+`join` | 54.8 µs | 62.5 µs | 1.14x |
-| Process startup | 538 µs | 629 µs | 1.17x |
+| `pthread_create`+`join` | 56.1 µs | 63.5 µs | 1.13x |
+| Process startup | 552 µs | 671 µs | 1.22x |
 
 Geometric mean over the 30 benchmarks: **0.53x musl's runtime**.
 
@@ -167,12 +167,17 @@ thread pointer before jumping to a static target.
 
 ## Remaining gaps
 
-- **Process startup, 1.17x.** musl's dynamic linker *is* its libc, so one
-  file is mapped by the kernel. keel maps `libldso.so` and then loads and
-  relocates a separate `libc.so`.
+- **Process startup, 1.22x.** musl's dynamic linker *is* its libc, so one
+  file is mapped by the kernel. keel maps `libldso.so`, then opens, maps and
+  relocates a separate `libc.so`; it also performs more small startup
+  `mmap`s.  The initial thread is now registered directly in thread slot 0
+  instead of scanning the 1024-slot static table (that scan alone cost about
+  1 MiB of page faults per process).  `libc.so` is linked `-Bsymbolic` like
+  musl, with the weak loader hooks kept preemptible through a dynamic list;
+  this removes most startup `R_*_GLOB_DAT` lookups.
 - **`pow`, 1.10x.** The port keeps exact `x^1` / `x^-1` identities (see
   `AGENTS.md`).
-- **`pthread_create`+`join`, 1.14x.** The thread stack and TLS mappings
+- **`pthread_create`+`join`, 1.13x.** The thread stack and TLS mappings
   dominate this microbenchmark; the host is shared and the ratio moves
   between sessions.
 

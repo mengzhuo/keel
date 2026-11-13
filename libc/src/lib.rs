@@ -2963,8 +2963,10 @@ unsafe fn release_thread_slot(slot: *const Thread) {
 unsafe fn alloc_thread_slot() -> Option<&'static mut Thread> {
     spinlock_lock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
     if !THREAD_TABLE_READY {
+        // Slot 0 is reserved for the process's initial thread.  Registering
+        // it must not require touching the rest of the table.
         let mut i = THREAD_CHUNK;
-        while i > 0 {
+        while i > 1 {
             i -= 1;
             let slot = &mut THREADS[i];
             slot.free_next = FREE_THREADS;
@@ -3016,9 +3018,6 @@ unsafe fn alloc_thread_slot() -> Option<&'static mut Thread> {
 unsafe fn thread_allocator_after_fork() {
     a_store(&raw mut THREAD_LOCK, 0);
     a_store(&raw mut THREAD_WAITERS, 0);
-    if !THREAD_TABLE_READY {
-        return;
-    }
     let tp = tcb_slot(THREAD_TCB_OFFSET);
     let current = if tp.is_null() {
         core::ptr::null_mut()
@@ -3026,6 +3025,16 @@ unsafe fn thread_allocator_after_fork() {
         core::ptr::read_unaligned(tp) as *mut Thread
     };
     let child_tid = sys_gettid() as c_int;
+    if !THREAD_TABLE_READY {
+        // The initial thread is registered directly in slot 0, so the free
+        // list may never have been built.  Only update that one slot; the
+        // first pthread_create() will build the free list.
+        if !current.is_null() {
+            (*current).tid = child_tid;
+            ACTIVE_THREADS.store(1, Ordering::Release);
+        }
+        return;
+    }
     let count = thread_slot_count();
     let mut free = core::ptr::null_mut();
     let mut active = 0usize;
@@ -3094,10 +3103,7 @@ unsafe extern "C" fn thread_entry(slot: *mut c_void) -> *mut c_void {
     sys_exit_thread(0)
 }
 
-unsafe fn register_current_thread() -> Option<&'static mut Thread> {
-    let me = sys_gettid() as c_int;
-    let slot_ref = alloc_thread_slot()?;
-    let slot = slot_ref as *mut Thread;
+unsafe fn init_thread_slot(slot: *mut Thread, me: c_int) {
     (*slot).tid = me;
     (*slot).detach_state = DT_JOINABLE;
     (*slot).result = core::ptr::null_mut();
@@ -3109,6 +3115,32 @@ unsafe fn register_current_thread() -> Option<&'static mut Thread> {
     (*slot).robust_list.list.next = core::ptr::null_mut();
     (*slot).robust_list.futex_offset = 0;
     (*slot).robust_list.pending = core::ptr::null_mut();
+    (*slot).free_next = core::ptr::null_mut();
+}
+
+unsafe fn register_main_thread() -> Option<&'static mut Thread> {
+    let me = sys_gettid() as c_int;
+    let tp = tcb_slot(THREAD_TCB_OFFSET);
+    if !tp.is_null() {
+        let p = core::ptr::read_unaligned(tp) as *mut Thread;
+        if !p.is_null() && (*p).tid == me {
+            return Some(&mut *p);
+        }
+    }
+    let slot = core::ptr::addr_of_mut!(THREADS[0]);
+    init_thread_slot(slot, me);
+    if !tp.is_null() {
+        core::ptr::write_unaligned(tp, slot as usize);
+    }
+    ACTIVE_THREADS.fetch_add(1, Ordering::AcqRel);
+    Some(&mut *slot)
+}
+
+unsafe fn register_current_thread() -> Option<&'static mut Thread> {
+    let me = sys_gettid() as c_int;
+    let slot_ref = alloc_thread_slot()?;
+    let slot = slot_ref as *mut Thread;
+    init_thread_slot(slot, me);
     let tp = tcb_slot(THREAD_TCB_OFFSET);
     if !tp.is_null() {
         core::ptr::write_unaligned(tp, slot as usize);
@@ -3125,6 +3157,13 @@ unsafe fn find_thread() -> Option<&'static mut Thread> {
         if !p.is_null() && (*p).tid == me {
             return Some(&mut *p);
         }
+    }
+    let main = core::ptr::addr_of_mut!(THREADS[0]);
+    if (*main).tid == me {
+        if !tp.is_null() {
+            core::ptr::write_unaligned(tp, main as usize);
+        }
+        return Some(&mut *main);
     }
     let count = thread_slot_count();
     let mut i = 0usize;
@@ -15058,8 +15097,10 @@ pub unsafe extern "C" fn __libc_start_main(
     // Register the main thread during startup.  pthread_exit() uses the
     // thread table to decide whether it is the last thread; if the main
     // thread only registered lazily, a worker exiting first could call
-    // exit() while the main thread was still alive.
-    pthread_self();
+    // exit() while the main thread was still alive.  Register slot 0
+    // directly: pthread_self() would otherwise scan the whole static thread
+    // table and fault in roughly 1 MiB on every process start.
+    register_main_thread();
 
     __environ = envp as *mut *mut c_char;
     environ = __environ; // sync environ alias
