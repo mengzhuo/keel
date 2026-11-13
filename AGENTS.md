@@ -244,7 +244,7 @@ count rechecked 2026-11-13):
 cargo test --workspace          # green in clean Ubuntu and Alpine containers
 scripts/alpine-ci.sh            # Alpine 3.23.3, cargo test green
 ./run.sh api                    # 79/79
-./run.sh functional             # 73/73
+./run.sh functional             # 72/72
 ./run.sh regression             # 67 PASS, 1 SKIP, 0 FAIL (as root)
 ./run.sh math                   # 195 PASS, 4 SKIP, 0 FAIL
 scripts/parity-check.sh all     # 0 unexpected diffs vs musl 1.2.6

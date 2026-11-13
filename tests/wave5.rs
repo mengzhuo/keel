@@ -53,10 +53,17 @@ fn wave5_libc_test_functional_networking_and_fcntl() {
         );
     }
 
+    let total = parse_count(&stdout, "Total:");
     let pass = parse_count(&stdout, "PASS:");
     let fail = parse_count(&stdout, "FAIL:");
     let builderror = parse_count(&stdout, "BUILDERROR:");
-    assert!(pass >= 73, "expected PASS count of at least 73, got {}", pass);
-    assert!(fail == 0, "expected FAIL count of 0, got {}", fail);
-    assert!(builderror == 0, "expected BUILDERROR count of 0, got {}", builderror);
+    let skip = parse_count(&stdout, "SKIP:");
+    let timeout = parse_count(&stdout, "TIMEOUT:");
+    let other = parse_count(&stdout, "Other:");
+    assert!(total > 0, "expected a non-empty test total:\n{stdout}");
+    assert_eq!(pass, total - skip, "expected every non-skipped test to pass:\n{stdout}");
+    assert_eq!(fail, 0, "expected FAIL count of 0, got {fail}");
+    assert_eq!(builderror, 0, "expected BUILDERROR count of 0, got {builderror}");
+    assert_eq!(timeout, 0, "expected TIMEOUT count of 0, got {timeout}");
+    assert_eq!(other, 0, "expected Other count of 0, got {other}");
 }

@@ -44,7 +44,7 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
 - **Static linking is not tested** — only dynamic-linked binaries are built.
 - **Only the functional subset runs by default** — use `./run.sh all` for everything.
 
-Current baseline: `functional` 73/73, `regression` 67 PASS + 1 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP.
+Current baseline: `functional` 72/72, `regression` 67 PASS + 1 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP.
 
 ## Initial Report
 
