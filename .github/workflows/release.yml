@@ -81,7 +81,7 @@ jobs:
     needs: [test, macro-parity]
     runs-on: ubuntu-latest
     # Must match the "Environment" field of the trusted publisher configured
-    # on crates.io for keel, keel-libc and keel-ldso.
+    # on crates.io for keel-rt, keel-libc, keel-ldso and keel-utils.
     environment: release
     steps:
       - uses: actions/checkout@v7
@@ -225,6 +225,21 @@ jobs:
           case "$code" in
             200) echo "keel $version is already published; skipping" ;;
             404) cargo publish -p keel-rt --registry crates-io ;;
+            *) echo "::error::unexpected crates.io status $code"; exit 1 ;;
+          esac
+
+      - name: Publish keel-utils
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -A 'keel-release (+https://github.com/mengzhuo/keel)' \
+            "https://crates.io/api/v1/crates/keel-utils/$version")
+          case "$code" in
+            200) echo "keel-utils $version is already published; skipping" ;;
+            404) cargo publish -p keel-utils --registry crates-io ;;
             *) echo "::error::unexpected crates.io status $code"; exit 1 ;;
           esac
 
