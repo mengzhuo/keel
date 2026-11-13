@@ -6,22 +6,22 @@
 # A minimal Alpine image whose system libc and ELF interpreter are keel.
 #
 # Build (single arch):
-#   docker build -f docker/Dockerfile -t keel:0.1.0 .
+#   docker build -f docker/Dockerfile -t keel:0.1.1 .
 #
 # Multi-arch:
 #   docker buildx build --platform linux/amd64,linux/arm64,linux/riscv64 \
-#     -f docker/Dockerfile -t keel:0.1.0 .
+#     -f docker/Dockerfile -t keel:0.1.1 .
 #
 # The keel release APK is downloaded from GitHub. To use a local/mirrored
 # package, pass KEEL_APK_URL with any URL reachable from the build container:
-#   --build-arg KEEL_APK_URL=https://internal.example/keel-0.1.0-r0.x86_64.apk
+#   --build-arg KEEL_APK_URL=https://internal.example/keel-0.1.1-r0.x86_64.apk
 
 ARG ALPINE_VERSION=3.23
 ARG ALPINE_IMAGE=alpine
 FROM ${ALPINE_IMAGE}:${ALPINE_VERSION}
 
 ARG TARGETARCH
-ARG KEEL_VERSION=0.1.0
+ARG KEEL_VERSION=0.1.1
 ARG KEEL_APK_URL=
 ARG KEEL_UTILS_URL=
 # Optional build-time proxy settings (also accepted by BuildKit by name).
