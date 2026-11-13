@@ -5,6 +5,15 @@ interpreter are **keel** instead of musl. It is meant for testing and for
 running musl-linked images against keel, not for replacing the package
 manager's libc in production.
 
+## Published image
+
+```bash
+docker pull mengzhuo/keel-alpine:0.1.0
+docker run --rm -it mengzhuo/keel-alpine:0.1.0 sh
+```
+
+The tag is a multi-arch manifest for `amd64`, `arm64` and `riscv64`.
+
 ## Build
 
 ```bash
