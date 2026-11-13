@@ -1,4 +1,4 @@
-# crabc-ldso
+# keel-ldso
 
 A `no_std` Rust dynamic linker (`ldso`) for musl-linked ELF binaries. Produces `libldso.so` which can be used as `--dynamic-linker` to run musl-linked executables.
 
@@ -6,14 +6,14 @@ A `no_std` Rust dynamic linker (`ldso`) for musl-linked ELF binaries. Produces `
 
 Build with:
 ```bash
-cargo build -p crabc-ldso
+cargo build -p keel-ldso
 ```
 
 Output is in `target/debug/libldso.so`.
 
 Run a musl-linked binary:
 ```bash
-LD_LIBRARY_PATH=target/debug ./target/debug/loader my_binary
+LD_LIBRARY_PATH=target/debug ./target/debug/keel my_binary
 ```
 
 Or directly:

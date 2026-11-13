@@ -24,7 +24,7 @@ fn loader_runs_tiny_pie() {
         .expect("failed to run musl-gcc");
     assert!(status.success(), "musl-gcc compilation failed");
 
-    let loader_bin = env!("CARGO_BIN_EXE_loader");
+    let loader_bin = env!("CARGO_BIN_EXE_keel");
     let output = Command::new(loader_bin)
         .arg(&tiny_bin)
         .output()

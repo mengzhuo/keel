@@ -2,10 +2,10 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Build the crabc-utils multicall binary for each release architecture.
+# Build the keel-utils multicall binary for each release architecture.
 #
-# crabc-utils is a normal Rust program built for the musl target.  It is
-# statically linked so the tools work on any Alpine/crabc system without a
+# keel-utils is a normal Rust program built for the musl target.  It is
+# statically linked so the tools work on any Alpine/keel system without a
 # libgcc or interpreter dependency.  The commands themselves are Rust
 # implementations; no musl-utils C code is used.
 set -euo pipefail
@@ -15,7 +15,7 @@ DIST="${DIST:-$ROOT/dist}"
 
 build() {
     local arch="$1" target="$2" linker="$3"
-    echo "building crabc-utils for $arch"
+    echo "building keel-utils for $arch"
     local envname="CARGO_TARGET_$(echo "$target" | tr 'a-z-' 'A-Z_')_LINKER"
     local rustflags="-C target-feature=+crt-static"
     if [ "$arch" = riscv64 ]; then
@@ -30,12 +30,12 @@ build() {
         rustflags="$rustflags -C link-self-contained=yes -C linker=$lld"
     fi
     env RUSTFLAGS="$rustflags" "$envname=$linker" \
-        cargo build --release -p crabc-utils --target "$target"
+        cargo build --release -p keel-utils --target "$target"
 
     local out="$DIST/utils/$arch"
     mkdir -p "$out"
-    cp "target/$target/release/crabc-utils" "$out/crabc-utils"
-    echo "built $out/crabc-utils"
+    cp "target/$target/release/keel-utils" "$out/keel-utils"
+    echo "built $out/keel-utils"
 }
 
 build x86_64 x86_64-unknown-linux-musl musl-gcc

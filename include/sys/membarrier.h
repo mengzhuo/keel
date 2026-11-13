@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_MEMBARRIER_H
-#define _CRABC_SYS_MEMBARRIER_H
+#ifndef _KEEL_SYS_MEMBARRIER_H
+#define _KEEL_SYS_MEMBARRIER_H
 #include <unistd.h>
 int membarrier(int, int, int);
 #define MEMBARRIER_CMD_QUERY 0

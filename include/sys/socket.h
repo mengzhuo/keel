@@ -12,8 +12,8 @@ extern "C" {
 #include <stddef.h>
 #include <sys/types.h>
 
-#ifndef __crabc_struct_iovec_defined
-#define __crabc_struct_iovec_defined
+#ifndef __keel_struct_iovec_defined
+#define __keel_struct_iovec_defined
 struct iovec {
     void *iov_base;
     size_t iov_len;

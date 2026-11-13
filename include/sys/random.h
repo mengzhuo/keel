@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_RANDOM_H
-#define _CRABC_SYS_RANDOM_H
+#ifndef _KEEL_SYS_RANDOM_H
+#define _KEEL_SYS_RANDOM_H
 #include <stddef.h>
 ssize_t getrandom(void *, size_t, unsigned);
 #define GRND_NONBLOCK 1

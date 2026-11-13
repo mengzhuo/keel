@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Cross-build and smoke-test crabc for riscv64 under qemu-user.
+# Cross-build and smoke-test keel for riscv64 under qemu-user.
 #
 # Requirements:
 #   rustup target add riscv64gc-unknown-linux-musl
@@ -35,11 +35,11 @@ else
     QEMU_BIN=qemu-riscv64
 fi
 GCCINC="$("$CC_BIN" -print-file-name=include)"
-TMP="$(mktemp -d /tmp/crabc-riscv-smoke.XXXXXX)"
+TMP="$(mktemp -d /tmp/keel-riscv-smoke.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-if [ ! -f "$T/libc.so" ] || [ ! -f "$T/libldso.so" ] || [ ! -x "$T/loader" ]; then
-    echo ">>> cross-building crabc for $TARGET_NAME"
+if [ ! -f "$T/libc.so" ] || [ ! -f "$T/libldso.so" ] || [ ! -x "$T/keel" ]; then
+    echo ">>> cross-building keel for $TARGET_NAME"
     (cd "$ROOT" && CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$CC_BIN" \
         cargo build --workspace --target "$TARGET_NAME") || exit 1
 fi
@@ -92,9 +92,9 @@ done
 # Static PIE through the userspace loader.
 "$CC_BIN" -fPIE -pie -nostdlib -nostartfiles "$ROOT/tests/fixtures/tiny.c" -o "$TMP/tiny"
 if [ -n "$QEMU_BIN" ]; then
-    LOADER_OUT="$("$QEMU_BIN" -L /usr/riscv64-linux-gnu "$T/loader" "$TMP/tiny" 2>/dev/null)"
+    LOADER_OUT="$("$QEMU_BIN" -L /usr/riscv64-linux-gnu "$T/keel" "$TMP/tiny" 2>/dev/null)"
 else
-    LOADER_OUT="$("$T/loader" "$TMP/tiny" 2>/dev/null)"
+    LOADER_OUT="$("$T/keel" "$TMP/tiny" 2>/dev/null)"
 fi
 if [ "$LOADER_OUT" = Hello ]; then
     echo "PASS tiny-loader"

@@ -6,21 +6,21 @@
 # artifacts.
 #
 # The package split mirrors Alpine's musl packages:
-#   crabc         runtime libc + loader + crabc-loader
-#   crabc-dev     headers, libc.a, CRT objects, linker stubs
-#   crabc-utils   getconf/getent/iconv/ldd/ldconfig (Rust multicall binary)
+#   keel         runtime libc + loader + keel-loader
+#   keel-dev     headers, libc.a, CRT objects, linker stubs
+#   keel-utils   getconf/getent/iconv/ldd/ldconfig (Rust multicall binary)
 #
-# Usage: VERSION=0.7.8 scripts/package-apk.sh
+# Usage: VERSION=0.8.0 scripts/package-apk.sh
 #        CONTAINER_RUNTIME=podman scripts/package-apk.sh
 #
 # Expects the release artifacts produced by:
-#   cargo build --release -p crabc-libc -p crabc-ldso --target x86_64-unknown-linux-gnu
+#   cargo build --release -p keel-libc -p keel-ldso --target x86_64-unknown-linux-gnu
 #   CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
-#     cargo build --release -p crabc --target x86_64-unknown-linux-musl
+#     cargo build --release -p keel-rt --target x86_64-unknown-linux-musl
 #   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-#     cargo build --release -p crabc-libc -p crabc-ldso --target aarch64-unknown-linux-gnu
+#     cargo build --release -p keel-libc -p keel-ldso --target aarch64-unknown-linux-gnu
 #   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
-#     cargo build --release -p crabc --target aarch64-unknown-linux-musl
+#     cargo build --release -p keel-rt --target aarch64-unknown-linux-musl
 #   CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER=riscv64-linux-gnu-gcc \
 #     cargo build --release --workspace --target riscv64gc-unknown-linux-musl
 #   scripts/build-crt.sh
@@ -70,9 +70,9 @@ mkpkg() {
                 -I "description:$DESC" \
                 -I "arch:$ARCH" \
                 -I "license:BSD-3-Clause" \
-                -I "origin:crabc" \
+                -I "origin:keel" \
                 -I "maintainer:Meng Zhuo <mengzhuo@iscas.ac.cn>" \
-                -I "url:https://github.com/mengzhuo/crabc" \
+                -I "url:https://github.com/mengzhuo/keel" \
                 -I "build-time:$(date +%s)"
             [ -z "$DEPENDS" ] || set -- "$@" -I "depends:$DEPENDS"
             [ -z "$PROVIDES" ] || set -- "$@" -I "provides:$PROVIDES"
@@ -90,20 +90,20 @@ package_runtime() {
     local arch="$1" libc="$2" ldso="$3" loader="$4"
     local dir
     dir="$(mktemp -d)"
-    install -d "$dir/usr/lib/crabc" "$dir/usr/bin" "$dir/usr/share/doc/crabc" "$dir/lib"
-    install -m 755 "$ROOT/$libc" "$dir/usr/lib/crabc/libc.so"
-    install -m 755 "$ROOT/$ldso" "$dir/usr/lib/crabc/libldso.so"
+    install -d "$dir/usr/lib/keel" "$dir/usr/bin" "$dir/usr/share/doc/keel" "$dir/lib"
+    install -m 755 "$ROOT/$libc" "$dir/usr/lib/keel/libc.so"
+    install -m 755 "$ROOT/$ldso" "$dir/usr/lib/keel/libldso.so"
     # The runtime package is a drop-in for Alpine's musl package.  These are
     # symlinks rather than copies so a single libc/loader serves both layouts.
-    ln -s /usr/lib/crabc/libc.so "$dir/lib/libc.musl-${arch}.so.1"
-    ln -s /usr/lib/crabc/libldso.so "$dir/lib/ld-musl-${arch}.so.1"
+    ln -s /usr/lib/keel/libc.so "$dir/lib/libc.musl-${arch}.so.1"
+    ln -s /usr/lib/keel/libldso.so "$dir/lib/ld-musl-${arch}.so.1"
     # libgcc_s.so.1 (and other third-party DSOs) records the musl SONAME.
-    # Keep a local alias so crabc-utils can resolve it through DT_RPATH
-    # without installing crabc as the system libc.
-    ln -s libc.so "$dir/usr/lib/crabc/libc.musl-${arch}.so.1"
-    install -m 755 "$ROOT/$loader" "$dir/usr/bin/crabc-loader"
-    install -m 644 "$ROOT/README.md" "$dir/usr/share/doc/crabc/README.md"
-    mkpkg crabc "$arch" "$dir" \
+    # Keep a local alias so keel-utils can resolve it through DT_RPATH
+    # without installing keel as the system libc.
+    ln -s libc.so "$dir/usr/lib/keel/libc.musl-${arch}.so.1"
+    install -m 755 "$ROOT/$loader" "$dir/usr/bin/keel-loader"
+    install -m 644 "$ROOT/README.md" "$dir/usr/share/doc/keel/README.md"
+    mkpkg keel "$arch" "$dir" \
         "A Rust no_std musl-compatible libc with a dynamic linker" \
         "" "musl=1.2.6-r0 so:libc.musl-${arch}.so.1=1.2.6-r0" "musl"
     rm -rf "$dir"
@@ -130,10 +130,10 @@ package_dev() {
         printf '!<arch>\n' > "$dir/usr/lib/$lib.a"
     done
 
-    ln -s /usr/lib/crabc/libc.so "$dir/usr/lib/libc.so"
-    mkpkg crabc-dev "$arch" "$dir" \
-        "Development files for crabc (headers, libc.a and Rust-built CRT)" \
-        "crabc=$PKGVER" "libc-dev=1.2.6-r0 musl-dev=1.2.6-r0" "musl-dev"
+    ln -s /usr/lib/keel/libc.so "$dir/usr/lib/libc.so"
+    mkpkg keel-dev "$arch" "$dir" \
+        "Development files for keel (headers, libc.a and Rust-built CRT)" \
+        "keel=$PKGVER" "libc-dev=1.2.6-r0 musl-dev=1.2.6-r0" "musl-dev"
     rm -rf "$dir"
 }
 
@@ -142,17 +142,17 @@ package_utils() {
     local dir
     dir="$(mktemp -d)"
     install -d "$dir/usr/bin" "$dir/sbin"
-    install -m 755 "$DIST/utils/$arch/crabc-utils" "$dir/usr/bin/crabc-utils"
+    install -m 755 "$DIST/utils/$arch/keel-utils" "$dir/usr/bin/keel-utils"
     for cmd in getconf getent iconv ldd; do
-        ln -s crabc-utils "$dir/usr/bin/$cmd"
+        ln -s keel-utils "$dir/usr/bin/$cmd"
     done
-    ln -s ../usr/bin/crabc-utils "$dir/sbin/ldconfig"
+    ln -s ../usr/bin/keel-utils "$dir/sbin/ldconfig"
     # This is the musl-utils replacement.  Alpine's solver treats
     # libc-utils/cmd:* as exclusive with musl-utils, so an existing
     # musl-utils must be removed first (the Dockerfile does this).
-    mkpkg crabc-utils "$arch" "$dir" \
-        "Rust implementations of musl-utils commands for crabc" \
-        "crabc=$PKGVER" \
+    mkpkg keel-utils "$arch" "$dir" \
+        "Rust implementations of musl-utils commands for keel" \
+        "keel=$PKGVER" \
         "libc-utils=1.2.6-r0 musl-utils=1.2.6-r0 cmd:getconf=1.2.6-r0 cmd:getent=1.2.6-r0 cmd:iconv=1.2.6-r0 cmd:ldd=1.2.6-r0 cmd:ldconfig=1.2.6-r0" \
         "musl-utils"
     rm -rf "$dir"
@@ -163,7 +163,7 @@ package_utils() {
 package_runtime x86_64 \
     target/x86_64-unknown-linux-gnu/release/libc.so \
     target/x86_64-unknown-linux-gnu/release/libldso.so \
-    target/x86_64-unknown-linux-musl/release/loader
+    target/x86_64-unknown-linux-musl/release/keel
 package_dev x86_64 target/x86_64-unknown-linux-gnu/release/libc.a
 package_utils x86_64
 
@@ -173,7 +173,7 @@ package_utils x86_64
 package_runtime aarch64 \
     target/aarch64-unknown-linux-gnu/release/libc.so \
     target/aarch64-unknown-linux-gnu/release/libldso.so \
-    target/aarch64-unknown-linux-musl/release/loader
+    target/aarch64-unknown-linux-musl/release/keel
 package_dev aarch64 target/aarch64-unknown-linux-gnu/release/libc.a
 package_utils aarch64
 
@@ -181,7 +181,7 @@ package_utils aarch64
 package_runtime riscv64 \
     target/riscv64gc-unknown-linux-musl/release/libc.so \
     target/riscv64gc-unknown-linux-musl/release/libldso.so \
-    target/riscv64gc-unknown-linux-musl/release/loader
+    target/riscv64gc-unknown-linux-musl/release/keel
 package_dev riscv64 target/riscv64gc-unknown-linux-musl/release/libc.a
 package_utils riscv64
 

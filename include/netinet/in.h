@@ -15,8 +15,8 @@ extern "C" {
 typedef uint16_t in_port_t;
 typedef uint32_t in_addr_t;
 
-#ifndef __crabc_in_addr_struct
-#define __crabc_in_addr_struct
+#ifndef __keel_in_addr_struct
+#define __keel_in_addr_struct
 struct in_addr { in_addr_t s_addr; };
 #endif
 

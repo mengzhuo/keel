@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_XATTR_H
-#define _CRABC_SYS_XATTR_H
+#ifndef _KEEL_SYS_XATTR_H
+#define _KEEL_SYS_XATTR_H
 #include <stddef.h>
 ssize_t getxattr(const char *, const char *, void *, size_t);
 ssize_t lgetxattr(const char *, const char *, void *, size_t);

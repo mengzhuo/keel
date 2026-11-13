@@ -11,7 +11,7 @@
 
 int main(void) {
     char path[64];
-    snprintf(path, sizeof path, "/tmp/crabc-group-%d", (int)getpid());
+    snprintf(path, sizeof path, "/tmp/keel-group-%d", (int)getpid());
     FILE *out = fopen(path, "w");
     if (!out) return 1;
     fputs("biggroup:x:1234:", out);

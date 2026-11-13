@@ -13,24 +13,24 @@ extern "C" {
 
 #undef iswdigit
 
-#ifndef __crabc_wint_t_defined
-#define __crabc_wint_t_defined
+#ifndef __keel_wint_t_defined
+#define __keel_wint_t_defined
 #ifndef __DEFINED_wint_t
 #define __DEFINED_wint_t
 typedef unsigned int wint_t;
 #endif
 #endif
 
-#ifndef __crabc_wctype_t_defined
-#define __crabc_wctype_t_defined
+#ifndef __keel_wctype_t_defined
+#define __keel_wctype_t_defined
 #ifndef __DEFINED_wctype_t
 #define __DEFINED_wctype_t
 typedef const int *wctype_t;
 #endif
 #endif
 
-#ifndef __crabc_wctrans_t_defined
-#define __crabc_wctrans_t_defined
+#ifndef __keel_wctrans_t_defined
+#define __keel_wctrans_t_defined
 typedef const int *wctrans_t;
 #endif
 

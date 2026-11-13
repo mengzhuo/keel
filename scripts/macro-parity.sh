@@ -2,23 +2,23 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Check that every macro crabc and musl both define expands to the same token
+# Check that every macro keel and musl both define expands to the same token
 # sequence on x86_64, aarch64 and riscv64.
 #
 # musl headers are generated from a pinned musl 1.2.6 tarball.  They are cached
-# under $XDG_CACHE_HOME/crabc by default; set CRABC_MUSL_CACHE to override the
-# cache location, or CRABC_MUSL_INC_ROOT to use pre-generated headers:
+# under $XDG_CACHE_HOME/keel by default; set KEEL_MUSL_CACHE to override the
+# cache location, or KEEL_MUSL_INC_ROOT to use pre-generated headers:
 #
-#   CRABC_MUSL_INC_ROOT=/path/to/musl-headers scripts/macro-parity.sh
+#   KEEL_MUSL_INC_ROOT=/path/to/musl-headers scripts/macro-parity.sh
 #
-# The directory layout for CRABC_MUSL_INC_ROOT is <arch>/include/bits/alltypes.h.
+# The directory layout for KEEL_MUSL_INC_ROOT is <arch>/include/bits/alltypes.h.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MUSL_VERSION=1.2.6
 MUSL_URL="https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz"
 MUSL_SHA256=d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a
-CACHE="${CRABC_MUSL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/crabc}"
+CACHE="${KEEL_MUSL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/keel}"
 
 declare -A TARGET=(
     [x86_64]=x86_64-linux-musl
@@ -36,8 +36,8 @@ declare -A CXX=(
     [riscv64]=riscv64-linux-gnu-g++
 )
 
-if [ -n "${CRABC_MUSL_INC_ROOT:-}" ]; then
-    INC_ROOT="$CRABC_MUSL_INC_ROOT"
+if [ -n "${KEEL_MUSL_INC_ROOT:-}" ]; then
+    INC_ROOT="$KEEL_MUSL_INC_ROOT"
 else
     INC_ROOT="$CACHE/musl-${MUSL_VERSION}-headers"
     if [ ! -f "$INC_ROOT/x86_64/include/bits/alltypes.h" ]; then
@@ -78,7 +78,7 @@ for arch in x86_64 aarch64 riscv64; do
             --arch "$arch" \
             --language "$language" \
             --musl "$INC_ROOT/$arch/include" \
-            --crabc "$ROOT/include" \
+            --keel "$ROOT/include" \
             --cc "$compiler" \
             --allowlist "$ROOT/tests/macro-parity.allowlist"
     done

@@ -36,7 +36,7 @@ int main() {
     CHECK("$2y$04$abcdefghijklmnopqrstuubUAnPDiHn0JtKfNM4q6HN1ZsdaC1D8i", "$2y$04$abcdefghijklmnopqrstuv", "\xff\xff\xff\xa3\x33\x01\x40")
 
     /* Blowfish long keys: musl feeds them cyclically, so a key past the
-       128-byte buffer crabc used to have must still produce a hash. */
+       128-byte buffer keel used to have must still produce a hash. */
     {
         static char longpw[301];
         memset(longpw, 'A', 300);

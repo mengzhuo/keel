@@ -1,6 +1,6 @@
 # curl
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
@@ -34,14 +34,14 @@ https_proxy=http://10.0.0.1:8123 http_proxy=http://10.0.0.1:8123 \
   curl -sS -o /dev/null -w 'https_code=%{http_code}\n' https://example.com/
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 curl 8.23.0 (x86_64-alpine-linux-musl) libcurl/8.23.0 OpenSSL/3.5.9 \
 zlib/1.3.2 brotli/1.2.1 zstd/1.5.7 c-ares/1.34.9 libidn2/2.3.8 \
 libpsl/0.21.5 nghttp2/1.69.0
 root:x:0:0:root:/root:/bin/sh
-hello from crabc workload test
+hello from keel workload test
 http_code=200
 https_code=200
 CURL_OK
@@ -56,9 +56,9 @@ and exits 0. The HTTPS code is `200` in both runs.
 
 ## Notes
 
-- This workload is what forced crabc's loader to load transitive `DT_NEEDED`
+- This workload is what forced keel's loader to load transitive `DT_NEEDED`
   dependencies and to run constructors in dependency order. Both behaviours
   are now part of the loader.
-- OpenSSL's RNG initially failed because crabc's `getentropy` did not set
+- OpenSSL's RNG initially failed because keel's `getentropy` did not set
   `errno` correctly; that was fixed and is covered by this test.
 - Client certificates, HTTP/3 and proxy authentication were not exercised.

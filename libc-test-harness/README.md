@@ -1,10 +1,10 @@
 # libc-test Integration Harness
 
-Builds and runs the [libc-test](https://git.musl-libc.org/cgit/libc-test) suite against crabc's libc.so to produce a categorized failure report.
+Builds and runs the [libc-test](https://git.musl-libc.org/cgit/libc-test) suite against keel's libc.so to produce a categorized failure report.
 
 ## How It Works
 
-1. Builds `crabc/libc` into `target/debug/libc.so` (via `cargo build --workspace`).
+1. Builds `keel/libc` into `target/debug/libc.so` (via `cargo build --workspace`).
 2. Creates a `fake-libs/` directory with symlinks so the linker resolves `-lc`, `-lpthread`, `-lm`, etc. against our libc.so instead of musl's.
 3. Builds libc-test's `runtest.exe` and `libtest.a` as host tools (linked against musl).
 4. Compiles and links each test binary with `musl-gcc -L fake-libs/`, then runs it via `LD_LIBRARY_PATH=fake-libs/`.
@@ -25,13 +25,13 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
 ## Requirements
 
 - musl-gcc (`apt install musl-tools`)
-- Rust nightly toolchain (for building crabc)
+- Rust nightly toolchain (for building keel)
 - libc-test source at `/home/root/libc-test` (override with `LIBC_TEST_DIR` env var)
 
 ## Known Limitations
 
 - **Run subsets sequentially** — `build/`, `fake-libs/`, and `reports/` are shared, so concurrent runs race.
-- **Long-double math tests:** `acoshl`, `asinhl`, `lgammal`, and `tgammal` are skipped because upstream uses 80-bit vectors while crabc's x86_64 `long double` ABI is 64-bit.
+- **Long-double math tests:** `acoshl`, `asinhl`, `lgammal`, and `tgammal` are skipped because upstream uses 80-bit vectors while keel's x86_64 `long double` ABI is 64-bit.
 - **`dlopen` follows musl semantics.** `dlopen`, `dlsym`, `dlerror`,
   `dladdr`, `dl_iterate_phdr`, `RTLD_LOCAL`/`GLOBAL` (including the dependency
   closure), `RTLD_NOLOAD`, `RTLD_NODELETE`, `RTLD_NEXT`, `dlopen(NULL)`,

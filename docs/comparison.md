@@ -1,6 +1,6 @@
 # Related projects
 
-crabc is an independent implementation of the musl C library ABI and dynamic
+keel is an independent implementation of the musl C library ABI and dynamic
 linker. This page records how it relates to other libc and dynamic-linker
 projects. It is a snapshot, not a scorecard: activity and scope change, and a
 project being listed here does not imply that it is complete or production
@@ -8,16 +8,16 @@ ready.
 
 Last checked: 2026-11-09.
 
-## What crabc is
+## What keel is
 
 - An independent implementation of the musl 1.2.6 ABI, not a fork of musl.
 - `libc.so`, `libc.a`, and `libldso.so` for x86\_64, aarch64, and riscv64.
 - `no_std`; `unsafe` is confined to the syscall and pointer boundary.
 - Validated with musl's own libc-test, LTP, a differential harness against
   musl 1.2.6, and nine real Alpine workloads.
-- Experimental (`0.7.x`), not a production-ready drop-in replacement.
+- Experimental (`0.8.x`), not a production-ready drop-in replacement.
 
-## What crabc is not
+## What keel is not
 
 - It is not the first C library written in Rust. relibc, eyra, and anp/rusl
   came earlier.
@@ -32,7 +32,7 @@ Last checked: 2026-11-09.
 
 | Project | Status | Scope | Notes |
 |---|---|---|---|
-| **crabc** | active, `0.7.x` | musl 1.2.6; x86\_64, aarch64, riscv64; `libldso.so` | 9/9 Alpine workloads, shared LTP suites have identical failure lists, libc-test 414 PASS + 5 SKIP, full public macro surface checked |
+| **keel** | active, `0.8.x` | musl 1.2.6; x86\_64, aarch64, riscv64; `libldso.so` | 9/9 Alpine workloads, shared LTP suites have identical failure lists, libc-test 414 PASS + 5 SKIP, full public macro surface checked |
 | [anp/rusl](https://github.com/anp/rusl) | inactive (2018) | x86\_64; partial musl port | historical, proof-of-concept port |
 | [SrDicov/zlibc](https://github.com/SrDicov/zlibc) | pre-alpha (2026-10) | x86\_64; musl ABI | phase 1 skeleton; does not link or run yet; no ldso |
 | [starkross/mytilus](https://github.com/starkross/mytilus) | pre-alpha (2026-05) | aarch64 only; musl 1.2.6 | empty crate scaffolds; no working libc; no ldso |
@@ -74,7 +74,7 @@ for a libc.
 
 | Library | Language | Target | Notes |
 |---|---|---|---|
-| **musl** | C | Linux musl ABI | the compatibility target for crabc; mature and production-ready |
+| **musl** | C | Linux musl ABI | the compatibility target for keel; mature and production-ready |
 | **glibc** | C | Linux GNU ABI | full-featured; different ABI from musl |
 | **LLVM libc** | C++ | Linux, bare-metal, GPU | industry-backed; no standalone dynamic linker |
 | **mlibc** | C++ | portable POSIX | used by Managarm |
@@ -87,50 +87,50 @@ for a libc.
 
 ### Why not musl?
 
-musl is excellent, mature, and production-ready; crabc is not a replacement
-today. crabc explores a different point in the design space: the musl ABI,
+musl is excellent, mature, and production-ready; keel is not a replacement
+today. keel explores a different point in the design space: the musl ABI,
 implemented in Rust, with an integrated dynamic linker and a `no_std` core.
-Use musl for production; use crabc to experiment, audit, or work on libc
+Use musl for production; use keel to experiment, audit, or work on libc
 internals.
 
 ### Why not relibc?
 
-relibc is Redox-first and has its own ABI. crabc targets the musl ABI and
+relibc is Redox-first and has its own ABI. keel targets the musl ABI and
 stock Alpine binaries. The projects share the "libc in Rust" direction but
 have different goals.
 
 ### Why not eyra?
 
 eyra implements the glibc ABI, is static-only, and its repositories are
-archived. crabc implements the musl ABI, supports dynamic linking, and is
+archived. keel implements the musl ABI, supports dynamic linking, and is
 actively maintained. They are not drop-in replacements for each other.
 
 ### Why not zlibc or mytilus?
 
 Both are pre-alpha: they do not have a working libc or dynamic linker yet and
-are limited to one architecture. crabc has a working `libldso.so`, three
+are limited to one architecture. keel has a working `libldso.so`, three
 architectures, nine real Alpine workloads, and identical LTP failure lists on
 the shared suites. More Rust libc projects are good for the ecosystem; these
 are simply at an earlier stage.
 
-### Is crabc the first Rust libc?
+### Is keel the first Rust libc?
 
-No. relibc, eyra, and anp/rusl came earlier. crabc's contribution is the
+No. relibc, eyra, and anp/rusl came earlier. keel's contribution is the
 combination of the musl 1.2.6 ABI, an integrated dynamic linker, three
 architectures, and published real-workload and LTP validation.
 
-### Is crabc production-ready?
+### Is keel production-ready?
 
-No. crabc is `0.7.x` and experimental. See the [workload matrix](workloads.md)
+No. keel is `0.8.x` and experimental. See the [workload matrix](workloads.md)
 and [LTP report](ltp.md) for the validated scope, and read
 [Status and scope](../README.md#status-and-scope) before using it outside a
 test environment.
 
-### Is crabc memory-safe?
+### Is keel memory-safe?
 
-No libc is entirely memory-safe in the Rust sense. crabc uses `unsafe` at the
+No libc is entirely memory-safe in the Rust sense. keel uses `unsafe` at the
 syscall and pointer boundary. Rust reduces the unsafe surface; it does not
-eliminate it. crabc has not had a formal security audit.
+eliminate it. keel has not had a formal security audit.
 
 ### Why is startup slower than musl?
 
@@ -138,9 +138,9 @@ The dynamic loader currently performs more work at startup than musl's. The
 microbenchmark results and the startup caveat are documented in
 [performance.md](performance.md).
 
-### Can crabc run glibc binaries?
+### Can keel run glibc binaries?
 
-No. crabc implements the musl ABI. Running glibc-built binaries would require
+No. keel implements the musl ABI. Running glibc-built binaries would require
 a different ABI implementation.
 
 ## Validation

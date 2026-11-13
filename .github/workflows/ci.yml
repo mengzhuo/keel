@@ -99,7 +99,7 @@ jobs:
       - name: Cache musl 1.2.6 headers
         uses: actions/cache@v6
         with:
-          path: ~/.cache/crabc
+          path: ~/.cache/keel
           key: musl-1.2.6-headers-v1
 
       - name: Check macro expansion parity

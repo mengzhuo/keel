@@ -3,12 +3,12 @@
 [`docs/workloads.md`](workloads.md) answers whether a handful of real programs
 start and perform their basic task.  This page goes one step further: it runs
 the programs' **own test suites** against two identical Alpine chroots, one
-with stock musl 1.2.6 and one with crabc's `libldso.so` + `libc.so`.
+with stock musl 1.2.6 and one with keel's `libldso.so` + `libc.so`.
 
 The suites are deliberately kept separate from the release gate.  They take
 several minutes, need Docker/chroot, and some upstream tests are sensitive to
 the host kernel and network sandbox.  Run them manually or from the scheduled
-`Workload suites` workflow; a crabc-only failure is still a regression.
+`Workload suites` workflow; a keel-only failure is still a regression.
 
 ## Suites
 
@@ -18,7 +18,7 @@ the host kernel and network sandbox.  Run them manually or from the scheduled
 | Git | `git/t` 2.52.1, installed `git` 2.52.0 | 7 foundational t/ scripts, 599 tests | 6 scripts pass under both; one racy test in t0000 |
 | nginx | `nginx/nginx-tests` `bb4d348` | 8 HTTP tests | 8/8 under both |
 
-The Python list covers the interfaces crabc implements directly: `os`,
+The Python list covers the interfaces keel implements directly: `os`,
 `io`, `fcntl`, `pwd`/`grp`, sockets and `select`, threads, subprocesses,
 signals, SSL, hashing, `ctypes`, `sqlite3`, asyncio, time/math/locale,
 importlib, multiprocessing, logging, datetime, codecs and archives.  The Git
@@ -37,7 +37,7 @@ sudo ./scripts/workload-suites.sh git nginx
 The script builds `libc.so`/`libldso.so` in release mode, creates the two
 rootfs copies with `apk` (Docker or podman), bind-mounts `/proc`, `/sys`,
 `/dev` and the shared work directory, builds Git's `t/helper/test-tool` under
-crabc, runs both sides, and writes logs plus normalized failure lists to
+keel, runs both sides, and writes logs plus normalized failure lists to
 `workload-suites/reports/`.
 
 Useful environment variables:
@@ -54,13 +54,13 @@ Useful environment variables:
 
 ## Results
 
-The latest run used crabc 0.7.8 plus the loader/TLS/regex fixes below.
+The latest run used keel 0.8.0.
 
 ### CPython
 
 ```text
 musl:  62 modules OK, 6 failed, 13,737 tests run
-crabc: 62 modules OK, 6 failed, 13,737 tests run
+keel: 62 modules OK, 6 failed, 13,737 tests run
 ```
 
 The baseline failures are environment-related and occur with stock musl too:
@@ -69,9 +69,9 @@ The baseline failures are environment-related and occur with stock musl too:
 
 Time-zone support is implemented in `libc/src/tz.rs` (TZif v1/v2/v3 and
 POSIX `TZ` rules), so `test_time`, `test_datetime` and `test_logging` pass
-under crabc.
+under keel.
 
-`test_ssl` is the only crabc-only difference.  The TLS 1.3 wrong-certificate
+`test_ssl` is the only keel-only difference.  The TLS 1.3 wrong-certificate
 case can see `ECONNRESET` instead of the expected alert when the whole module
 runs; the single test usually passes on its own.  It is listed as a known
 difference so it does not hide other SSL regressions.
@@ -80,19 +80,19 @@ difference so it does not hide other SSL regressions.
 
 ```text
 musl:  6 passed, 1 failed
-crabc: 6 passed, 1 failed
+keel: 6 passed, 1 failed
 ```
 
 `t0000-basic.sh` test 82 (`no diff after checkout and update-index --refresh`)
 fails identically in both chroots because of racy index timestamps on the
 shared filesystem.  The remaining six scripts pass under both runtimes.  A
-crabc-only failure would be reported by the harness.
+keel-only failure would be reported by the harness.
 
 ### nginx
 
 ```text
 musl:  8 passed, 0 failed
-crabc: 8 passed, 0 failed
+keel: 8 passed, 0 failed
 ```
 
 The tests run nginx as root (`TEST_NGINX_GLOBALS='user root;'`) so the
@@ -101,7 +101,7 @@ from `/usr/lib/nginx/modules`.
 
 ## Bugs this harness found
 
-Each of these was reproduced by a suite and fixed on `main` after 0.7.8:
+Each of these was reproduced by a suite and is included in 0.8.0:
 
 - `gethostbyaddr()` ignored `/etc/hosts`; it now goes through
   `getnameinfo()` like musl.

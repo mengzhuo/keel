@@ -15,10 +15,10 @@ extern "C" {
 #ifndef NULL
 #endif
 
-#ifndef __crabc_struct_timespec_defined
+#ifndef __keel_struct_timespec_defined
 #ifndef __DEFINED_struct_timespec
 #define __DEFINED_struct_timespec
-#define __crabc_struct_timespec_defined
+#define __keel_struct_timespec_defined
 struct timespec {
     time_t tv_sec;
     long tv_nsec;
@@ -26,8 +26,8 @@ struct timespec {
 #endif
 #endif
 
-#ifndef __crabc_struct_timeval_defined
-#define __crabc_struct_timeval_defined
+#ifndef __keel_struct_timeval_defined
+#define __keel_struct_timeval_defined
 #ifndef _TIMEVAL_DEFINED
 #define _TIMEVAL_DEFINED
 #endif

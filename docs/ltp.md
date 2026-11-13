@@ -1,6 +1,6 @@
 # LTP results
 
-This page answers a narrower question than the workload matrix: **does crabc
+This page answers a narrower question than the workload matrix: **does keel
 pass the Linux Test Project's own test suite?** LTP is the stress/regression
 suite used by the kernel and by musl itself. It exercises far more of the libc
 ABI than a normal application does, including the corners that only a test
@@ -16,7 +16,7 @@ The table compares the same LTP binaries in two chroots. `FAIL` counts
 non-zero exits (including `TBROK`); `TCONF` counts tests that the LTP library
 itself skipped because the environment does not provide a requirement.
 
-| Suite | Tests | musl FAIL | crabc FAIL | musl TCONF | crabc TCONF |
+| Suite | Tests | musl FAIL | keel FAIL | musl TCONF | keel TCONF |
 |---|---:|---:|---:|---:|---:|
 | `syscalls` | 1488† | 112 | 102 | 139 | 140 |
 | `math` | 10 | 0 | 0 | 0 | 0 |
@@ -31,11 +31,11 @@ stub that exits with status 32, so LTP records them as `TCONF` and excludes
 them from the pass/fail comparison.
 
 For `math`, `mm`, `sched`, `nptl` and `syscalls-ipc` the **failure lists are
-byte-for-byte identical** between musl and crabc. They are shared environment
+byte-for-byte identical** between musl and keel. They are shared environment
 failures (loop devices, cgroup layout, missing kernel config), not libc
 regressions. For `syscalls`, the per-test diff is the important number: no test fails
-only under crabc in the final run.  Ten tests fail only under musl, and one
-test (`move_pages12`) is skipped as `TCONF` under crabc.  See
+only under keel in the final run.  Ten tests fail only under musl, and one
+test (`move_pages12`) is skipped as `TCONF` under keel.  See
 [Remaining differences](#remaining-differences).
 
 ## Method
@@ -50,9 +50,9 @@ test (`move_pages12`) is skipped as `TCONF` under crabc.  See
   test binaries, runner and data files are identical.
 - Two chroots:
   - `alpine-root`: stock musl loader and libc. This is the baseline.
-  - `alpine-crabc`: same files; `/lib/ld-musl-x86_64.so.1` is crabc's
-    `libldso.so`, `/lib/libc.musl-x86_64.so.1` points at crabc's `libc.so`,
-    and tests run with `LD_LIBRARY_PATH=/opt/crabc`.
+  - `alpine-keel`: same files; `/lib/ld-musl-x86_64.so.1` is keel's
+    `libldso.so`, `/lib/libc.musl-x86_64.so.1` points at keel's `libc.so`,
+    and tests run with `LD_LIBRARY_PATH=/opt/keel`.
 - A suite is run with `runltp -f <suite>` in one chroot, then the other.
   `-C` and `-T` record failing and skipped tags. The two tag lists are diffed
   with `comm`, not just compared by aggregate counts. Aggregate counts move
@@ -78,7 +78,7 @@ the `timer_create` directory: without an explicit second pass, about 110
 `syscalls` binaries are never built. We built each affected directory with its
 own `make -C <dir> -k -j8` and then copied all executables into
 `/opt/ltp-2025/testcases/bin`. This is a build-system issue in LTP, not a
-crabc failure.
+keel failure.
 
 Verify the install before running:
 
@@ -131,7 +131,7 @@ includes fixes for, among others:
 - **Thread stacks.** `pthread_create()` now carves the TLS block out of the
   top of an application-provided stack, as musl does. A separate TLS `mmap`
   can land directly below a `MAP_GROWSDOWN` stack and prevent it from growing;
-  this made `mmap18` fail intermittently. `__rc_init_thread_tls_at` in
+  this made `mmap18` fail intermittently. `__keel_init_thread_tls_at` in
   `libldso.so` initializes the embedded block.
 - **Loader.** GNU symbol versioning now prefers the default version
   (`foo@@VER`) instead of the first old ABI (`foo@VER`). This mattered for
@@ -145,13 +145,13 @@ only what the LTP comparison demonstrated.
 
 After the final run:
 
-- **No `syscalls` tag fails only under crabc in the final run.**  Ten tags
+- **No `syscalls` tag fails only under keel in the final run.**  Ten tags
   fail only under the musl baseline (`open13`, `perf_event_open02`,
   `preadv203_64`, `readlink03`, `readlinkat02`, `recvmmsg01`,
   `rt_sigaction01`, `rt_sigprocmask01`, `rt_sigsuspend01`,
-  `sched_setscheduler04`).  `move_pages12` is `TCONF` under crabc because its
+  `sched_setscheduler04`).  `move_pages12` is `TCONF` under keel because its
   NUMA/procfs feature probe differs; it is not a failure.  The earlier
-  `preadv203` cache/timing observation is no longer a crabc-only failure.
+  `preadv203` cache/timing observation is no longer a keel-only failure.
 - `clock_settime03` is similarly timing-sensitive and fails intermittently
   under **both** runtimes: it sets `CLOCK_REALTIME` to just before the Y2038
   boundary and waits for an absolute timer that sometimes does not fire before
@@ -174,7 +174,7 @@ After the final run:
   quota, swap, and certain special filesystems. These are counted separately
   from failures.
 
-Two earlier crabc-only failures are worth calling out because they were real
+Two earlier keel-only failures are worth calling out because they were real
 and are now fixed:
 
 - `fanotify09`/`fanotify16` crashed with `SIGSEGV` while printing an event:
@@ -183,7 +183,7 @@ and are now fixed:
 - `mkdir09` failed only under concurrency because of the global `errno`; it
   now passes 3/3 runs.
 
-`ioctl_ficlone*` and `statx05` were never libc failures: the crabc chroot was
+`ioctl_ficlone*` and `statx05` were never libc failures: the keel chroot was
 missing `mkfs.xfs`/`mkfs.ext4`, so LTP's version probe aborted the test. After
 installing the same `e2fsprogs`/`xfsprogs` packages as the baseline, they
 match.
@@ -198,24 +198,24 @@ make autotools
 make -k -j8
 make -k install || true          # then build skipped dirs / install TCONF stubs (see above)
 
-# 2. Install crabc into the second chroot.
-cp target/x86_64-unknown-linux-gnu/release/libc.so   /path/alpine-crabc/opt/crabc/
-cp target/x86_64-unknown-linux-gnu/release/libldso.so /path/alpine-crabc/opt/crabc/
-cp /path/alpine-crabc/opt/crabc/libldso.so /path/alpine-crabc/lib/ld-musl-x86_64.so.1
-ln -sfn /opt/crabc/libc.so /path/alpine-crabc/lib/libc.musl-x86_64.so.1
+# 2. Install keel into the second chroot.
+cp target/x86_64-unknown-linux-gnu/release/libc.so   /path/alpine-keel/opt/keel/
+cp target/x86_64-unknown-linux-gnu/release/libldso.so /path/alpine-keel/opt/keel/
+cp /path/alpine-keel/opt/keel/libldso.so /path/alpine-keel/lib/ld-musl-x86_64.so.1
+ln -sfn /opt/keel/libc.so /path/alpine-keel/lib/libc.musl-x86_64.so.1
 
 # 3. Set the IPC sysctls and detach stale loop devices (see Method above).
 
 # 4. Run a suite in each chroot and diff the failing tag lists.
-for r in alpine-root alpine-crabc; do
-  lp=; [ "$r" = alpine-crabc ] && lp="LD_LIBRARY_PATH=/opt/crabc"
+for r in alpine-root alpine-keel; do
+  lp=; [ "$r" = alpine-keel ] && lp="LD_LIBRARY_PATH=/opt/keel"
   chroot "$r" /bin/sh -c "cd /opt/ltp-2025 && export LTPROOT=/opt/ltp-2025; \
     $lp TMPDIR=/tmp ./runltp -f syscalls \
     -l /tmp/ltp-$r.log -o /tmp/ltp-$r.out \
     -C /tmp/ltp-$r.fail -T /tmp/ltp-$r.conf"
 done
 comm -13 <(awk '{print $1}' alpine-root/tmp/ltp-alpine-root.fail | sort -u) \
-         <(awk '{print $1}' alpine-crabc/tmp/ltp-alpine-crabc.fail | sort -u)
+         <(awk '{print $1}' alpine-keel/tmp/ltp-alpine-keel.fail | sort -u)
 ```
 
 ## Caveats

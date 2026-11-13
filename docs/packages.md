@@ -1,72 +1,72 @@
 # Packages
 
-crabc's Alpine packages mirror Alpine's `musl`, `musl-dev` and `musl-utils`
+keel's Alpine packages mirror Alpine's `musl`, `musl-dev` and `musl-utils`
 split:
 
 | Package | Contents | Installed size |
 |---|---|---|
-| `crabc` | `libc.so`, `libldso.so`, `crabc-loader` | about 1.8 MiB |
-| `crabc-dev` | headers, `libc.a`, Rust-built CRT objects, linker stubs | about 10 MiB |
-| `crabc-utils` | `getconf`, `getent`, `iconv`, `ldd`, `ldconfig` | about 1.9 MiB |
+| `keel` | `libc.so`, `libldso.so`, `keel-loader` | about 1.8 MiB |
+| `keel-dev` | headers, `libc.a`, Rust-built CRT objects, linker stubs | about 10 MiB |
+| `keel-utils` | `getconf`, `getent`, `iconv`, `ldd`, `ldconfig` | about 1.9 MiB |
 
 All three are built for `x86_64`, `aarch64` and `riscv64`.
 
-## crabc
+## keel
 
-Installs the runtime libraries under `/usr/lib/crabc`:
+Installs the runtime libraries under `/usr/lib/keel`:
 
 ```text
-/usr/lib/crabc/libc.so
-/usr/lib/crabc/libldso.so
-/usr/lib/crabc/libc.musl-<arch>.so.1 -> libc.so
-/usr/bin/crabc-loader
+/usr/lib/keel/libc.so
+/usr/lib/keel/libldso.so
+/usr/lib/keel/libc.musl-<arch>.so.1 -> libc.so
+/usr/bin/keel-loader
 ```
 
-The `/usr/lib/crabc/libc.musl-<arch>.so.1` alias lets third-party DSOs that
-record the musl SONAME (notably `libgcc_s.so.1`) resolve to crabc libc.
+The `/usr/lib/keel/libc.musl-<arch>.so.1` alias lets third-party DSOs that
+record the musl SONAME (notably `libgcc_s.so.1`) resolve to keel libc.
 
-`crabc-loader` is the standalone mapper for static PIE and static ELF
+`keel-loader` is the standalone mapper for static PIE and static ELF
 binaries.  Dynamic binaries use `libldso.so` as their ELF interpreter.
 
 The package also installs symlinks at the canonical musl paths:
 
 ```text
-/lib/ld-musl-<arch>.so.1 -> /usr/lib/crabc/libldso.so
-/lib/libc.musl-<arch>.so.1 -> /usr/lib/crabc/libc.so
+/lib/ld-musl-<arch>.so.1 -> /usr/lib/keel/libldso.so
+/lib/libc.musl-<arch>.so.1 -> /usr/lib/keel/libc.so
 ```
 
 It declares `provides: musl`, `provides: so:libc.musl-<arch>.so.1` and
-`replaces: musl`, so installing `crabc` automatically purges the `musl`
+`replaces: musl`, so installing `keel` automatically purges the `musl`
 package and switches the whole system (including `apk` and `/bin/sh`) to
-crabc.  Do not run `apk fix musl` while crabc owns those paths.
+keel.  Do not run `apk fix musl` while keel owns those paths.
 
-## crabc-dev
+## keel-dev
 
 Development files mirror `musl-dev`:
 
 ```text
-/usr/include/...            224 headers: all 217 musl-dev headers plus 7 crabc extras
-/usr/lib/libc.a             crabc static libc
+/usr/include/...            224 headers: all 217 musl-dev headers plus 7 keel extras
+/usr/lib/libc.a             keel static libc
 /usr/lib/crt1.o             non-PIE startup object
 /usr/lib/Scrt1.o            PIE startup object
 /usr/lib/rcrt1.o            static-PIE self-relocating startup object
 /usr/lib/crti.o             .init/.fini prologue
 /usr/lib/crtn.o             .init/.fini epilogue
-/usr/lib/libc.so -> /usr/lib/crabc/libc.so
-/usr/lib/libm.a             empty archives, because musl/crabc keeps
+/usr/lib/libc.so -> /usr/lib/keel/libc.so
+/usr/lib/libm.a             empty archives, because musl/keel keeps
 /usr/lib/libpthread.a       these symbols in libc
 ...
 ```
 
 The CRT objects are generated from Rust `global_asm!` sources in `crt/` by
 `scripts/build-crt.sh`; no musl C or musl object files are copied.  The
-`libc.so` symlink lets `-lc` select crabc libc when `crabc-dev` is installed.
+`libc.so` symlink lets `-lc` select keel libc when `keel-dev` is installed.
 
 Static PIE is supported through the Rust-built `rcrt1.o`; static linking
 works with either `-static` (static PIE) or `-static -no-pie`.  Static
 constructors and initial-exec TLS are initialized by the libc startup path.
 
-`gcc`/`g++` work after `crabc-dev` replaces `musl-dev`.  `libc.so` exports a
+`gcc`/`g++` work after `keel-dev` replaces `musl-dev`.  `libc.so` exports a
 `__tls_get_addr` entry so `libstdc++.so` links; dynamically the loader
 installs its multi-module resolver before constructors, while static
 executables use the single-module fallback.  Dynamic, static and static-PIE
@@ -75,18 +75,18 @@ C++ programs have been built and run.
 All public headers are checked in CI against musl 1.2.6: every musl ABI macro
 must be present, expand to the same tokens in C and C++, and numeric macros
 must agree with the Rust implementation.  The only allowlisted expansion
-difference is crabc's 64-bit x86_64 `long double` ABI.
+difference is keel's 64-bit x86_64 `long double` ABI.
 
-`crabc-dev` declares `provides: libc-dev musl-dev` and
+`keel-dev` declares `provides: libc-dev musl-dev` and
 `replaces: musl-dev`.  Because it provides the `musl-dev` name itself,
 packages that depend on `musl-dev` (notably `g++` and `build-base`) are
-satisfied without installing Alpine's `musl-dev`.  Installing `crabc-dev`
+satisfied without installing Alpine's `musl-dev`.  Installing `keel-dev`
 over an existing `build-base` automatically purges `musl-dev` and keeps
 `gcc`/`g++` working.  No manual removal step is needed.
 
-## crabc-utils
+## keel-utils
 
-`crabc-utils` is one Rust multicall binary, `/usr/bin/crabc-utils`, with
+`keel-utils` is one Rust multicall binary, `/usr/bin/keel-utils`, with
 symlinks matching `musl-utils`:
 
 ```text
@@ -100,29 +100,29 @@ symlinks matching `musl-utils`:
 The binary is statically linked, so the tools do not depend on a dynamic
 loader, libc or `libgcc_s`.  All three architectures use the self-contained
 musl sysroot (riscv64 goes through `rust-lld` because the target has no
-`crt-static-default`).  `ldd` still inspects crabc and musl binaries by
+`crt-static-default`).  `ldd` still inspects keel and musl binaries by
 parsing their ELF files.
 
-`ldd` parses ELF files directly because crabc's loader is not a command-line
+`ldd` parses ELF files directly because keel's loader is not a command-line
 interpreter; it prints dependency paths but not load addresses.  `ldconfig`
 reads SONAME entries directly and does not require `scanelf`.
 
 The package declares `provides: libc-utils musl-utils` plus the `cmd:*`
 virtuals and uses `replaces: musl-utils`.  Because it provides the
-`musl-utils` name itself, installing `crabc-utils` on a stock Alpine image
+`musl-utils` name itself, installing `keel-utils` on a stock Alpine image
 automatically purges `musl-utils` (and its `scanelf` dependency); no manual
 removal step is needed:
 
 ```sh
-apk add --allow-untrusted crabc-utils-<version>-r0.<arch>.apk
+apk add --allow-untrusted keel-utils-<version>-r0.<arch>.apk
 ```
 
 ## Building packages
 
 ```sh
-cargo build --release -p crabc-libc -p crabc-ldso --target x86_64-unknown-linux-gnu
+cargo build --release -p keel-libc -p keel-ldso --target x86_64-unknown-linux-gnu
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
-  cargo build --release -p crabc --target x86_64-unknown-linux-musl
+  cargo build --release -p keel-rt --target x86_64-unknown-linux-musl
 # ... aarch64 and riscv64 builds ...
 
 ./scripts/build-crt.sh

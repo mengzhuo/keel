@@ -130,13 +130,13 @@ int main(void) {
         close(pty);
     }
 
-    char tmpl[] = "/tmp/crabc-compat-XXXXXX";
+    char tmpl[] = "/tmp/keel-compat-XXXXXX";
     int fd = mkostemps(tmpl, 0, O_CLOEXEC);
     CHECK(fd >= 0, "mkostemps");
     if (fd >= 0) { close(fd); unlink(tmpl); }
 
     struct timeval tv[2] = {{1111111, 0}, {2222222, 0}};
-    char path[] = "/tmp/crabc-futimes-XXXXXX";
+    char path[] = "/tmp/keel-futimes-XXXXXX";
     fd = mkstemp(path);
     CHECK(fd >= 0, "mkstemp");
     if (fd >= 0) {
@@ -165,7 +165,7 @@ int main(void) {
     struct group *gr = getgrnam("root");
     CHECK(gr != 0 && gr->gr_gid == 0, "getgrnam");
 
-    char utmp_path[] = "/tmp/crabc-utmp-XXXXXX";
+    char utmp_path[] = "/tmp/keel-utmp-XXXXXX";
     fd = mkstemp(utmp_path);
     CHECK(fd >= 0, "utmp temp");
     if (fd >= 0) {
@@ -203,7 +203,7 @@ int main(void) {
     globfree(&gl);
 
     /* nftw over a small tree */
-    char tree[] = "/tmp/crabc-ftw-XXXXXX";
+    char tree[] = "/tmp/keel-ftw-XXXXXX";
     if (mkdtemp(tree)) {
         char fp[128];
         snprintf(fp, sizeof(fp), "%s/a", tree);
@@ -236,8 +236,8 @@ int main(void) {
     /* wordexp */
     wordexp_t we;
     memset(&we, 0, sizeof(we));
-    setenv("CRABC_WE", "value", 1);
-    CHECK(wordexp("a 'b c' \"d $CRABC_WE\"", &we, 0) == 0 && we.we_wordc == 3, "wordexp");
+    setenv("KEEL_WE", "value", 1);
+    CHECK(wordexp("a 'b c' \"d $KEEL_WE\"", &we, 0) == 0 && we.we_wordc == 3, "wordexp");
     if (we.we_wordc == 3) {
         CHECK(strcmp(we.we_wordv[1], "b c") == 0 && strcmp(we.we_wordv[2], "d value") == 0, "wordexp values");
     }
@@ -275,7 +275,7 @@ int main(void) {
 
     /* AIO */
     {
-        char apath[] = "/tmp/crabc-aio-XXXXXX";
+        char apath[] = "/tmp/keel-aio-XXXXXX";
         int afd = mkstemp(apath);
         CHECK(afd >= 0, "aio temp");
         if (afd >= 0) {

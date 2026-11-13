@@ -34,7 +34,7 @@ fn static_hello_links_against_libc_a() {
     // The standalone loader maps static ELF itself.  It must translate
     // AT_PHDR, map BSS, and clear the loader's thread pointer before the
     // target's startup runs.
-    let output = Command::new(env!("CARGO_BIN_EXE_loader"))
+    let output = Command::new(env!("CARGO_BIN_EXE_keel"))
         .arg(&hello_bin)
         .output()
         .expect("failed to run loader");

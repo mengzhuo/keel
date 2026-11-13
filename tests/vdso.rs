@@ -59,8 +59,8 @@ fn vdso_fast_paths_work_in_static_binary() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "vdso ok\n");
 
     // The standalone loader must hand the static target a usable vDSO and
-    // let crabc build its own TCB instead of inheriting the loader's.
-    let output = Command::new(env!("CARGO_BIN_EXE_loader"))
+    // let keel build its own TCB instead of inheriting the loader's.
+    let output = Command::new(env!("CARGO_BIN_EXE_keel"))
         .arg(&bin)
         .output()
         .expect("failed to run loader");

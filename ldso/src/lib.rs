@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-// crabc dynamic linker.
+// keel dynamic linker.
 //
 // Loads the executable and DT_NEEDED objects, resolves symbols, applies
 // relocations, sets up TLS and transfers control to the program entry point.
@@ -1841,14 +1841,14 @@ unsafe fn resolve_symbol_with_size(name: *const u8, exclude: usize) -> (u64, usi
     if str_eq(name, name_len, b"__tls_get_addr\0".as_ptr()) {
         return ((__tls_get_addr as *const () as usize) as u64, 0);
     }
-    if str_eq(name, name_len, b"__rc_create_thread_tls\0".as_ptr()) {
-        return ((__rc_create_thread_tls as *const () as usize) as u64, 0);
+    if str_eq(name, name_len, b"__keel_create_thread_tls\0".as_ptr()) {
+        return ((__keel_create_thread_tls as *const () as usize) as u64, 0);
     }
-    if str_eq(name, name_len, b"__rc_tls_block_size\0".as_ptr()) {
-        return ((__rc_tls_block_size as *const () as usize) as u64, 0);
+    if str_eq(name, name_len, b"__keel_tls_block_size\0".as_ptr()) {
+        return ((__keel_tls_block_size as *const () as usize) as u64, 0);
     }
-    if str_eq(name, name_len, b"__rc_init_thread_tls_at\0".as_ptr()) {
-        return ((__rc_init_thread_tls_at as *const () as usize) as u64, 0);
+    if str_eq(name, name_len, b"__keel_init_thread_tls_at\0".as_ptr()) {
+        return ((__keel_init_thread_tls_at as *const () as usize) as u64, 0);
     }
 
     for i in 0..LOADED_COUNT {
@@ -2333,7 +2333,7 @@ extern "C" {
 #[cfg(target_arch = "x86_64")]
 #[no_mangle]
 unsafe extern "C" fn __tlsdesc_dynamic(desc: *const u64) -> u64 {
-    __rc_tlsdesc_dynamic(desc) as u64
+    __keel_tlsdesc_dynamic(desc) as u64
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -2356,7 +2356,7 @@ core::arch::global_asm!(
     "stp q2, q3, [sp, #192]",
     "stp q4, q5, [sp, #224]",
     "stp q6, q7, [sp, #256]",
-    "bl __rc_tlsdesc_dynamic",
+    "bl __keel_tlsdesc_dynamic",
     "ldp q6, q7, [sp, #256]",
     "ldp q4, q5, [sp, #224]",
     "ldp q2, q3, [sp, #192]",
@@ -2396,7 +2396,7 @@ core::arch::global_asm!(
     "sd a6, 96(sp)",
     "sd a7, 104(sp)",
     "sd ra, 112(sp)",
-    "call __rc_tlsdesc_dynamic",
+    "call __keel_tlsdesc_dynamic",
     "ld ra, 112(sp)",
     "ld a7, 104(sp)",
     "ld a6, 96(sp)",
@@ -2477,7 +2477,7 @@ unsafe fn dynamic_tls_addr(module: usize, off: usize) -> *mut u8 {
 
 /// Resolve a TLSDESC access for a module that was loaded after startup.
 #[no_mangle]
-pub unsafe extern "C" fn __rc_tlsdesc_dynamic(desc: *const u64) -> usize {
+pub unsafe extern "C" fn __keel_tlsdesc_dynamic(desc: *const u64) -> usize {
     let encoded = core::ptr::read_unaligned(desc.add(1));
     let module = (encoded >> 32) as usize;
     let off = (encoded & 0xffff_ffff) as usize;
@@ -3349,7 +3349,7 @@ pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __rc_create_thread_tls() -> *mut u8 {
+pub unsafe extern "C" fn __keel_create_thread_tls() -> *mut u8 {
     let total = TLS_TOTAL_SIZE + TCB_SIZE;
     if total == 0 {
         return core::ptr::null_mut();
@@ -3369,7 +3369,7 @@ pub unsafe extern "C" fn __rc_create_thread_tls() -> *mut u8 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __rc_init_thread_tls_at(block: *mut u8) -> *mut u8 {
+pub unsafe extern "C" fn __keel_init_thread_tls_at(block: *mut u8) -> *mut u8 {
     // Lay out the TLS block inside an application-provided thread stack.
     // musl does the same: keeping the loader's separate mmap away from the
     // stack leaves MAP_GROWSDOWN free to grow into the pages below it.
@@ -3377,12 +3377,12 @@ pub unsafe extern "C" fn __rc_init_thread_tls_at(block: *mut u8) -> *mut u8 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __rc_tls_block_size() -> usize {
+pub unsafe extern "C" fn __keel_tls_block_size() -> usize {
     TLS_TOTAL_SIZE + TCB_SIZE
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __rc_tls_base_offset() -> usize {
+pub unsafe extern "C" fn __keel_tls_base_offset() -> usize {
     tls_var_area_offset_from_tp() + tls_var_area_offset_from_block()
 }
 
@@ -3971,7 +3971,7 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     // libc.so exports a link-time `__tls_get_addr` for static C++ runtimes.
     // Point it at the loader's multi-module resolver before constructors or
     // main can call it (including via dlsym).
-    let set_tls_get_addr = resolve_symbol(b"__rc_set_tls_get_addr\0".as_ptr());
+    let set_tls_get_addr = resolve_symbol(b"__keel_set_tls_get_addr\0".as_ptr());
     if set_tls_get_addr != 0 {
         let setter: unsafe extern "C" fn(usize) = core::mem::transmute(set_tls_get_addr);
         setter(__tls_get_addr as *const () as usize);

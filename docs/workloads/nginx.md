@@ -1,6 +1,6 @@
 # nginx
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
@@ -63,12 +63,12 @@ kill -QUIT $P
 wait $P
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 nginx version: nginx/1.28.3
 nginx: configuration file /work/nginx.conf test is successful
-hello from crabc workload test
+hello from keel workload test
 nginx-ok
 code=200
 NGINX_OK
@@ -83,7 +83,7 @@ exiting with code 0.
 ## Notes
 
 - The workload requires an `nginx` user/group (uid/gid 1002 in the test
-  rootfs) and a writable `/tmp`; this is normal package setup, not a crabc
+  rootfs) and a writable `/tmp`; this is normal package setup, not a keel
   workaround.
 - nginx exposed two libc bugs during the port:
   - `chown` packed uid/gid into one argument instead of using the five-argument
@@ -91,7 +91,7 @@ exiting with code 0.
   - `recvmsg` passed musl's 32-bit `msg_iovlen`/`msg_controllen` and their
     padding straight to the kernel. The padding was often non-zero, so the
     kernel saw a huge control length and returned `EMSGSIZE`; the worker never
-    received the shutdown message and nginx hung. crabc now copies the header,
+    received the shutdown message and nginx hung. keel now copies the header,
     zeroes the pads, and passes a kernel-layout `msghdr`.
 - TLS termination is not covered here; see curl and Python for the OpenSSL
   path.

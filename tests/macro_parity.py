@@ -2,10 +2,10 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Compare crabc's preprocessor macro expansions with musl 1.2.6.
+"""Compare keel's preprocessor macro expansions with musl 1.2.6.
 
 The comparison is deliberately done after expansion, not on the #define text:
-musl and crabc may spell the same constant differently (0x100 vs 256), while a
+musl and keel may spell the same constant differently (0x100 vs 256), while a
 real incompatibility is a different token sequence after preprocessing.
 
 For each header that both trees provide (internal bits/ headers are skipped),
@@ -15,7 +15,7 @@ parentheses).  Function-like macros are invoked with the same dummy arguments
 on both sides.  Differences must be covered by an explicit allowlist entry.
 
 Missing macros are reported as coverage statistics but do not fail this check;
-the check is about the expansion of the ABI surface that crabc actually ships.
+the check is about the expansion of the ABI surface that keel actually ships.
 """
 
 import argparse
@@ -146,7 +146,7 @@ def probe_source(header, macros):
     lines = ["#define _GNU_SOURCE 1", f"#include <{header}>"]
     markers = []
     for index, (name, macro) in enumerate(macros):
-        marker = f"int __crabc_probe_marker_{index};"
+        marker = f"int __keel_probe_marker_{index};"
         lines.append('#line 1000 "probe.c"')
         lines.append(marker)
         if macro["kind"] == "object":
@@ -158,7 +158,7 @@ def probe_source(header, macros):
                 args += ["a1", "a2", "a3"]
             lines.append(f"{name}({', '.join(args)})")
         markers.append(marker)
-    end_marker = "int __crabc_probe_marker_end;"
+    end_marker = "int __keel_probe_marker_end;"
     lines.append(end_marker)
     markers.append(end_marker)
     return "\n".join(lines) + "\n", markers
@@ -269,13 +269,13 @@ def compare(args):
             relative = os.path.relpath(os.path.join(root, name), args.musl)
             if relative.startswith("bits/"):
                 continue
-            if os.path.exists(os.path.join(args.crabc, relative)):
+            if os.path.exists(os.path.join(args.keel, relative)):
                 headers.append(relative)
     headers.sort()
     missing_headers = sorted(
         header
         for header in headers
-        if not os.path.exists(os.path.join(args.crabc, header))
+        if not os.path.exists(os.path.join(args.keel, header))
     )
 
     mismatches = []
@@ -284,7 +284,7 @@ def compare(args):
     allowlisted = 0
     used_allowlist = set()
     musl_abi = set()
-    crabc_abi = set()
+    keel_abi = set()
     header_missing = {}
     common_count = 0
 
@@ -293,32 +293,32 @@ def compare(args):
         if musl_table is None:
             skipped.append((header, f"musl: {musl_error}"))
             continue
-        crabc_table, crabc_error = macro_table(args.cc, args.crabc, header)
-        if crabc_table is None:
-            failures.append((header, f"crabc: {crabc_error}"))
+        keel_table, keel_error = macro_table(args.cc, args.keel, header)
+        if keel_table is None:
+            failures.append((header, f"keel: {keel_error}"))
             continue
         musl_here = {name for name in musl_table if is_abi_macro(name)}
-        crabc_here = {name for name in crabc_table if is_abi_macro(name)}
+        keel_here = {name for name in keel_table if is_abi_macro(name)}
         musl_abi.update(musl_here)
-        crabc_abi.update(crabc_here)
-        absent = sorted(musl_here - crabc_here)
+        keel_abi.update(keel_here)
+        absent = sorted(musl_here - keel_here)
         if absent:
             header_missing[header] = absent
 
-        common = sorted(set(musl_table) & set(crabc_table))
+        common = sorted(set(musl_table) & set(keel_table))
         common_count += len(common)
         probes = []
         for name in common:
             if "__COUNTER__" in musl_table[name]["body"]:
                 continue
-            if macro_shape(musl_table[name]) != macro_shape(crabc_table[name]):
+            if macro_shape(musl_table[name]) != macro_shape(keel_table[name]):
                 mismatches.append(
                     (
                         header,
                         name,
                         "shape",
                         musl_table[name],
-                        crabc_table[name],
+                        keel_table[name],
                     )
                 )
             else:
@@ -328,25 +328,25 @@ def compare(args):
             continue
         entries = [(name, musl_table[name]) for name in probes]
         musl_expanded = expand_macros(args.cc, args.musl, header, entries)
-        crabc_expanded = expand_macros(args.cc, args.crabc, header, entries)
-        if musl_expanded is None or crabc_expanded is None:
+        keel_expanded = expand_macros(args.cc, args.keel, header, entries)
+        if musl_expanded is None or keel_expanded is None:
             # One malformed macro can break a batch.  Fall back to one probe
             # per macro so one bad expansion does not hide the rest.
             for name in probes:
                 musl_one = expand_macros(
                     args.cc, args.musl, header, [(name, musl_table[name])]
                 )
-                crabc_one = expand_macros(
-                    args.cc, args.crabc, header, [(name, crabc_table[name])]
+                keel_one = expand_macros(
+                    args.cc, args.keel, header, [(name, keel_table[name])]
                 )
-                if musl_one is None or crabc_one is None:
+                if musl_one is None or keel_one is None:
                     skipped.append((header, name))
-                elif musl_one[0] != crabc_one[0]:
+                elif musl_one[0] != keel_one[0]:
                     mismatches.append(
-                        (header, name, "expand", musl_one[0], crabc_one[0])
+                        (header, name, "expand", musl_one[0], keel_one[0])
                     )
             continue
-        for name, before, after in zip(probes, musl_expanded, crabc_expanded):
+        for name, before, after in zip(probes, musl_expanded, keel_expanded):
             if before != after:
                 mismatches.append((header, name, "expand", before, after))
 
@@ -360,8 +360,8 @@ def compare(args):
             continue
         real_mismatches.append(item)
 
-    missing = sorted(musl_abi - crabc_abi)
-    extra = sorted(crabc_abi - musl_abi)
+    missing = sorted(musl_abi - keel_abi)
+    extra = sorted(keel_abi - musl_abi)
     print(
         f"=== {args.arch}/{args.language}: headers={len(headers)} common_macros={common_count} "
         f"mismatches={len(real_mismatches)} allowlisted={allowlisted} "
@@ -391,7 +391,7 @@ def compare(args):
         for header, name, kind, before, after in real_mismatches:
             print(f"  {header}: {name} [{kind}]")
             print(f"    musl : {before}")
-            print(f"    crabc: {after}")
+            print(f"    keel: {after}")
         for header, detail in failures:
             print(f"  {header}: {detail}")
         for header, detail in skipped:
@@ -437,7 +437,7 @@ def main():
     parser.add_argument("--arch", required=True, choices=["x86_64", "aarch64", "riscv64"])
     parser.add_argument("--language", choices=["c", "c++"], default="c")
     parser.add_argument("--musl", required=True, help="musl include directory")
-    parser.add_argument("--crabc", default=os.path.join(os.path.dirname(__file__), "..", "include"))
+    parser.add_argument("--keel", default=os.path.join(os.path.dirname(__file__), "..", "include"))
     parser.add_argument("--cc", required=True)
     parser.add_argument("--allowlist", default=os.path.join(os.path.dirname(__file__), "macro-parity.allowlist"))
     parser.add_argument("--coverage-baseline", default=os.path.join(os.path.dirname(__file__), "macro-parity.coverage"))
@@ -447,7 +447,7 @@ def main():
     global LANGUAGE
     LANGUAGE = args.language
     args.musl = os.path.abspath(args.musl)
-    args.crabc = os.path.abspath(args.crabc)
+    args.keel = os.path.abspath(args.keel)
     return compare(args)
 
 

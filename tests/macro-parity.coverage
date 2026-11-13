@@ -1,4 +1,4 @@
-# Baseline of ABI macros that musl defines but crabc does not.
+# Baseline of ABI macros that musl defines but keel does not.
 # The macro-parity job fails if any count grows or a public header is missing.
 # arch        missing extra
 x86_64             0   106

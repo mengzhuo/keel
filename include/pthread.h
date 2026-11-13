@@ -14,8 +14,8 @@ extern "C" {
 #include <time.h>
 #include <sched.h>
 
-#ifndef __crabc_sched_param_defined
-#define __crabc_sched_param_defined
+#ifndef __keel_sched_param_defined
+#define __keel_sched_param_defined
 struct sched_param {
     int sched_priority;
 };

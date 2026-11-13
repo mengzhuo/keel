@@ -3,17 +3,17 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 #
-# Integration harness: build libc-test against crabc's libc.so
+# Integration harness: build libc-test against keel's libc.so
 # Usage: ./run.sh [subset]
 #   subset: functional (default), math, regression, api, all
 #
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CRABC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+KEEL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIBC_TEST_DIR="${LIBC_TEST_DIR:-/home/root/libc-test}"
-LIBC_SO="${CRABC_DIR}/target/debug/libc.so"
-LDSO_SO="${CRABC_DIR}/target/debug/libldso.so"
+LIBC_SO="${KEEL_DIR}/target/debug/libc.so"
+LDSO_SO="${KEEL_DIR}/target/debug/libldso.so"
 FAKE_LIBS="${SCRIPT_DIR}/fake-libs"
 BUILD_DIR="${SCRIPT_DIR}/build"
 REPORT_DIR="${SCRIPT_DIR}/reports"
@@ -21,7 +21,7 @@ REPORT_DIR="${SCRIPT_DIR}/reports"
 SUBSET="${1:-functional}"
 
 # These long-double tests use 80-bit vectors from upstream libc-test.
-# crabc intentionally uses a 64-bit long double ABI on x86_64, so the
+# keel intentionally uses a 64-bit long double ABI on x86_64, so the
 # vectors cannot be matched exactly; the double-precision variants still run.
 SKIP_TESTS="math/acoshl math/asinhl math/lgammal math/tgammal"
 
@@ -45,8 +45,8 @@ mkdir -p "$FAKE_LIBS" "$BUILD_DIR" "$REPORT_DIR"
 
 
 if [ ! -f "$LIBC_SO" ] || [ ! -f "$LDSO_SO" ]; then
-    echo ">>> Building crabc..."
-    (cd "$CRABC_DIR" && cargo build 2>&1) || { echo "FATAL: cargo build failed"; exit 1; }
+    echo ">>> Building keel..."
+    (cd "$KEEL_DIR" && cargo build 2>&1) || { echo "FATAL: cargo build failed"; exit 1; }
 fi
 echo ">>> Using libc.so: $LIBC_SO"
 echo ">>> Using libldso.so: $LDSO_SO"
@@ -85,7 +85,7 @@ fi
 for f in "${LIBC_TEST_DIR}"/src/common/*.c; do
     base=$(basename "$f" .c)
     if [ "$base" = "mtest" ]; then
-        musl-gcc $CFLAGS -I"${CRABC_DIR}/include" $([ "$(uname -m)" = "x86_64" ] && echo -mlong-double-64) -c -o "$COMMON_BUILD/$base.o" "$f" 2>"$COMMON_BUILD/$base.o.err" || true
+        musl-gcc $CFLAGS -I"${KEEL_DIR}/include" $([ "$(uname -m)" = "x86_64" ] && echo -mlong-double-64) -c -o "$COMMON_BUILD/$base.o" "$f" 2>"$COMMON_BUILD/$base.o.err" || true
     else
         musl-gcc $CFLAGS -c -o "$COMMON_BUILD/$base.o" "$f" 2>"$COMMON_BUILD/$base.o.err" || true
     fi
@@ -174,9 +174,9 @@ for dir in $DIRS; do
             EXTRA_CFLAGS="-mlong-double-64"
         fi
         if [ "$dir" = "math" ] || [ "$dir" = "api" ]; then
-            EXTRA_CFLAGS="$EXTRA_CFLAGS -I${CRABC_DIR}/include"
+            EXTRA_CFLAGS="$EXTRA_CFLAGS -I${KEEL_DIR}/include"
         elif [ "$base" = "crypt" ] || [ "$base" = "fpclassify-invalid-ld80" ]; then
-            EXTRA_CFLAGS="$EXTRA_CFLAGS -I${CRABC_DIR}/include"
+            EXTRA_CFLAGS="$EXTRA_CFLAGS -I${KEEL_DIR}/include"
         fi
         musl-gcc $CFLAGS $EXTRA_CFLAGS -c -o "$OBJ" "$cfile" 2>"$DIR_BUILD/${base}.o.err" || COMPILE_RC=$?
 

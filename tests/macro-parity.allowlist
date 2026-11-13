@@ -4,10 +4,10 @@
 # Shell-style wildcards are allowed in each field.  Only macros that exist on
 # both sides are compared; missing macros are reported as coverage statistics.
 #
-# crabc's x86_64 long double ABI is 64-bit (fixtures use -mlong-double-64),
+# keel's x86_64 long double ABI is 64-bit (fixtures use -mlong-double-64),
 # while musl x86_64 uses the x87 80-bit format.  aarch64/riscv64 use binary128
 # in both implementations and are checked strictly.
-x86_64 float.h LDBL_* crabc x86_64 long double is 64-bit
-x86_64 float.h DECIMAL_DIG crabc x86_64 long double is 64-bit
+x86_64 float.h LDBL_* keel x86_64 long double is 64-bit
+x86_64 float.h DECIMAL_DIG keel x86_64 long double is 64-bit
 x86_64 values.h LDBL_* values.h includes float.h
 x86_64 values.h DECIMAL_DIG values.h includes float.h

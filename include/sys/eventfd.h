@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_EVENTFD_H
-#define _CRABC_SYS_EVENTFD_H
+#ifndef _KEEL_SYS_EVENTFD_H
+#define _KEEL_SYS_EVENTFD_H
 #include <stdint.h>
 #include <fcntl.h>
 int eventfd(unsigned int, int);

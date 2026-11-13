@@ -4,10 +4,10 @@
 use std::process::Command;
 
 fn run(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_crabc-utils"))
+    Command::new(env!("CARGO_BIN_EXE_keel-utils"))
         .args(args)
         .output()
-        .expect("failed to run crabc-utils")
+        .expect("failed to run keel-utils")
 }
 
 #[test]
@@ -33,7 +33,7 @@ fn getent_reads_passwd() {
 
 #[test]
 fn iconv_converts_utf8_to_utf16le() {
-    let out = Command::new(env!("CARGO_BIN_EXE_crabc-utils"))
+    let out = Command::new(env!("CARGO_BIN_EXE_keel-utils"))
         .args(["iconv", "-f", "UTF-8", "-t", "UTF-16LE"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

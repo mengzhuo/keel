@@ -1,14 +1,14 @@
 [package]
-name = "crabc-utils"
-version = "0.7.8"
+name = "keel-utils"
+version = "0.8.0"
 edition = "2021"
-description = "Rust implementations of the musl-utils commands for crabc"
+description = "Rust implementations of the musl-utils commands for keel"
 license = "BSD-3-Clause"
-repository = "https://github.com/mengzhuo/crabc"
+repository = "https://github.com/mengzhuo/keel"
 readme = "README.md"
 
 [[bin]]
-name = "crabc-utils"
+name = "keel-utils"
 path = "src/main.rs"
 
 [dependencies]

@@ -1,6 +1,6 @@
 # SQLite
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
@@ -34,7 +34,7 @@ sqlite3 /tmp/test.db 'select count(*) from t;'
 sqlite3 :memory: 'select sqlite_version(), 1+1;'
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 3.53.4 2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc (64-bit)

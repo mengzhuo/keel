@@ -21,11 +21,11 @@ use std::process;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: loader <elf-binary> [args...]");
+        eprintln!("usage: keel <elf-binary> [args...]");
         process::exit(1);
     }
     if let Err(e) = load_and_run(&args[1], &args[1..]) {
-        eprintln!("loader: {e}");
+        eprintln!("keel: {e}");
         process::exit(1);
     }
 }

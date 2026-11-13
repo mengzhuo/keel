@@ -1,18 +1,18 @@
 # Real workload matrix
 
 This page answers a single question: **do real, unmodified musl-linked programs
-run under crabc?** Nine applications from Alpine 3.23 are executed in two
-identical chroots — one with the stock musl loader, one with crabc's
+run under keel?** Nine applications from Alpine 3.23 are executed in two
+identical chroots — one with the stock musl loader, one with keel's
 `libldso.so` + `libc.so` — and the observable output is compared.
 
 Everything below is a snapshot from **2026-11-06** on x86\_64, taken with
-crabc 0.4.2.  The current release is 0.7.8; the later loader/libc changes
+keel 0.4.2.  The current release is 0.8.0; the later loader/libc changes
 preserve the behavior recorded here.  The results are reproducible with the
 commands in each report.
 
 ## Result
 
-✅ **All nine workloads pass.** For every application, crabc produces the same
+✅ **All nine workloads pass.** For every application, keel produces the same
 exit status and the same relevant stdout as the musl baseline.
 
 | Workload | Version | Status | Report | Scope |
@@ -31,12 +31,12 @@ exit status and the same relevant stdout as the musl baseline.
 
 - Alpine Linux **3.23**, x86\_64, musl 1.2.6 ABI.
 - All binaries are the stock Alpine packages (`apk add`), unmodified.
-- crabc **0.4.2** (historical measurement; current release is 0.7.8).
+- keel **0.4.2** (historical measurement; current release is 0.8.0).
 - Two chroots:
   - `alpine-root`: pristine musl loader and libc.
-  - `alpine-crabc`: same files, but `/lib/ld-musl-x86_64.so.1` is crabc's
-    `libldso.so`, `/lib/libc.musl-x86_64.so.1` points at crabc's `libc.so`,
-    and `LD_LIBRARY_PATH=/opt/crabc`.
+  - `alpine-keel`: same files, but `/lib/ld-musl-x86_64.so.1` is keel's
+    `libldso.so`, `/lib/libc.musl-x86_64.so.1` points at keel's `libc.so`,
+    and `LD_LIBRARY_PATH=/opt/keel`.
 - `/proc`, `/dev`, `/sys` and a shared `/work` directory are bind-mounted into
   both chroots. PostgreSQL runs as uid 1000 (its package user); the other
   workloads run as root inside the chroot, as they would in a container.
@@ -50,7 +50,7 @@ exit status and the same relevant stdout as the musl baseline.
    functional output matches the musl baseline.
 
 The scripts use only the packaged binaries; no recompilation, no patches and no
-crabc-specific build flags are involved.
+keel-specific build flags are involved.
 
 This matrix is a smoke test.  For the programs' own test suites — CPython's
 `test` package, Git's `t/` scripts and `nginx-tests` — see
@@ -84,8 +84,8 @@ describe what was *not* exercised, so the matrix is not over-read:
 The general shape of the setup:
 
 ```bash
-# 1. Build crabc (dev or release; release is what the container used)
-cargo build --release -p crabc-libc -p crabc-ldso --target x86_64-unknown-linux-gnu
+# 1. Build keel (dev or release; release is what the container used)
+cargo build --release -p keel-libc -p keel-ldso --target x86_64-unknown-linux-gnu
 
 # 2. Create the pristine rootfs (Docker is only used for apk)
 docker run --rm --network host -v "$PWD/alpine-root:/rootfs" alpine:3.23 \
@@ -95,17 +95,17 @@ docker run --rm --network host -v "$PWD/alpine-root:/rootfs" alpine:3.23 \
     add alpine-baselayout busybox curl git sqlite nginx redis python3 nodejs \
         postgresql postgresql-client openssl ca-certificates'
 
-# 3. Clone it and install crabc as the runtime
-cp -a alpine-root alpine-crabc
-mkdir -p alpine-crabc/opt/crabc
-cp target/x86_64-unknown-linux-gnu/release/libc.so   alpine-crabc/opt/crabc/
-cp target/x86_64-unknown-linux-gnu/release/libldso.so alpine-crabc/opt/crabc/
-cp alpine-crabc/lib/ld-musl-x86_64.so.1 alpine-crabc/lib/ld-musl-x86_64.so.1.musl
-cp alpine-crabc/opt/crabc/libldso.so alpine-crabc/lib/ld-musl-x86_64.so.1
-ln -sfn /opt/crabc/libc.so alpine-crabc/lib/libc.musl-x86_64.so.1
+# 3. Clone it and install keel as the runtime
+cp -a alpine-root alpine-keel
+mkdir -p alpine-keel/opt/keel
+cp target/x86_64-unknown-linux-gnu/release/libc.so   alpine-keel/opt/keel/
+cp target/x86_64-unknown-linux-gnu/release/libldso.so alpine-keel/opt/keel/
+cp alpine-keel/lib/ld-musl-x86_64.so.1 alpine-keel/lib/ld-musl-x86_64.so.1.musl
+cp alpine-keel/opt/keel/libldso.so alpine-keel/lib/ld-musl-x86_64.so.1
+ln -sfn /opt/keel/libc.so alpine-keel/lib/libc.musl-x86_64.so.1
 
 # 4. Run a script in a chroot
-LD_LIBRARY_PATH=/opt/crabc chroot alpine-crabc /bin/sh /work/busybox.sh
+LD_LIBRARY_PATH=/opt/keel chroot alpine-keel /bin/sh /work/busybox.sh
 chroot alpine-root /bin/sh /work/busybox.sh   # baseline
 ```
 

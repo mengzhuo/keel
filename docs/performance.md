@@ -1,13 +1,13 @@
 # Performance
 
-This is a microbenchmark comparison between crabc and musl 1.2.6. The numbers
+This is a microbenchmark comparison between keel and musl 1.2.6. The numbers
 are a snapshot from one machine, not an application benchmark. Use the ratios
 and the reproduction scripts rather than the absolute values.
 
 ## Method
 
 - Host (x86\_64): AMD EPYC 7532, Linux 6.12, 64 available CPUs.
-- `crabc` release artifacts use the size-oriented release profile:
+- `keel` release artifacts use the size-oriented release profile:
   `opt-level = "s"`, `strip = "symbols"`, `panic = "abort"`, and no unwind
   tables. This costs a few percent on stdio/math versus `-O3` and shrinks
   `libc.so` by about 30%.
@@ -16,7 +16,7 @@ and the reproduction scripts rather than the absolute values.
 - The same C source is compiled twice against musl. The two binaries differ
   only in their ELF interpreter:
   - musl: `musl-1.2.6/lib/libc.so`
-  - crabc: `target/release/libldso.so` with
+  - keel: `target/release/libldso.so` with
     `LD_LIBRARY_PATH=target/release`
 - Microbenchmarks: `clock_gettime(CLOCK_MONOTONIC)` around a batch, `-O2
   -fno-builtin`, so calls go through the libc. The vDSO group also measures
@@ -27,9 +27,9 @@ and the reproduction scripts rather than the absolute values.
 
 ## x86\_64 results
 
-`crabc/musl` below 1.0 means crabc is faster.
+`keel/musl` below 1.0 means keel is faster.
 
-| Benchmark | musl | crabc | crabc/musl |
+| Benchmark | musl | keel | keel/musl |
 |---|---:|---:|---:|
 | `memcpy` 64B | 10.8 ns | 6.7 ns | 0.62x |
 | `memcpy` 4KB | 59.0 ns | 44.7 ns | 0.76x |
@@ -65,7 +65,7 @@ and the reproduction scripts rather than the absolute values.
 Geometric mean over the 30 benchmarks: **0.53x musl's runtime**.
 
 The thread benchmark creates and joins 2000 threads; all 2000 ran in every
-crabc round.
+keel round.
 
 ## riscv64 results
 
@@ -73,7 +73,7 @@ Cross-compiled with `riscv64-linux-gnu-gcc` and run under `qemu-riscv64`.
 Both binaries use the same crt objects and differ only in libc/interpreter.
 QEMU/TCG numbers are not hardware numbers; only the ratios are meaningful.
 
-| Benchmark | crabc/musl |
+| Benchmark | keel/musl |
 |---|---:|
 | `memcpy` 4KB | 0.53x |
 | `memset` 4KB | 1.01x |
@@ -89,7 +89,7 @@ Geometric mean: **0.52x**.
 ## Binary size
 
 Release artifacts are stripped. musl's dynamic linker is its libc, so its
-runtime footprint is one file; crabc needs `libc.so` plus `libldso.so`.
+runtime footprint is one file; keel needs `libc.so` plus `libldso.so`.
 
 | | x86\_64 | aarch64 | riscv64 |
 |---|---:|---:|---:|
@@ -153,7 +153,7 @@ uses `__vdso_*` on x86\_64/riscv64 and `__kernel_*` on aarch64.
 | `sched_getcpu` | `__vdso_getcpu` / `__kernel_getcpu` (x86\_64, riscv64) | `getcpu` syscall |
 | `getrandom`, `getentropy` | `__vdso_getrandom` / `__kernel_getrandom` (Linux 6.11+) | `getrandom` syscall |
 
-vDSO `getrandom` needs an opaque per-thread state.  crabc queries the kernel
+vDSO `getrandom` needs an opaque per-thread state.  keel queries the kernel
 for its size and mmap flags, maps one page per thread, and applies
 `MADV_WIPEONFORK`.  The state pointer lives in the otherwise unused TCB byte
 range at `0x38`, is preserved when `dlopen` grows a thread's TLS block, and is
@@ -168,7 +168,7 @@ thread pointer before jumping to a static target.
 ## Remaining gaps
 
 - **Process startup, 1.17x.** musl's dynamic linker *is* its libc, so one
-  file is mapped by the kernel. crabc maps `libldso.so` and then loads and
+  file is mapped by the kernel. keel maps `libldso.so` and then loads and
   relocates a separate `libc.so`.
 - **`pow`, 1.10x.** The port keeps exact `x^1` / `x^-1` identities (see
   `AGENTS.md`).

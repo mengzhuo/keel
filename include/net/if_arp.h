@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_NET_IF_ARP_H
-#define _CRABC_NET_IF_ARP_H
+#ifndef _KEEL_NET_IF_ARP_H
+#define _KEEL_NET_IF_ARP_H
 #include <inttypes.h>
 #include <sys/types.h>
 #include <sys/socket.h>

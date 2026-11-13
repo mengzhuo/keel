@@ -1,6 +1,6 @@
 # Node.js
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
@@ -42,13 +42,13 @@ console.log("crypto",
   crypto.createHash("sha256").update("x").digest("hex").slice(0, 8))'
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 v24.22.1
 core v24.22.1 2 linux
 fs hello
-http hello from crabc workload test
+http hello from keel workload test
 zlib 25
 crypto 2d711642
 NODE_OK
@@ -76,13 +76,13 @@ Node was the hardest workload and exposed several loader bugs:
   and the loader gives the main thread an 8 MiB stack (or `RLIMIT_STACK`).
 - **Thread TLS lifetime.** V8 keeps pointers into a joined thread's TLS and
   reads them during teardown. Unmapping the block (as musl does) turns that
-  into `SIGSEGV`. crabc retains the TLS mapping after `pthread_join`; the
+  into `SIGSEGV`. keel retains the TLS mapping after `pthread_join`; the
   trade-off is documented in this file and the matrix.
 
 ## Known issue
 
 Exited worker threads retain their TLS mapping (`TLS_TOTAL_SIZE + TCB_SIZE`,
-about 8 KiB each). The block is no longer used by crabc but stays mapped for
+about 8 KiB each). The block is no longer used by keel but stays mapped for
 the lifetime of the process. This is required by V8's shutdown behaviour in
 Node 24. It does not affect correctness or steady-state memory for a fixed
 thread pool.

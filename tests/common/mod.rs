@@ -3,7 +3,7 @@
 
 // Shared fixture build/run helpers for the integration tests.
 //
-// Every C fixture is compiled as a PIE against the in-tree crabc libc and
+// Every C fixture is compiled as a PIE against the in-tree keel libc and
 // loader, then run with target/debug as LD_LIBRARY_PATH.  Tests only provide
 // the fixture name and their own extra compiler flags or assertions.
 

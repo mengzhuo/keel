@@ -1,4 +1,4 @@
-# crabc-libc
+# keel-libc
 
 A `no_std` Rust implementation of musl-compatible libc. Produces `libc.so` and `libc.a` for running unmodified musl-linked ELF binaries.
 
@@ -11,7 +11,7 @@ This crate is not intended for direct use as a Rust library. It produces C-compa
 
 Build with:
 ```bash
-cargo build -p crabc-libc
+cargo build -p keel-libc
 ```
 
 Output is in `target/debug/libc.so` and `target/debug/libc.a`.

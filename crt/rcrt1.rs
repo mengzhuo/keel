@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! crabc static-PIE startup object (`rcrt1.o`).
+//! keel static-PIE startup object (`rcrt1.o`).
 //!
 //! A static PIE is mapped by the kernel with no interpreter, so the entry
 //! point must apply its own relative relocations before calling into libc.
@@ -49,7 +49,7 @@ _start:
     mov rdi, rsp
     lea rsi, [rip + _DYNAMIC]
     and rsp, -16
-    call crabc_rcrt1_start
+    call keel_rcrt1_start
     hlt
     .size _start, .-_start
     .section .note.GNU-stack,"",@progbits
@@ -69,7 +69,7 @@ _start:
     adrp x1, _DYNAMIC
     add x1, x1, :lo12:_DYNAMIC
     and sp, x0, #-16
-    b crabc_rcrt1_start
+    b keel_rcrt1_start
     .size _start, .-_start
     .section .note.GNU-stack,"",@progbits
 "#
@@ -90,7 +90,7 @@ _start:
     mv a0, t0
     lla a1, _DYNAMIC
     andi sp, t0, -16
-    tail crabc_rcrt1_start
+    tail keel_rcrt1_start
     .size _start, .-_start
     .section .note.GNU-stack,"",@progbits
 "#
@@ -110,11 +110,11 @@ extern "C" {
         stack_end: *const c_void,
     ) -> !;
     static mut __auxv: *const usize;
-    static mut __rc_static_base: usize;
+    static mut __keel_static_base: usize;
 }
 
 #[no_mangle]
-unsafe extern "C" fn crabc_rcrt1_start(sp: usize, dyn_addr: usize) -> ! {
+unsafe extern "C" fn keel_rcrt1_start(sp: usize, dyn_addr: usize) -> ! {
     let argc = *(sp as *const usize);
     let argv = (sp + 8) as *const *const c_char;
     let mut envp = (sp + 8 * (argc + 2)) as *const *const c_char;
@@ -271,7 +271,7 @@ unsafe extern "C" fn crabc_rcrt1_start(sp: usize, dyn_addr: usize) -> ! {
     }
 
     __auxv = auxv;
-    __rc_static_base = base;
+    __keel_static_base = base;
 
     __libc_start_main(
         main,

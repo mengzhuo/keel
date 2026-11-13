@@ -49,8 +49,8 @@ struct lconv {
     char int_n_sign_posn;
 };
 
-#ifndef __crabc_locale_t_defined
-#define __crabc_locale_t_defined
+#ifndef __keel_locale_t_defined
+#define __keel_locale_t_defined
 #ifndef __DEFINED_locale_t
 #define __DEFINED_locale_t
 typedef void *locale_t;

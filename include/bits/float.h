@@ -1,12 +1,12 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-/* long double format for crabc's per-architecture ABI. */
-#ifndef _CRABC_BITS_FLOAT_H
-#define _CRABC_BITS_FLOAT_H
+/* long double format for keel's per-architecture ABI. */
+#ifndef _KEEL_BITS_FLOAT_H
+#define _KEEL_BITS_FLOAT_H
 
 #if defined(__x86_64__)
-/* crabc's x86_64 long double ABI is 64-bit (as with -mlong-double-64). */
+/* keel's x86_64 long double ABI is 64-bit (as with -mlong-double-64). */
 #define LDBL_TRUE_MIN 4.94065645841246544177e-324L
 #define LDBL_MIN 2.22507385850720138309e-308L
 #define LDBL_MAX 1.79769313486231570815e+308L

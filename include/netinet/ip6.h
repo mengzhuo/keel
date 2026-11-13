@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_NETINET_IP6_H
-#define _CRABC_NETINET_IP6_H
+#ifndef _KEEL_NETINET_IP6_H
+#define _KEEL_NETINET_IP6_H
 #include <netinet/in.h>
 
 

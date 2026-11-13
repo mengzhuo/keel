@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_SWAP_H
-#define _CRABC_SYS_SWAP_H
+#ifndef _KEEL_SYS_SWAP_H
+#define _KEEL_SYS_SWAP_H
 #include <sys/types.h>
 int swapon(const char *, int);
 int swapoff(const char *);

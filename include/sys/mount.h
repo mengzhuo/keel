@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_MOUNT_H
-#define _CRABC_SYS_MOUNT_H
+#ifndef _KEEL_SYS_MOUNT_H
+#define _KEEL_SYS_MOUNT_H
 #include <sys/ioctl.h>
 #include <sys/types.h>
 int mount(const char *, const char *, const char *, unsigned long, const void *);

@@ -1986,7 +1986,7 @@ pub unsafe extern "C" fn getegid() -> c_uint {
 #[no_mangle]
 pub unsafe extern "C" fn vfork() -> c_int {
     // A vfork implementation must let the child return to the caller's
-    // stack.  crabc's clone path does not preserve the required stack/TLS
+    // stack.  keel's clone path does not preserve the required stack/TLS
     // state for arbitrary children (LTP vfork01 and mkfs helpers segfault),
     // so use the portable fork semantics.
     let r = sys_fork();
@@ -2603,9 +2603,9 @@ struct robust_list_head {
 // ponytail: adapted from musl x86_64 clone.s
 #[cfg(all(target_arch = "x86_64", not(test)))]
 core::arch::global_asm!(
-    ".global __rc_clone",
-    ".type __rc_clone, @function",
-    "__rc_clone:",
+    ".global __keel_clone",
+    ".type __keel_clone, @function",
+    "__keel_clone:",
     "mov rax, rdi",
     "mov rdi, rdx",
     "mov rdx, r8",
@@ -2635,7 +2635,7 @@ core::arch::global_asm!(
 #[no_mangle]
 #[unsafe(naked)]
 #[cfg(target_arch = "aarch64")]
-pub unsafe extern "C" fn __rc_clone(
+pub unsafe extern "C" fn __keel_clone(
     fn_: usize,
     stack: *mut u8,
     flags: c_ulong,
@@ -2667,7 +2667,7 @@ pub unsafe extern "C" fn __rc_clone(
 #[no_mangle]
 #[unsafe(naked)]
 #[cfg(target_arch = "riscv64")]
-pub unsafe extern "C" fn __rc_clone(
+pub unsafe extern "C" fn __keel_clone(
     fn_: usize,
     stack: *mut u8,
     flags: c_ulong,
@@ -2700,7 +2700,7 @@ pub unsafe extern "C" fn __rc_clone(
 
 #[cfg(all(target_arch = "x86_64", test))]
 #[inline(never)]
-unsafe fn __rc_clone(
+unsafe fn __keel_clone(
     _fn_: usize,
     _stack: *mut u8,
     _flags: c_ulong,
@@ -2714,7 +2714,7 @@ unsafe fn __rc_clone(
 
 #[cfg(all(target_arch = "x86_64", not(test)))]
 extern "C" {
-    fn __rc_clone(
+    fn __keel_clone(
         fn_: usize,
         stack: *mut u8,
         flags: c_ulong,
@@ -2728,28 +2728,28 @@ extern "C" {
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
-pub extern "C" fn __rc_create_thread_tls() -> *mut u8 {
+pub extern "C" fn __keel_create_thread_tls() -> *mut u8 {
     core::ptr::null_mut()
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
-pub unsafe extern "C" fn __rc_init_thread_tls_at(_block: *mut u8) -> *mut u8 {
+pub unsafe extern "C" fn __keel_init_thread_tls_at(_block: *mut u8) -> *mut u8 {
     core::ptr::null_mut()
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
-pub extern "C" fn __rc_tls_block_size() -> usize {
+pub extern "C" fn __keel_tls_block_size() -> usize {
     0
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
-pub extern "C" fn __rc_tls_base_offset() -> usize {
+pub extern "C" fn __keel_tls_base_offset() -> usize {
     0
 }
 
@@ -3185,7 +3185,7 @@ pub unsafe extern "C" fn pthread_create(
     let tls_total = if static_mode {
         STATIC_TLS_BLOCK_SIZE
     } else {
-        __rc_tls_block_size()
+        __keel_tls_block_size()
     };
     let mut stack_top = stack.add(stack_size);
     let mut tls_owned = true;
@@ -3208,16 +3208,16 @@ pub unsafe extern "C" fn pthread_create(
         // behaviour). A separate mmap here can land directly below the stack
         // and prevent MAP_GROWSDOWN from expanding it.
         let block = ((user_top as usize - tls_total) & !63usize) as *mut u8;
-        let fs = __rc_init_thread_tls_at(block);
+        let fs = __keel_init_thread_tls_at(block);
         if fs.is_null() {
-            __rc_create_thread_tls()
+            __keel_create_thread_tls()
         } else {
             stack_top = block;
             tls_owned = false;
             fs
         }
     } else {
-        __rc_create_thread_tls()
+        __keel_create_thread_tls()
     };
     if fs_base.is_null() {
         if stack_owned { sys_munmap(stack, stack_size); }
@@ -3227,7 +3227,7 @@ pub unsafe extern "C" fn pthread_create(
     let tls_base = if static_mode {
         fs_base.sub(STATIC_TLS_TP_OFFSET)
     } else {
-        fs_base.sub(__rc_tls_base_offset())
+        fs_base.sub(__keel_tls_base_offset())
     };
     let tls_size = if tls_owned { tls_total } else { 0 };
     (*slot).detach_state = DT_JOINABLE;
@@ -3249,7 +3249,7 @@ pub unsafe extern "C" fn pthread_create(
     let flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD
         | CLONE_SYSVSEM | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
     ACTIVE_THREADS.fetch_add(1, Ordering::AcqRel);
-    let tid = __rc_clone(thread_entry as *const () as usize, stack_top, flags, slot as *mut c_void, tid_ptr, fs_base as c_ulong, tid_ptr);
+    let tid = __keel_clone(thread_entry as *const () as usize, stack_top, flags, slot as *mut c_void, tid_ptr, fs_base as c_ulong, tid_ptr);
     if tid < 0 {
         ACTIVE_THREADS.fetch_sub(1, Ordering::AcqRel);
         (*slot).tid = -1;
@@ -14728,7 +14728,7 @@ pub unsafe extern "C" fn shmctl(shmid: c_int, cmd: c_int, buf: *mut c_void) -> c
 #[no_mangle]
 pub static mut __auxv: *const usize = core::ptr::null();
 #[no_mangle]
-pub static mut __rc_static_base: usize = 0;
+pub static mut __keel_static_base: usize = 0;
 static mut RC_STATIC_EXEC: bool = false;
 
 #[no_mangle]
@@ -14917,7 +14917,7 @@ static mut TLS_GET_ADDR_IMPL: usize = 0;
 /// obtains `__tls_get_addr` through `dlsym` still reaches the loader's
 /// implementation rather than the static fallback below.
 #[no_mangle]
-pub unsafe extern "C" fn __rc_set_tls_get_addr(f: usize) {
+pub unsafe extern "C" fn __keel_set_tls_get_addr(f: usize) {
     TLS_GET_ADDR_IMPL = f;
 }
 
@@ -14955,7 +14955,7 @@ unsafe fn init_static_tls() {
     let mut tls_filesz = 0usize;
     let mut tls_memsz = 0usize;
     let mut tls_align = 1usize;
-    let mut exec_base = __rc_static_base;
+    let mut exec_base = __keel_static_base;
     let mut i = 0usize;
     while i < phnum {
         let ph = phdr + i * phent;
@@ -19347,7 +19347,7 @@ pub unsafe extern "C" fn clone(
         tls = args.next_arg::<c_ulong>();
         ctid = args.next_arg::<*mut c_int>();
     }
-    let r = __rc_clone(func, stack, flags as c_ulong, arg, ptid, tls, ctid);
+    let r = __keel_clone(func, stack, flags as c_ulong, arg, ptid, tls, ctid);
     if r < 0 {
         ERRNO!() = (-r) as c_int;
         -1
@@ -21515,7 +21515,7 @@ pub unsafe extern "C" fn execvpe(
     -1
 }
 
-// Locale-aware entry points. crabc currently has a single global locale,
+// Locale-aware entry points. keel currently has a single global locale,
 // so these are source/ABI-compatible wrappers around the normal functions.
 #[no_mangle]
 pub unsafe extern "C" fn strcoll_l(s1: *const c_char, s2: *const c_char, _loc: locale_t) -> c_int {
@@ -21815,7 +21815,7 @@ pub unsafe extern "C" fn pthread_timedjoin_np(thread: PthreadT, retval: *mut *mu
 
 
 // utmp/utmpx are backed by the classic /var/run/utmp file.  musl itself
-// leaves these as no-ops; crabc provides the real file-backed API.
+// leaves these as no-ops; keel provides the real file-backed API.
 #[repr(C)]
 pub struct UtmpExit {
     pub e_termination: i16,

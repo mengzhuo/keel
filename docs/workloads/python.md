@@ -1,6 +1,6 @@
 # CPython
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
@@ -41,7 +41,7 @@ print("compress", len(zlib.compress(b"x"*100)),
       len(bz2.compress(b"x"*100)), len(lzma.compress(b"x"*100)))'
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 Python 3.12.16
@@ -60,7 +60,7 @@ Identical output and exit status under musl.
 ## Notes
 
 - The extension modules are loaded with `dlopen`, so this workload covers
-  crabc's `dlopen` path: recursive `DT_NEEDED` loading, relocation of only the
+  keel's `dlopen` path: recursive `DT_NEEDED` loading, relocation of only the
   newly added objects, TLS layout updates, and constructor order.
 - `ctypes.CDLL(None)` initially failed with `dlsym: symbol not found` because
   startup dependencies were not part of the global lookup scope. They now are.

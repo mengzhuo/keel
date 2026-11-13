@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_REBOOT_H
-#define _CRABC_SYS_REBOOT_H
+#ifndef _KEEL_SYS_REBOOT_H
+#define _KEEL_SYS_REBOOT_H
 #include <unistd.h>
 #define RB_AUTOBOOT 0x01234567
 #define RB_HALT_SYSTEM 0xcdef0123

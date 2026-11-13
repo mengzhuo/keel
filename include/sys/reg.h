@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_REG_H
-#define _CRABC_SYS_REG_H
+#ifndef _KEEL_SYS_REG_H
+#define _KEEL_SYS_REG_H
 #include <limits.h>
 #include <unistd.h>
 #include <bits/reg.h>

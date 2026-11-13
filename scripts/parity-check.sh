@@ -3,23 +3,23 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 #
-# Differential behaviour check: musl vs crabc.
+# Differential behaviour check: musl vs keel.
 #
 # The same libc-test source is compiled and linked against the system musl
 # libc twice.  The two binaries differ only in their ELF interpreter:
 #
 #   musl   -> $MUSL_LIBC                (the real musl loader/libc)
-#   crabc  -> target/debug/libldso.so   (with LD_LIBRARY_PATH=target/debug)
+#   keel  -> target/debug/libldso.so   (with LD_LIBRARY_PATH=target/debug)
 #
 # Running both and comparing exit status, stdout and stderr therefore checks
-# the exact promise of crabc: an unmodified musl-linked binary behaves the
-# same when crabc supplies libc and the dynamic linker at run time.
+# the exact promise of keel: an unmodified musl-linked binary behaves the
+# same when keel supplies libc and the dynamic linker at run time.
 #
 # Usage:
 #   scripts/parity-check.sh [functional|regression|all|symbols]
 #
 # `symbols` compares the exported dynamic symbol sets instead of running
-# tests. crabc's libc and ldso exports are unioned because musl's libc.so is
+# tests. keel's libc and ldso exports are unioned because musl's libc.so is
 # also its loader; the four linker-internal symbols musl exports are allowed
 # to be absent.
 #
@@ -44,11 +44,11 @@ SUBSET="${1:-functional}"
 ARCH="$(uname -m)"
 
 # These tests build 80-bit long-double values or print them through %La.
-# crabc intentionally uses a 64-bit long-double ABI on x86_64, so a binary
+# keel intentionally uses a 64-bit long-double ABI on x86_64, so a binary
 # compiled with musl's headers cannot exercise them correctly.
 SKIP_TESTS="${PARITY_SKIP:-functional/strtold regression/fpclassify-invalid-ld80}"
 
-# crabc implements the newer %s / %z behaviour that libc-test expects;
+# keel implements the newer %s / %z behaviour that libc-test expects;
 # musl 1.2.6 leaves the tm fields of %s unspecified and requires four
 # digits for %z. This is a deliberate superset, not a regression.
 #
@@ -89,7 +89,7 @@ if [ ! -d "$LIBC_TEST_DIR/src" ]; then
 fi
 
 if [ ! -f "$ROOT/target/debug/libc.so" ] || [ ! -f "$ROOT/target/debug/libldso.so" ]; then
-    echo ">>> building crabc..."
+    echo ">>> building keel..."
     (cd "$ROOT" && cargo build --workspace) || exit 1
 fi
 
@@ -97,18 +97,18 @@ if [ "$SUBSET" = "symbols" ]; then
     mkdir -p "$PARITY_DIR"
     report="$PARITY_DIR/report-symbols.txt"
     musl_syms="$PARITY_DIR/musl.syms"
-    crabc_syms="$PARITY_DIR/crabc.syms"
+    keel_syms="$PARITY_DIR/keel.syms"
     nm -D --defined-only "$MUSL_LIBC" \
         | awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' | sort -u > "$musl_syms"
-    # musl's libc.so is also its loader. Compare the union of crabc's libc
+    # musl's libc.so is also its loader. Compare the union of keel's libc
     # and ldso exports, otherwise loader-only symbols such as __tls_get_addr
     # look missing.
     {
         nm -D --defined-only "$ROOT/target/debug/libc.so"
         nm -D --defined-only "$ROOT/target/debug/libldso.so"
-    } | awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' | sort -u > "$crabc_syms"
-    comm -23 "$musl_syms" "$crabc_syms" > "$PARITY_DIR/missing.syms"
-    comm -13 "$musl_syms" "$crabc_syms" > "$PARITY_DIR/extra.syms"
+    } | awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' | sort -u > "$keel_syms"
+    comm -23 "$musl_syms" "$keel_syms" > "$PARITY_DIR/missing.syms"
+    comm -13 "$musl_syms" "$keel_syms" > "$PARITY_DIR/extra.syms"
     # _init/_fini are ELF entry stubs provided by crt; _dl_debug_addr and
     # _dl_debug_state are loader internals exported by musl's libc.so.
     allow="_init _fini _dl_debug_addr _dl_debug_state"
@@ -119,12 +119,12 @@ if [ "$SUBSET" = "symbols" ]; then
         echo "Symbol parity"
         echo "-------------"
         echo "musl:  $MUSL_LIBC ($(wc -l < "$musl_syms") symbols)"
-        echo "crabc: $ROOT/target/debug/libc.so ($(wc -l < "$crabc_syms") symbols)"
+        echo "keel: $ROOT/target/debug/libc.so ($(wc -l < "$keel_syms") symbols)"
         echo
-        echo "Missing in crabc (allowed: $allow):"
+        echo "Missing in keel (allowed: $allow):"
         sed 's/^/  /' "$PARITY_DIR/missing.syms"
         echo
-        echo "Extra in crabc:"
+        echo "Extra in keel:"
         sed 's/^/  /' "$PARITY_DIR/extra.syms"
         echo
         if [ -n "$unexpected" ]; then
@@ -139,9 +139,9 @@ if [ "$SUBSET" = "symbols" ]; then
     exit
 fi
 
-# The baseline uses musl's headers everywhere, so do NOT add crabc's include
+# The baseline uses musl's headers everywhere, so do NOT add keel's include
 # directory and do NOT pass -mlong-double-64 here: the binaries must use the
-# musl ABI, which is what crabc promises to run.
+# musl ABI, which is what keel promises to run.
 
 CFLAGS=(
     "-I$LIBC_TEST_DIR/src/common"
@@ -162,10 +162,10 @@ echo ">>> musl baseline: $MUSL_LIBC"
 musl_version=$(strings "$MUSL_LIBC" 2>/dev/null | grep -m1 -E '^1\.[0-9]+\.[0-9]+')
 echo ">>> musl version:  ${musl_version:-unknown}"
 if [ "${musl_version:-}" != "1.2.6" ]; then
-    echo ">>> note: crabc ports musl 1.2.6 behavior; an older baseline can"
-    echo ">>>       report differences that are not crabc bugs."
+    echo ">>> note: keel ports musl 1.2.6 behavior; an older baseline can"
+    echo ">>>       report differences that are not keel bugs."
 fi
-echo ">>> crabc ldso:    $ROOT/target/debug/libldso.so"
+echo ">>> keel ldso:    $ROOT/target/debug/libldso.so"
 echo ">>> libc-test:     $LIBC_TEST_DIR"
 
 # ---------------------------------------------------------------------------
@@ -245,9 +245,9 @@ for dir in $DIRS; do
     echo ">>> $dir"
     DSO_DIR="$PARITY_DIR/$dir/dso"
     MUSL_DIR="$PARITY_DIR/$dir/musl"
-    CRABC_DIR="$PARITY_DIR/$dir/crabc"
+    KEEL_DIR="$PARITY_DIR/$dir/keel"
     rm -rf "$PARITY_DIR/$dir"
-    mkdir -p "$DSO_DIR" "$MUSL_DIR" "$CRABC_DIR"
+    mkdir -p "$DSO_DIR" "$MUSL_DIR" "$KEEL_DIR"
 
     # Build companion DSOs once; they only use the standard musl ABI.
     for dso_cfile in "$SRC_DIR"/*_dso.c; do
@@ -272,7 +272,7 @@ for dir in $DIRS; do
             echo "SKIP $dir/$base (ABI-incompatible baseline)"
             continue
         fi
-        # crabc's x86_64 long-double ABI is 64-bit; binaries compiled with
+        # keel's x86_64 long-double ABI is 64-bit; binaries compiled with
         # musl's 80-bit long double cannot exercise these tests correctly.
         if [ "$dir" = "math" ] && [ "$ARCH" = "x86_64" ] && \
            grep -q 'long double' "$cfile"; then
@@ -288,18 +288,18 @@ for dir in $DIRS; do
             continue
         fi
 
-        # On x86_64 crabc uses a 64-bit long-double ABI. Math tests embed
+        # On x86_64 keel uses a 64-bit long-double ABI. Math tests embed
         # isnan()/signbit() for long double via mtest.h's checkcr(), so the
-        # crabc variant must be compiled with crabc's headers and ABI; the
+        # keel variant must be compiled with keel's headers and ABI; the
         # musl variant keeps musl's 80-bit ABI. Double/float semantics are
         # identical, only the long-double test cases are skipped above.
-        OBJ_CRABC="$OBJ"
+        OBJ_KEEL="$OBJ"
         if [ "$dir" = "math" ] && [ "$ARCH" = "x86_64" ]; then
-            OBJ_CRABC="$PARITY_DIR/$dir/$base.crabc.o"
+            OBJ_KEEL="$PARITY_DIR/$dir/$base.keel.o"
             if ! "$CC" "${CFLAGS[@]}" -I"$ROOT/include" -mlong-double-64 \
-                 -c -o "$OBJ_CRABC" "$cfile" 2> "$OBJ_CRABC.err"; then
-                echo "BUILDERROR $dir/$base (compile crabc ABI)" | tee -a "$REPORT"
-                head -5 "$OBJ_CRABC.err" >> "$REPORT"
+                 -c -o "$OBJ_KEEL" "$cfile" 2> "$OBJ_KEEL.err"; then
+                echo "BUILDERROR $dir/$base (compile keel ABI)" | tee -a "$REPORT"
+                head -5 "$OBJ_KEEL.err" >> "$REPORT"
                 BUILDERR=$((BUILDERR + 1))
                 continue
             fi
@@ -313,13 +313,13 @@ for dir in $DIRS; do
         fi
 
         LINK_FAIL=0
-        for variant in musl crabc; do
+        for variant in musl keel; do
             if [ "$variant" = musl ]; then
                 INTERP="$MUSL_LIBC"
                 OBJ_VARIANT="$OBJ"
             else
                 INTERP="$ROOT/target/debug/libldso.so"
-                OBJ_VARIANT="$OBJ_CRABC"
+                OBJ_VARIANT="$OBJ_KEEL"
             fi
             if ! "$CC" "${CFLAGS[@]}" -g -rdynamic \
                  -Wl,--dynamic-linker="$INTERP" \
@@ -343,32 +343,32 @@ for dir in $DIRS; do
 
         MUSL_OUT="$PARITY_DIR/$dir/musl/$base.out"
         MUSL_ERR="$PARITY_DIR/$dir/musl/$base.err"
-        CRABC_OUT="$PARITY_DIR/$dir/crabc/$base.out"
-        CRABC_ERR="$PARITY_DIR/$dir/crabc/$base.err"
+        KEEL_OUT="$PARITY_DIR/$dir/keel/$base.out"
+        KEEL_ERR="$PARITY_DIR/$dir/keel/$base.err"
 
         attempt=0
         same=0
         while [ "$attempt" -le "$RETRIES" ]; do
             run_one "$PARITY_DIR/$dir/musl/$base.exe" "" "$MUSL_OUT" "$MUSL_ERR"
             MUSL_RC=$?
-            run_one "$PARITY_DIR/$dir/crabc/$base.exe" "$ROOT/target/debug" "$CRABC_OUT" "$CRABC_ERR"
-            CRABC_RC=$?
+            run_one "$PARITY_DIR/$dir/keel/$base.exe" "$ROOT/target/debug" "$KEEL_OUT" "$KEEL_ERR"
+            KEEL_RC=$?
 
             normalize "$MUSL_OUT" "$PARITY_DIR/$dir/musl/$base.exe" > "$MUSL_OUT.norm"
             normalize "$MUSL_ERR" "$PARITY_DIR/$dir/musl/$base.exe" > "$MUSL_ERR.norm"
-            normalize "$CRABC_OUT" "$PARITY_DIR/$dir/crabc/$base.exe" > "$CRABC_OUT.norm"
-            normalize "$CRABC_ERR" "$PARITY_DIR/$dir/crabc/$base.exe" > "$CRABC_ERR.norm"
+            normalize "$KEEL_OUT" "$PARITY_DIR/$dir/keel/$base.exe" > "$KEEL_OUT.norm"
+            normalize "$KEEL_ERR" "$PARITY_DIR/$dir/keel/$base.exe" > "$KEEL_ERR.norm"
 
-            if [ $MUSL_RC -eq $CRABC_RC ] && \
-               cmp -s "$MUSL_OUT.norm" "$CRABC_OUT.norm" && \
-               cmp -s "$MUSL_ERR.norm" "$CRABC_ERR.norm"; then
+            if [ $MUSL_RC -eq $KEEL_RC ] && \
+               cmp -s "$MUSL_OUT.norm" "$KEEL_OUT.norm" && \
+               cmp -s "$MUSL_ERR.norm" "$KEEL_ERR.norm"; then
                 same=1
                 break
             fi
             attempt=$((attempt + 1))
         done
 
-        if [ $MUSL_RC -eq 124 ] || [ $CRABC_RC -eq 124 ]; then
+        if [ $MUSL_RC -eq 124 ] || [ $KEEL_RC -eq 124 ]; then
             TIMEOUTS=$((TIMEOUTS + 1))
         fi
 
@@ -382,24 +382,24 @@ for dir in $DIRS; do
             fi
         elif is_known "$dir/$base"; then
             KNOWN=$((KNOWN + 1))
-            echo "KNOWN $dir/$base (documented difference; musl rc=$MUSL_RC crabc rc=$CRABC_RC)"
+            echo "KNOWN $dir/$base (documented difference; musl rc=$MUSL_RC keel rc=$KEEL_RC)"
             {
-                echo "KNOWN $dir/$base (documented difference; musl rc=$MUSL_RC crabc rc=$CRABC_RC)"
-                diff -u --label "$base.musl.stdout" --label "$base.crabc.stdout" \
-                    "$MUSL_OUT.norm" "$CRABC_OUT.norm" | head -30
-                diff -u --label "$base.musl.stderr" --label "$base.crabc.stderr" \
-                    "$MUSL_ERR.norm" "$CRABC_ERR.norm" | head -30
+                echo "KNOWN $dir/$base (documented difference; musl rc=$MUSL_RC keel rc=$KEEL_RC)"
+                diff -u --label "$base.musl.stdout" --label "$base.keel.stdout" \
+                    "$MUSL_OUT.norm" "$KEEL_OUT.norm" | head -30
+                diff -u --label "$base.musl.stderr" --label "$base.keel.stderr" \
+                    "$MUSL_ERR.norm" "$KEEL_ERR.norm" | head -30
                 echo
             } >> "$REPORT"
         else
             DIFF=$((DIFF + 1))
-            echo "DIFF $dir/$base (musl rc=$MUSL_RC crabc rc=$CRABC_RC)"
+            echo "DIFF $dir/$base (musl rc=$MUSL_RC keel rc=$KEEL_RC)"
             {
-                echo "DIFF $dir/$base (musl rc=$MUSL_RC crabc rc=$CRABC_RC)"
-                diff -u --label "$base.musl.stdout" --label "$base.crabc.stdout" \
-                    "$MUSL_OUT.norm" "$CRABC_OUT.norm" | head -30
-                diff -u --label "$base.musl.stderr" --label "$base.crabc.stderr" \
-                    "$MUSL_ERR.norm" "$CRABC_ERR.norm" | head -30
+                echo "DIFF $dir/$base (musl rc=$MUSL_RC keel rc=$KEEL_RC)"
+                diff -u --label "$base.musl.stdout" --label "$base.keel.stdout" \
+                    "$MUSL_OUT.norm" "$KEEL_OUT.norm" | head -30
+                diff -u --label "$base.musl.stderr" --label "$base.keel.stderr" \
+                    "$MUSL_ERR.norm" "$KEEL_ERR.norm" | head -30
                 echo
             } >> "$REPORT"
             echo "  stdout/stderr diff recorded in $REPORT"
@@ -420,7 +420,7 @@ done
     echo "BuildError: $BUILDERR"
     echo "Timeouts:   $TIMEOUTS"
     echo "musl:       $MUSL_LIBC"
-    echo "crabc:      $ROOT/target/debug/libldso.so"
+    echo "keel:      $ROOT/target/debug/libldso.so"
 } | tee -a "$REPORT"
 
 if [ $DIFF -ne 0 ] || [ $BUILDERR -ne 0 ]; then

@@ -14,8 +14,8 @@ extern "C" {
 #ifndef NULL
 #endif
 
-#ifndef __crabc_wchar_t_defined
-#define __crabc_wchar_t_defined
+#ifndef __keel_wchar_t_defined
+#define __keel_wchar_t_defined
 #ifndef __cplusplus
 #ifndef __DEFINED_wchar_t
 #define __DEFINED_wchar_t

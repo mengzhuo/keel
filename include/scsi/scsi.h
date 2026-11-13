@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SCSI_SCSI_H
-#define _CRABC_SCSI_SCSI_H
+#ifndef _KEEL_SCSI_SCSI_H
+#define _KEEL_SCSI_SCSI_H
 
 /* musl 1.2.6 compatibility macros */
 #define ABORT 0x06

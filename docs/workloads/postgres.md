@@ -1,6 +1,6 @@
 # PostgreSQL
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
@@ -51,7 +51,7 @@ psql -h /tmp -p 15432 -U postgres \
 pg_ctl -D "$PGDATA" -m fast -w stop
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 INITDB_OK
@@ -79,7 +79,7 @@ and the fast shutdown.
 
 ## Notes
 
-- The first crabc attempt crashed in the `initdb` bootstrap child with
+- The first keel attempt crashed in the `initdb` bootstrap child with
   `SIGSEGV` (`si_code=SI_KERNEL`) inside an AVX `memset`. The cause was
   `sigsetjmp`: it pushed `rbx` before calling `setjmp`, so the saved stack
   pointer was 8 bytes off. After `longjmp`, the caller ran with a misaligned

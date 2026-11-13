@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_BITS_SYSCALL_H
-#define _CRABC_BITS_SYSCALL_H
+#ifndef _KEEL_BITS_SYSCALL_H
+#define _KEEL_BITS_SYSCALL_H
 #if defined(__x86_64__)
 #define SYS_read 0
 #define SYS_write 1

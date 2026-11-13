@@ -421,7 +421,7 @@ pub use sysnr::*;
 
 /// Drop the loader's own thread pointer before jumping to a static target.
 /// The target inherits the address space, and Rust's glibc TLS block is not
-/// a crabc TCB: leaving %fs set makes crabc's static startup think TLS is
+/// a keel TCB: leaving %fs set makes keel's static startup think TLS is
 /// already initialized and skip building its own block.
 #[inline]
 pub unsafe fn clear_thread_pointer() {

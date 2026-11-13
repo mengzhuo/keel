@@ -13,18 +13,18 @@
 extern "C" {
 #endif
 
-#ifndef __crabc_in_addr_t_defined
-#define __crabc_in_addr_t_defined
+#ifndef __keel_in_addr_t_defined
+#define __keel_in_addr_t_defined
 typedef uint32_t in_addr_t;
 #endif
 
-#ifndef __crabc_in_port_t_defined
-#define __crabc_in_port_t_defined
+#ifndef __keel_in_port_t_defined
+#define __keel_in_port_t_defined
 typedef uint16_t in_port_t;
 #endif
 
-#ifndef __crabc_in_addr_struct
-#define __crabc_in_addr_struct
+#ifndef __keel_in_addr_struct
+#define __keel_in_addr_struct
 struct in_addr {
     in_addr_t s_addr;
 };
@@ -43,7 +43,7 @@ struct in_addr inet_makeaddr(in_addr_t, in_addr_t);
 in_addr_t inet_lnaof(struct in_addr);
 in_addr_t inet_netof(struct in_addr);
 
-/* crabc historically exposes the raw 32-bit address in these two entry
+/* keel historically exposes the raw 32-bit address in these two entry
  * points; keep both calling conventions source-compatible. */
 #define inet_aton(s, p) inet_aton((s), (void *)(p))
 #define inet_ntoa(addr) inet_ntoa((struct in_addr){ .s_addr = (in_addr_t)(addr) })

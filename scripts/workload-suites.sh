@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Run upstream test suites for real programs against crabc and a stock-musl
+# Run upstream test suites for real programs against keel and a stock-musl
 # baseline inside two identical Alpine chroots.
 #
 # Usage:
@@ -28,7 +28,7 @@ SUITE_DIR=${SUITE_DIR:-$ROOT/workload-suites}
 WORK=$SUITE_DIR/work
 REPORTS=$SUITE_DIR/reports
 MUSL_ROOT=$SUITE_DIR/alpine-musl
-CRABC_ROOT=$SUITE_DIR/alpine-crabc
+KEEL_ROOT=$SUITE_DIR/alpine-keel
 DOCKER=${DOCKER:-docker}
 GIT_VERSION=${GIT_VERSION:-2.52.1}
 NGINX_TESTS_REF=${NGINX_TESTS_REF:-bb4d348594a59e8e8d6e19f75943ac9e2df19a3a}
@@ -69,7 +69,7 @@ NGINX_TESTS=(
 )
 
 # Upstream/environment failures present in both runs are ignored.  test_ssl
-# is the only known crabc-only difference: its TLS 1.3 wrong-cert alert race
+# is the only known keel-only difference: its TLS 1.3 wrong-cert alert race
 # can fail when the whole module runs, while the single test normally passes.
 PYTHON_KNOWN_DIFFS=(
     test_ssl
@@ -99,14 +99,14 @@ host_mount() {
     MOUNTS+=("$dst")
 }
 
-build_crabc() {
+build_keel() {
     local libc=$ROOT/target/$TARGET/release/libc.so
     local ldso=$ROOT/target/$TARGET/release/libldso.so
     if [[ ! -f $libc || ! -f $ldso ]]; then
-        log "building crabc release libraries"
-        (cd "$ROOT" && cargo build --release -p crabc-libc -p crabc-ldso --target "$TARGET")
+        log "building keel release libraries"
+        (cd "$ROOT" && cargo build --release -p keel-libc -p keel-ldso --target "$TARGET")
     fi
-    [[ -f $libc && -f $ldso ]] || die "crabc release libraries are missing"
+    [[ -f $libc && -f $ldso ]] || die "keel release libraries are missing"
 }
 
 unmount_rootfs() {
@@ -131,21 +131,21 @@ create_rootfs() {
         "${APK_REPOS[@]}" add "${PACKAGES[@]}"
 }
 
-install_crabc() {
+install_keel() {
     local libc=$ROOT/target/$TARGET/release/libc.so
     local ldso=$ROOT/target/$TARGET/release/libldso.so
-    log "installing crabc into $CRABC_ROOT"
-    mkdir -p "$CRABC_ROOT/opt/crabc"
-    cp "$libc" "$CRABC_ROOT/opt/crabc/libc.so"
-    cp "$ldso" "$CRABC_ROOT/opt/crabc/libldso.so"
-    if [[ ! -f $CRABC_ROOT/lib/$LOADER.musl ]]; then
-        cp "$CRABC_ROOT/lib/$LOADER" "$CRABC_ROOT/lib/$LOADER.musl"
+    log "installing keel into $KEEL_ROOT"
+    mkdir -p "$KEEL_ROOT/opt/keel"
+    cp "$libc" "$KEEL_ROOT/opt/keel/libc.so"
+    cp "$ldso" "$KEEL_ROOT/opt/keel/libldso.so"
+    if [[ ! -f $KEEL_ROOT/lib/$LOADER.musl ]]; then
+        cp "$KEEL_ROOT/lib/$LOADER" "$KEEL_ROOT/lib/$LOADER.musl"
     fi
-    cp "$ldso" "$CRABC_ROOT/lib/$LOADER"
-    ln -sfn /opt/crabc/libc.so "$CRABC_ROOT/lib/libc.musl-x86_64.so.1"
-    # Building Git's test helper uses -lc; point the dev symlink at crabc's
+    cp "$ldso" "$KEEL_ROOT/lib/$LOADER"
+    ln -sfn /opt/keel/libc.so "$KEEL_ROOT/lib/libc.musl-x86_64.so.1"
+    # Building Git's test helper uses -lc; point the dev symlink at keel's
     # libc instead of the loader.
-    ln -sfn /opt/crabc/libc.so "$CRABC_ROOT/usr/lib/libc.so"
+    ln -sfn /opt/keel/libc.so "$KEEL_ROOT/usr/lib/libc.so"
 }
 
 fetch_git() {
@@ -179,13 +179,13 @@ fetch_nginx_tests() {
 }
 
 build_git_helper() {
-    log "building Git t/helper/test-tool under crabc"
+    log "building Git t/helper/test-tool under keel"
     rm -f "$WORK/git/version-def.h" "$WORK/git/GIT-VERSION-FILE" \
         "$WORK/git/GIT-USER-AGENT" "$WORK/git/t/helper/test-tool"
     local flags="GIT_VERSION_OVERRIDE=$GIT_VERSION \
         NO_CURL=1 NO_EXPAT=1 NO_GETTEXT=1 NO_PERL=1 NO_PYTHON=1 \
         NO_OPENSSL=1 NO_REGEX=NeedsStartEnd"
-    chroot "$CRABC_ROOT" /bin/sh -c "cd /work/git && \
+    chroot "$KEEL_ROOT" /bin/sh -c "cd /work/git && \
         make $flags GIT-BUILD-OPTIONS && \
         make -j\"\$(nproc)\" $flags t/helper/test-tool"
     sed -i "s|^GIT_TEST_TEMPLATE_DIR=.*|GIT_TEST_TEMPLATE_DIR='/usr/share/git-core/templates'|" \
@@ -244,12 +244,12 @@ run_nginx() {
 }
 
 compare_sets() {
-    local label=$1 musl=$2 crabc=$3
+    local label=$1 musl=$2 keel=$3
     shift 3
     local known=("$@")
     local only mf cf
     mf=$(mktemp); cf=$(mktemp)
-    sort -u "$musl" >"$mf"; sort -u "$crabc" >"$cf"
+    sort -u "$musl" >"$mf"; sort -u "$keel" >"$cf"
     only=$(comm -13 "$mf" "$cf" || true)
     rm -f "$mf" "$cf"
     [[ -z $only ]] && return 0
@@ -266,36 +266,36 @@ compare_sets() {
     done <<<"$only"
 
     if ((${#unexpected[@]})); then
-        printf 'crabc-only %s failures:\n' "$label" >&2
+        printf 'keel-only %s failures:\n' "$label" >&2
         printf '  %s\n' "${unexpected[@]}" >&2
         FAILED=1
     fi
     if [[ $STRICT == 1 && -n $only ]]; then
-        printf 'crabc-only %s failures (strict):\n  %s\n' "$label" "$only" >&2
+        printf 'keel-only %s failures (strict):\n  %s\n' "$label" "$only" >&2
         FAILED=1
     fi
     return 0
 }
 
 summary() {
-    local label=$1 musl=$2 crabc=$3
+    local label=$1 musl=$2 keel=$3
     printf '\n%s\n' "$label"
     if [[ $label == python ]]; then
         grep -E 'Total tests:|tests? failed:|tests OK' "$musl" | tail -3 | sed 's/^/  musl:  /'
-        grep -E 'Total tests:|tests? failed:|tests OK' "$crabc" | tail -3 | sed 's/^/  crabc: /'
+        grep -E 'Total tests:|tests? failed:|tests OK' "$keel" | tail -3 | sed 's/^/  keel: /'
     else
         printf '  musl:  %s passed, %s failed\n' \
             "$(grep -c '^PASS' "$musl" || true)" "$(grep -c '^FAIL' "$musl" || true)"
-        printf '  crabc: %s passed, %s failed\n' \
-            "$(grep -c '^PASS' "$crabc" || true)" "$(grep -c '^FAIL' "$crabc" || true)"
+        printf '  keel: %s passed, %s failed\n' \
+            "$(grep -c '^PASS' "$keel" || true)" "$(grep -c '^FAIL' "$keel" || true)"
     fi
     local only mf cf
     mf=$(mktemp); cf=$(mktemp)
     sort -u "$REPORTS/$label-musl.failed" >"$mf"
-    sort -u "$REPORTS/$label-crabc.failed" >"$cf"
+    sort -u "$REPORTS/$label-keel.failed" >"$cf"
     only=$(comm -13 "$mf" "$cf" || true)
     rm -f "$mf" "$cf"
-    [[ -n $only ]] && printf '  crabc-only: %s\n' "$(echo "$only" | tr '\n' ' ')"
+    [[ -n $only ]] && printf '  keel-only: %s\n' "$(echo "$only" | tr '\n' ' ')"
     return 0
 }
 
@@ -308,22 +308,22 @@ main() {
     local suites=("$@")
     ((${#suites[@]})) || suites=(python git nginx)
 
-    build_crabc
+    build_keel
     create_rootfs "$MUSL_ROOT"
-    if [[ ! -d $CRABC_ROOT/usr ]]; then
+    if [[ ! -d $KEEL_ROOT/usr ]]; then
         log "cloning the baseline rootfs"
-        cp -a "$MUSL_ROOT" "$CRABC_ROOT"
+        cp -a "$MUSL_ROOT" "$KEEL_ROOT"
     fi
-    install_crabc
+    install_keel
 
     host_mount /proc "$MUSL_ROOT/proc"
     host_mount /sys "$MUSL_ROOT/sys"
     host_mount /dev "$MUSL_ROOT/dev"
-    host_mount /proc "$CRABC_ROOT/proc"
-    host_mount /sys "$CRABC_ROOT/sys"
-    host_mount /dev "$CRABC_ROOT/dev"
+    host_mount /proc "$KEEL_ROOT/proc"
+    host_mount /sys "$KEEL_ROOT/sys"
+    host_mount /dev "$KEEL_ROOT/dev"
     host_mount "$WORK" "$MUSL_ROOT/work"
-    host_mount "$WORK" "$CRABC_ROOT/work"
+    host_mount "$WORK" "$KEEL_ROOT/work"
 
     fetch_git
     fetch_nginx_tests
@@ -332,9 +332,9 @@ main() {
     local s
     for s in "${suites[@]}"; do
         case $s in
-        python) run_python musl "$MUSL_ROOT"; run_python crabc "$CRABC_ROOT" ;;
-        git) run_git musl "$MUSL_ROOT"; run_git crabc "$CRABC_ROOT" ;;
-        nginx) run_nginx musl "$MUSL_ROOT"; run_nginx crabc "$CRABC_ROOT" ;;
+        python) run_python musl "$MUSL_ROOT"; run_python keel "$KEEL_ROOT" ;;
+        git) run_git musl "$MUSL_ROOT"; run_git keel "$KEEL_ROOT" ;;
+        nginx) run_nginx musl "$MUSL_ROOT"; run_nginx keel "$KEEL_ROOT" ;;
         *) die "unknown suite: $s (use python, git or nginx)" ;;
         esac
     done
@@ -343,16 +343,16 @@ main() {
         case $s in
         python)
             compare_sets python "$REPORTS/python-musl.failed" \
-                "$REPORTS/python-crabc.failed" "${PYTHON_KNOWN_DIFFS[@]}"
-            summary python "$REPORTS/python-musl.txt" "$REPORTS/python-crabc.txt"
+                "$REPORTS/python-keel.failed" "${PYTHON_KNOWN_DIFFS[@]}"
+            summary python "$REPORTS/python-musl.txt" "$REPORTS/python-keel.txt"
             ;;
         git)
-            compare_sets git "$REPORTS/git-musl.failed" "$REPORTS/git-crabc.failed"
-            summary git "$REPORTS/git-musl.txt" "$REPORTS/git-crabc.txt"
+            compare_sets git "$REPORTS/git-musl.failed" "$REPORTS/git-keel.failed"
+            summary git "$REPORTS/git-musl.txt" "$REPORTS/git-keel.txt"
             ;;
         nginx)
-            compare_sets nginx "$REPORTS/nginx-musl.failed" "$REPORTS/nginx-crabc.failed"
-            summary nginx "$REPORTS/nginx-musl.txt" "$REPORTS/nginx-crabc.txt"
+            compare_sets nginx "$REPORTS/nginx-musl.failed" "$REPORTS/nginx-keel.failed"
+            summary nginx "$REPORTS/nginx-musl.txt" "$REPORTS/nginx-keel.txt"
             ;;
         esac
     done

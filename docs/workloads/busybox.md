@@ -1,12 +1,12 @@
 # BusyBox
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
 | Package | `busybox-1.37.0-r30` (Alpine 3.23) |
 | Version | `BusyBox v1.37.0 (2025-12-16 14:19:28 UTC) multi-call binary` |
-| Interpreter | crabc `libldso.so` + `libc.so` |
+| Interpreter | keel `libldso.so` + `libc.so` |
 | Baseline | same package with stock musl 1.2.6 |
 
 ## What was tested
@@ -35,7 +35,7 @@ busybox wget -qO- http://127.0.0.1:18080/
 busybox ps | head -2
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 BusyBox v1.37.0 (2025-12-16 14:19:28 UTC) multi-call binary.
@@ -46,7 +46,7 @@ ls-ok
 awk 2
 root:x:0:0:root:/root:/bin/sh
 /etc/passwd
-hello from crabc workload test
+hello from keel workload test
 PID   USER     TIME  COMMAND
     1 root      0:04 {systemd} /sbin/init
 BUSYBOX_OK
@@ -63,5 +63,5 @@ The musl run produces byte-for-byte the same output and exits 0
 ## Notes
 
 - The applet count (304) is the same under both runtimes.
-- `busybox wget` is a useful smoke test for crabc's socket + DNS + stdio
+- `busybox wget` is a useful smoke test for keel's socket + DNS + stdio
   stack; it passes without special configuration.

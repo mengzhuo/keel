@@ -3,11 +3,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 #
-# Compare crabc against musl with a small set of microbenchmarks and a
+# Compare keel against musl with a small set of microbenchmarks and a
 # process-startup benchmark.
 #
 # The same C source is compiled twice against musl; the binaries differ only
-# in their ELF interpreter, so the same code runs on musl and with crabc's
+# in their ELF interpreter, so the same code runs on musl and with keel's
 # libldso.so/libc.so at run time.
 #
 # Usage:
@@ -58,9 +58,9 @@ if [ -n "${BENCH_CPU:-}" ]; then
     PIN=(taskset -c "$BENCH_CPU")
 fi
 run_musl() { "${PIN[@]}" env -u LD_LIBRARY_PATH "$@"; }
-run_crabc() { "${PIN[@]}" env LD_LIBRARY_PATH="$TARGET_DIR/release" "$@"; }
+run_keel() { "${PIN[@]}" env LD_LIBRARY_PATH="$TARGET_DIR/release" "$@"; }
 
-echo ">>> building crabc (release)..."
+echo ">>> building keel (release)..."
 (cd "$ROOT" && cargo build --release --workspace) || exit 1
 
 mkdir -p "$BENCH_DIR"
@@ -70,25 +70,25 @@ echo ">>> compiling benchmarks..."
 "$CC" "${CFLAGS[@]}" -Wl,--dynamic-linker="$MUSL_LIBC" \
     "$ROOT/scripts/bench/perf_test.c" -o "$BENCH_DIR/perf_musl" -lm || exit 1
 "$CC" "${CFLAGS[@]}" -Wl,--dynamic-linker="$TARGET_DIR/release/libldso.so" \
-    "$ROOT/scripts/bench/perf_test.c" -o "$BENCH_DIR/perf_crabc" -lm || exit 1
+    "$ROOT/scripts/bench/perf_test.c" -o "$BENCH_DIR/perf_keel" -lm || exit 1
 "$CC" -O2 -static "$ROOT/scripts/bench/spawn_bench.c" -o "$BENCH_DIR/spawn_bench" || exit 1
 "$CC" -O2 -fPIE -pie -Wl,--dynamic-linker="$MUSL_LIBC" \
     "$ROOT/scripts/bench/hello_main.c" -o "$BENCH_DIR/hello_musl" || exit 1
 "$CC" -O2 -fPIE -pie -Wl,--dynamic-linker="$TARGET_DIR/release/libldso.so" \
-    "$ROOT/scripts/bench/hello_main.c" -o "$BENCH_DIR/hello_crabc" || exit 1
+    "$ROOT/scripts/bench/hello_main.c" -o "$BENCH_DIR/hello_keel" || exit 1
 
-rm -f "$BENCH_DIR"/musl_*.txt "$BENCH_DIR"/crabc_*.txt
+rm -f "$BENCH_DIR"/musl_*.txt "$BENCH_DIR"/keel_*.txt
 : > "$BENCH_DIR/startup_musl.txt"
-: > "$BENCH_DIR/startup_crabc.txt"
+: > "$BENCH_DIR/startup_keel.txt"
 
 echo ">>> measuring ($ROUNDS rounds, $SPAWN_RUNS startups each)..."
 for r in $(seq 1 "$ROUNDS"); do
     run_musl timeout 300 "$BENCH_DIR/perf_musl" > "$BENCH_DIR/musl_$r.txt" || exit 1
-    run_crabc timeout 300 "$BENCH_DIR/perf_crabc" > "$BENCH_DIR/crabc_$r.txt" || exit 1
+    run_keel timeout 300 "$BENCH_DIR/perf_keel" > "$BENCH_DIR/keel_$r.txt" || exit 1
     m=$(run_musl "$BENCH_DIR/spawn_bench" "$BENCH_DIR/hello_musl" "$SPAWN_RUNS") || exit 1
-    c=$(run_crabc "$BENCH_DIR/spawn_bench" "$BENCH_DIR/hello_crabc" "$SPAWN_RUNS") || exit 1
+    c=$(run_keel "$BENCH_DIR/spawn_bench" "$BENCH_DIR/hello_keel" "$SPAWN_RUNS") || exit 1
     echo "$m" >> "$BENCH_DIR/startup_musl.txt"
-    echo "$c" >> "$BENCH_DIR/startup_crabc.txt"
+    echo "$c" >> "$BENCH_DIR/startup_keel.txt"
 done
 
 median() {
@@ -105,22 +105,22 @@ keys=$(awk -F'\t' '$1 != "sink" && $1 != "thread_runs" { print $1 }' \
     "$BENCH_DIR/musl_1.txt")
 
 echo
-printf "%-24s %14s %14s %12s\n" "benchmark" "musl ns/op" "crabc ns/op" "crabc/musl"
+printf "%-24s %14s %14s %12s\n" "benchmark" "musl ns/op" "keel ns/op" "keel/musl"
 printf "%-24s %14s %14s %12s\n" "------------------------" "--------------" "--------------" "------------"
 for k in $keys; do
     m=$(awk -F'\t' -v k="$k" '$1 == k { print $2 }' "$BENCH_DIR"/musl_*.txt | median)
-    c=$(awk -F'\t' -v k="$k" '$1 == k { print $2 }' "$BENCH_DIR"/crabc_*.txt | median)
+    c=$(awk -F'\t' -v k="$k" '$1 == k { print $2 }' "$BENCH_DIR"/keel_*.txt | median)
     ratio=$(awk -v m="$m" -v c="$c" 'BEGIN { printf "%.2f", c / m }')
     printf "%-24s %14s %14s %11sx\n" "$k" "$m" "$c" "$ratio"
 done
 m=$(median < "$BENCH_DIR/startup_musl.txt")
-c=$(median < "$BENCH_DIR/startup_crabc.txt")
+c=$(median < "$BENCH_DIR/startup_keel.txt")
 ratio=$(awk -v m="$m" -v c="$c" 'BEGIN { printf "%.2f", c / m }')
 printf "%-24s %14s %14s %11sx\n" "process_startup" "$m" "$c" "$ratio"
 
-runs=$(awk -F'\t' '$1 == "thread_runs" { print $2 }' "$BENCH_DIR"/crabc_*.txt | sort -u | tr '\n' ' ')
+runs=$(awk -F'\t' '$1 == "thread_runs" { print $2 }' "$BENCH_DIR"/keel_*.txt | sort -u | tr '\n' ' ')
 echo
 echo "baseline: $MUSL_LIBC"
-echo "crabc:    $TARGET_DIR/release/libldso.so"
+echo "keel:    $TARGET_DIR/release/libldso.so"
 echo "threads:  $runs (expected 2000 per round)"
 echo "results:  $BENCH_DIR"

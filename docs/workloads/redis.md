@@ -1,6 +1,6 @@
 # Redis
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
@@ -26,11 +26,11 @@ the counters are deterministic.
 
 ```sh
 export PATH=/usr/bin:/bin
-rm -f /tmp/crabc.rdb
+rm -f /tmp/keel.rdb
 redis-server --version
 redis-cli --version
 redis-server --port 16379 --daemonize yes --dir /tmp \
-  --dbfilename crabc.rdb --save "" --appendonly no
+  --dbfilename keel.rdb --save "" --appendonly no
 sleep 0.5
 redis-cli -p 16379 ping
 redis-cli -p 16379 set k hello
@@ -45,7 +45,7 @@ redis-cli -p 16379 dbsize
 redis-cli -p 16379 shutdown nosave
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 Redis server v=8.4.2 sha=00000000:1 malloc=libc bits=64 build=%llx

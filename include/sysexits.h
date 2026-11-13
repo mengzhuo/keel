@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYSEXITS_H
-#define _CRABC_SYSEXITS_H
+#ifndef _KEEL_SYSEXITS_H
+#define _KEEL_SYSEXITS_H
 
 /* musl 1.2.6 compatibility macros */
 #define EX_CANTCREAT 73

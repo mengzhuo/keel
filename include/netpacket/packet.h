@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_NETPACKET_PACKET_H
-#define _CRABC_NETPACKET_PACKET_H
+#ifndef _KEEL_NETPACKET_PACKET_H
+#define _KEEL_NETPACKET_PACKET_H
 #include <sys/socket.h>
 struct sockaddr_ll { unsigned short sll_family; unsigned short sll_protocol; int sll_ifindex; unsigned short sll_hatype; unsigned char sll_pkttype; unsigned char sll_halen; unsigned char sll_addr[8]; };
 

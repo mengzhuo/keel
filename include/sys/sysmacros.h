@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_SYSMACROS_H
-#define _CRABC_SYS_SYSMACROS_H
+#ifndef _KEEL_SYS_SYSMACROS_H
+#define _KEEL_SYS_SYSMACROS_H
 
 /* musl 1.2.6 compatibility macros */
 #define major(x) ((unsigned)( (((x)>>31>>1) & 0xfffff000) | (((x)>>8) & 0x00000fff) ))

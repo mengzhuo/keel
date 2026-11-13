@@ -4,7 +4,7 @@
 //! `ldd`: print the shared-library dependencies of a dynamic executable.
 //!
 //! musl's `ldd` is a two-line shell wrapper around the loader's `--list`
-//! mode.  crabc's loader is deliberately not a command-line interpreter, so
+//! mode.  keel's loader is deliberately not a command-line interpreter, so
 //! this implementation parses ELF files directly.  The output is the same
 //! shape (`name => path`) but omits load addresses.
 
@@ -146,10 +146,10 @@ fn resolve(parent: &Path, elf: &ElfFile, name: &str, inherited: &[PathBuf]) -> O
     for dir in inherited {
         push_unique(&mut dirs, dir.clone());
     }
-    // Use the loader's normal system order last.  /usr/lib/crabc is a
-    // fallback for a host that has crabc installed but not as the system
-    // libc; crabc-linked objects normally reach it through RPATH/RUNPATH.
-    for fallback in ["/lib", "/usr/lib", "/usr/local/lib", "/usr/lib/crabc"] {
+    // Use the loader's normal system order last.  /usr/lib/keel is a
+    // fallback for a host that has keel installed but not as the system
+    // libc; keel-linked objects normally reach it through RPATH/RUNPATH.
+    for fallback in ["/lib", "/usr/lib", "/usr/local/lib", "/usr/lib/keel"] {
         push_unique(&mut dirs, PathBuf::from(fallback));
     }
 

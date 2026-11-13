@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! crabc startup object (`crt1.o` / `Scrt1.o`).
+//! keel startup object (`crt1.o` / `Scrt1.o`).
 //!
 //! The entry point only marshals the kernel stack into the
 //! `__libc_start_main(main, argc, argv, init, fini, rtld_fini)` ABI.
-//! Dynamic constructors are run by the crabc loader before the entry point,
+//! Dynamic constructors are run by the keel loader before the entry point,
 //! so no init/fini callbacks are passed here.
 
 #![no_std]

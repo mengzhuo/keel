@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_NETINET_IF_ETHER_H
-#define _CRABC_NETINET_IF_ETHER_H
+#ifndef _KEEL_NETINET_IF_ETHER_H
+#define _KEEL_NETINET_IF_ETHER_H
 #include <stdint.h>
 #include <sys/types.h>
 #include <net/ethernet.h>

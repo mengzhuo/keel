@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_STROPTS_H
-#define _CRABC_STROPTS_H
+#ifndef _KEEL_STROPTS_H
+#define _KEEL_STROPTS_H
 #include <sys/ioctl.h>
 #define __SID ('S' << 8)
 #define I_PUSH (__SID | 2)

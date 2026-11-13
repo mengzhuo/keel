@@ -2,10 +2,10 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Check that public header macros agree with crabc's Rust constants.
+"""Check that public header macros agree with keel's Rust constants.
 
 Every Rust numeric constant that also exists as an object-like macro in the
-crabc headers is evaluated (with header macros resolved recursively) and
+keel headers is evaluated (with header macros resolved recursively) and
 compared numerically.  This catches a header being updated with a musl value
 that the Rust implementation does not actually use.
 
@@ -234,7 +234,7 @@ if __name__ == '__main__':
             else:
                 mism.append((arch, name, next(iter(vals)), ent['body'], rv, cv))
 
-        # musl exposes syscall numbers as __NR_name while crabc's Rust code
+        # musl exposes syscall numbers as __NR_name while keel's Rust code
         # uses SYS_NAME.  Check that the two spellings agree too.
         for name, ent in tab.items():
             if not name.startswith('__NR_') or ent['kind'] != 'object':

@@ -3,7 +3,7 @@
 
 //! Rust implementations of the commands provided by Alpine's `musl-utils`.
 //!
-//! The package installs a single `crabc-utils` multicall binary and symlinks
+//! The package installs a single `keel-utils` multicall binary and symlinks
 //! named after each command.  Dispatching on `argv[0]` keeps the installed
 //! interface identical to `musl-utils` without duplicating the runtime.
 
@@ -35,7 +35,7 @@ fn main() -> ExitCode {
     let name = Path::new(&argv0)
         .file_name()
         .and_then(|s| s.to_str())
-        .unwrap_or("crabc-utils");
+        .unwrap_or("keel-utils");
 
     let (command, rest): (String, Vec<std::ffi::OsString>) = if COMMANDS.contains(&name) {
         (name.to_string(), args.collect())
@@ -54,18 +54,18 @@ fn main() -> ExitCode {
         "ldconfig" => ldconfig::main(rest),
         "-h" | "--help" | "help" => {
             println!(
-                "crabc-utils: Rust implementations of musl-utils commands\n\
+                "keel-utils: Rust implementations of musl-utils commands\n\
                  commands: {}",
                 COMMANDS.join(", ")
             );
             ExitCode::SUCCESS
         }
         "-V" | "--version" | "version" => {
-            println!("crabc-utils {}", env!("CARGO_PKG_VERSION"));
+            println!("keel-utils {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         _ => {
-            eprintln!("crabc-utils: unknown command: {command}");
+            eprintln!("keel-utils: unknown command: {command}");
             usage(name)
         }
     }

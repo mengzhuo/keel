@@ -4,7 +4,7 @@
 //! `getent`: query the system databases.
 //!
 //! The passwd/group/hosts/services/protocols/networks/shells databases are
-//! read directly from `/etc`, so the command works identically on a crabc
+//! read directly from `/etc`, so the command works identically on a keel
 //! system without relying on NSS modules.  Host name resolution falls back
 //! to the platform resolver when `/etc/hosts` does not contain the name.
 

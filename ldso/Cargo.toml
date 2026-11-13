@@ -1,10 +1,10 @@
 [package]
-name = "crabc-ldso"
-version = "0.7.8"
+name = "keel-ldso"
+version = "0.8.0"
 edition = "2021"
 description = "A Rust dynamic linker for musl-linked ELF binaries"
 license = "BSD-3-Clause"
-repository = "https://github.com/mengzhuo/crabc"
+repository = "https://github.com/mengzhuo/keel"
 readme = "README.md"
 
 [lib]

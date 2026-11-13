@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_NETINET_UDP_H
-#define _CRABC_NETINET_UDP_H
+#ifndef _KEEL_NETINET_UDP_H
+#define _KEEL_NETINET_UDP_H
 #include <netinet/in.h>
 struct udphdr { uint16_t source, dest, len, check; };
 

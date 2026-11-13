@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_SYS_IOCTL_H
-#define _CRABC_SYS_IOCTL_H
+#ifndef _KEEL_SYS_IOCTL_H
+#define _KEEL_SYS_IOCTL_H
 #include <stdarg.h>
 struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; };
 int ioctl(int, unsigned long, ...);

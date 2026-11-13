@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_BYTESWAP_H
-#define _CRABC_BYTESWAP_H
+#ifndef _KEEL_BYTESWAP_H
+#define _KEEL_BYTESWAP_H
 #include <features.h>
 #include <stdint.h>
 

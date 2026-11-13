@@ -1,6 +1,6 @@
 # Git
 
-**Status: ✅ passes under crabc**
+**Status: ✅ passes under keel**
 
 | | |
 |---|---|
@@ -50,7 +50,7 @@ git log --oneline | head -1
 git fsck --no-progress
 ```
 
-## Output under crabc
+## Output under keel
 
 ```text
 git version 2.52.0

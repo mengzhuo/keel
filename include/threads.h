@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
-#ifndef _CRABC_THREADS_H
-#define _CRABC_THREADS_H
+#ifndef _KEEL_THREADS_H
+#define _KEEL_THREADS_H
 #include <stddef.h>
 #include <features.h>
 
