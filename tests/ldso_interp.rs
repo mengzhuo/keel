@@ -10,8 +10,8 @@ fn ldso_runs_tiny_pie() {
     let tiny_src = fixtures.join("tiny.c");
     let tiny_bin = fixtures.join("tiny_ldso");
 
-    let ldso_path = manifest_dir.join("target/debug/libldso.so");
-    assert!(ldso_path.exists(), "libldso.so not found at {}", ldso_path.display());
+    let ldso_path = manifest_dir.join("target/debug/libc.so");
+    assert!(ldso_path.exists(), "libc.so not found at {}", ldso_path.display());
 
     let status = Command::new("musl-gcc")
         .args([

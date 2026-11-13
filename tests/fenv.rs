@@ -4,7 +4,7 @@
 mod common;
 
 #[test]
-fn fenv_round_and_except_under_libldso() {
+fn fenv_round_and_except_under_libc() {
     let output = common::run_fixture("fenv", &[]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);

@@ -81,7 +81,7 @@ jobs:
     needs: [test, macro-parity]
     runs-on: ubuntu-latest
     # Must match the "Environment" field of the trusted publisher configured
-    # on crates.io for keel-rt, keel-libc, keel-ldso and keel-utils.
+    # on crates.io for keel-rt, keel-libc and keel-utils.
     environment: release
     steps:
       - uses: actions/checkout@v7
@@ -94,7 +94,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           cargo metadata --no-deps --format-version 1 > /tmp/metadata.json
-          for pkg in keel-rt keel-libc keel-ldso keel-utils; do
+          for pkg in keel-rt keel-libc keel-utils; do
             got=$(jq -r --arg p "$pkg" '.packages[] | select(.name == $p) | .version' /tmp/metadata.json)
             if [ "$got" != "$version" ]; then
               echo "::error::$pkg is version $got but tag $GITHUB_REF_NAME expects $version"
@@ -116,11 +116,11 @@ jobs:
       - name: Build release artifacts
         run: |
           set -eux
-          cargo build --release -p keel-libc -p keel-ldso --target x86_64-unknown-linux-gnu
+          cargo build --release -p keel-libc --target x86_64-unknown-linux-gnu
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
             cargo build --release -p keel-rt --target x86_64-unknown-linux-musl
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-            cargo build --release -p keel-libc -p keel-ldso --target aarch64-unknown-linux-gnu
+            cargo build --release -p keel-libc --target aarch64-unknown-linux-gnu
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
             cargo build --release -p keel-rt --target aarch64-unknown-linux-musl
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER=riscv64-linux-gnu-gcc \
@@ -166,7 +166,7 @@ jobs:
           set -eux
           version="${VERSION#v}"
           musl-gcc -fPIE -pie -D_GNU_SOURCE -I include \
-            -Wl,--dynamic-linker=/usr/lib/keel/libldso.so \
+            -Wl,--dynamic-linker=/usr/lib/keel/libc.so \
             -L target/x86_64-unknown-linux-gnu/release \
             tests/fixtures/compat_test.c -Wl,--allow-shlib-undefined -lpthread -lc \
             -o /tmp/compat_apk
@@ -195,21 +195,6 @@ jobs:
           case "$code" in
             200) echo "keel-libc $version is already published; skipping" ;;
             404) RUSTFLAGS='-C panic=abort' cargo publish -p keel-libc --registry crates-io ;;
-            *) echo "::error::unexpected crates.io status $code"; exit 1 ;;
-          esac
-
-      - name: Publish keel-ldso
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          code=$(curl -s -o /dev/null -w '%{http_code}' \
-            -A 'keel-release (+https://github.com/mengzhuo/keel)' \
-            "https://crates.io/api/v1/crates/keel-ldso/$version")
-          case "$code" in
-            200) echo "keel-ldso $version is already published; skipping" ;;
-            404) RUSTFLAGS='-C panic=abort' cargo publish -p keel-ldso --registry crates-io ;;
             *) echo "::error::unexpected crates.io status $code"; exit 1 ;;
           esac
 

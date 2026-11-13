@@ -9,22 +9,37 @@
 | Path | What it is |
 |------|------------|
 | `src/` | `keel` binary (package `keel-rt`): maps a standalone PIE/static ELF and jumps to its entry. It is **not** the dynamic linker. |
-| `libc/` | Package `keel-libc`; `[lib] name = "c"` produces `target/debug/libc.so` and `libc.a`. |
-| `ldso/` | Package `keel-ldso`; produces `target/debug/libldso.so`. `_start` is `global_asm!` in `ldso/src/lib.rs`. |
+| `libc/` | Package `keel-libc`; `[lib] name = "c"` produces the combined loader/libc `target/debug/libc.so` and `libc.a`. `_start` and the dynamic linker live in `libc/src/ldso/`. |
 | `include/` | Hand-maintained C headers used by fixtures and packaged in `keel-dev`. |
 | `crt/` | Rust `global_asm!` startup objects (`crt1.o`, `Scrt1.o`, `crti.o`, `crtn.o`); built by `scripts/build-crt.sh`. |
 | `utils/` | Package `keel-utils`; Rust multicall binary for `getconf`, `getent`, `iconv`, `ldd`, `ldconfig`. |
 | `tests/` | Root-package integration tests; C fixtures live in `tests/fixtures/`. |
 | `libc-test-harness/` | Shell runner for upstream `libc-test`; reports in `libc-test-harness/reports/`. |
-| `scripts/local-ci.sh` | Reproduces CI build/test in podman/docker (it does not run the harness). |
+| `scripts/local-ci.sh` | Runs `cargo build/test --workspace` in the Ubuntu CI image (it does not run the harness). |
+| `scripts/alpine-ci.sh` | Runs `cargo build/test --workspace` in latest Alpine with the nightly musl toolchain and Debian-compatible shims. |
 | `scripts/riscv-smoke.sh` | Cross-builds and runs riscv64 fixtures under `qemu-riscv64`. |
 | `scripts/bench.sh` | Compares keel with musl on microbenchmarks and startup. |
 
 ## Build And Test
 
+**For local verification, run all tests in a container, not on the host.**
+The host `target/` in this lab may still contain artifacts from the
+pre-rename `/home/root/crabc` checkout, so `utils/tests/cli.rs` embeds the old
+`CARGO_BIN_EXE_keel-utils` path and fails with `No such file or directory`.
+Use `./scripts/local-ci.sh` for the Ubuntu CI image, or
+`./scripts/alpine-ci.sh` for latest Alpine; if you reuse this checkout's
+`target/`, run `cargo clean` first. The Ubuntu container needs `gcc`,
+`musl-gcc`, `file`, and binutils (`readelf`/`objdump`), not just Rust. Run the
+libc-test harness and parity scripts inside the container after
+`cargo build --workspace`; `local-ci.sh` does not invoke them.
+
 ```bash
-cargo build --workspace      # required before tests: builds loader, libc.so/a, libldso.so
-cargo test --workspace       # all integration tests
+./scripts/local-ci.sh        # Ubuntu container: cargo build + cargo test --workspace
+./scripts/alpine-ci.sh       # latest Alpine container with musl toolchain
+
+# Inside the container:
+cargo build --workspace      # required before tests: builds the standalone keel binary and libc.so/a
+cargo test --workspace       # all integration tests, after the build above
 cargo test --test math       # one test file, after the build above
 
 ./scripts/build-crt.sh       # Rust-generated startup objects (dist/crt/)
@@ -34,16 +49,19 @@ cargo test --test math       # one test file, after the build above
 ./scripts/workload-suites.sh # upstream CPython/Git/nginx suites vs musl (root + Docker)
 ```
 
-- `scripts/macro-parity.sh` downloads musl 1.2.6 into `~/.cache/keel`, generates its headers for x86_64/aarch64/riscv64, and compares the expansion of every macro defined by both keel and musl in both C and C++. It requires `gcc`/`g++`, `aarch64-linux-gnu-gcc`/`g++` and `riscv64-linux-gnu-gcc`/`g++`. Intentional differences live in `tests/macro-parity.allowlist`; the only current entry is keel's 64-bit x86_64 `long double` ABI. `tests/macro-parity.coverage` pins the expected ABI-macro gap at zero, and `tests/header_rust_consistency.py` checks that every numeric header macro matches the corresponding Rust constant.
+- `scripts/macro-parity.sh` downloads musl 1.2.6 into `~/.cache/keel`, generates its headers for x86_64/aarch64/riscv64, and compares the expansion of every macro defined by both keel and musl in both C and C++. It requires `gcc`/`g++`, `aarch64-linux-gnu-gcc`/`g++` and `riscv64-linux-gnu-gcc`/`g++`. Intentional differences live in `tests/macro-parity.allowlist`; all current entries are keel's 64-bit x86_64 `long double` ABI (in `float.h` and `values.h`). `tests/macro-parity.coverage` pins the missing-ABI-macro count at zero, and `tests/header_rust_consistency.py` checks that every numeric header macro matches the corresponding Rust constant.
 
-- **Bare `cargo build` only builds the root `keel-rt` package (the `keel` loader).** The root `Cargo.toml` is both workspace and package, so `libc.so`/`libldso.so` are not rebuilt. Use `--workspace`, or `-p keel-libc` / `-p keel-ldso`.
-- `-p libc` and `-p ldso` do not exist. The artifact names come from `[lib] name` (`c`, `ldso`), not the package names.
-- Even `cargo test --workspace` does not build `libc.so`/`libldso.so`; integration tests assert those files exist. Always run `cargo build --workspace` first.
+- **Bare `cargo build` only builds the root `keel-rt` package (the `keel` loader).** The root `Cargo.toml` is both workspace and package, so `libc.so`/`libc.a` are not rebuilt. Use `--workspace` or `-p keel-libc`.
+- `-p libc` and `-p ldso` do not exist. The artifact name comes from `[lib] name = "c"`, not the package name.
+- Even `cargo test --workspace` does not build `libc.so`; integration tests assert that file exists. Always run `cargo build --workspace` first.
 - Tests and the harness hardcode `target/debug`; `cargo test --release` still looks for debug artifacts. Stick to the dev profile.
 - Cargo stops at the first failing test binary; use `cargo test --workspace --no-fail-fast` when you need the full picture.
 - Toolchain is nightly (`rust-toolchain.toml`) and requires `musl-gcc`. `static_hello` also needs host CRT objects under `/usr/lib/<arch>-linux-musl/`.
 - Dev profile is intentional: `opt-level = 2`, `overflow-checks = false`, `panic = "abort"`. The release profile is size-oriented (`opt-level = "s"`, `strip = "symbols"`, `panic = "abort"`), and `.cargo/config.toml` sets `RUST_TEST_THREADS=1` plus `-C force-unwind-tables=no`. Do not change these without re-running the size and performance measurements.
 - New fixture binaries are written into `tests/fixtures/`; add each output path to the manual list in `.gitignore`.
+- `tests/compat.rs` checks `glob("/tmp/*")`; a fresh container has an empty `/tmp`. `local-ci.sh` seeds a file, but manual runs need `touch /tmp/keel-ci-seed` first.
+- On Alpine, cargo drops the `cdylib` unless `RUSTFLAGS='-C target-feature=-crt-static'`; static fixtures also need `musl-gcc` to add `-no-pie` and `/usr/lib/<arch>-linux-musl/crt*.o` symlinks. `scripts/alpine-ci.sh` sets these up.
+- If the container cannot reach the package/rustup registries, set `HTTP_PROXY`/`HTTPS_PROXY`; in this lab use `http://10.0.0.1:8123`. Both CI scripts forward them.
 
 ## Test Pattern
 
@@ -51,7 +69,7 @@ Most `tests/<name>.rs` (canonical: `tests/math.rs`) use `tests/common/mod.rs`:
 
 1. `common::run_fixture(name, extra)` compiles `tests/fixtures/<name>_test.c` with
    `musl-gcc -fPIE -pie -I include/ ... -Wl,--dynamic-linker
-   target/debug/libldso.so -L target/debug -lc -Wl,--allow-shlib-undefined`;
+   target/debug/libc.so -L target/debug -lc -Wl,--allow-shlib-undefined`;
 2. it runs the binary with `LD_LIBRARY_PATH=target/debug`;
 3. the test asserts exact stdout (for example `"math ok\n"`).
 
@@ -60,9 +78,9 @@ Pass extra compiler flags through the `extra` slice. Math adds
 `common::compile_static(src, bin)` builds a static fixture against `libc.a`
 with the host musl CRT objects; tests then run it directly and through the
 standalone `loader`. Tests that build DSOs or custom loader layouts still
-invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/wave4.rs` and `tests/wave5.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup.
+invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/wave4.rs` and `tests/wave5.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup. They skip when `LIBC_TEST_DIR` (default `/home/root/libc-test`) is absent, so set it to a nonexistent path when you only want the local fixtures.
 
-`libc` and `ldso` set `test = false`; all coverage is through these root integration tests.
+`libc` sets `test = false`; all coverage is through these root integration tests.
 
 ## Adding A libc Function
 
@@ -74,9 +92,9 @@ invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so e
 
 ## Implementation Notes
 
-- `libc/src/lib.rs` is a single large `no_std` file. Subsystems are `include!`-ed, not `mod`-declared. Architecture selection, the `Syscalls` trait/implementations and the per-architecture syscall-number tables live in `libc/src/arch.rs`, `ldso/src/arch.rs` and the loader's `src/arch.rs` (the first two are `include!`-ed; the loader uses a normal module). The compatibility surface is split across area files: `netdb_extra.rs`, `compat_extra.rs`, `stdio_extra.rs`, `ns_parse.rs`, `fts.rs`, `ifaddrs.rs`, `dl_extra.rs`, `path_extra.rs`, `wordexp.rs`, `des.rs`, and `getopt_impl.rs`.
+- `libc/src/lib.rs` is a single large `no_std` file. Most subsystems are `include!`-ed; the dynamic linker is the normal `mod ldso`. Architecture selection, the `Syscalls` trait/implementations and the per-architecture syscall-number tables live in `libc/src/arch.rs`, `libc/src/ldso/arch.rs` and the standalone loader's `src/arch.rs` (the first two are `include!`-ed; the standalone loader uses a normal module). The compatibility surface is split across area files: `netdb_extra.rs`, `compat_extra.rs`, `stdio_extra.rs`, `ns_parse.rs`, `fts.rs`, `ifaddrs.rs`, `dl_extra.rs`, `path_extra.rs`, `wordexp.rs`, `des.rs`, and `getopt_impl.rs`.
 - `libc/src/alloc.rs` implements `malloc`/`free`/`calloc`/`realloc` with 16-byte size classes from 32 to 32768 bytes, mmap-backed chunks, direct mmap for large blocks, and a global spin lock. `fork()` resets the lock in the child. Joinable thread slots are reused. The thread table starts with a static 1024-slot chunk and grows in linked 1024-slot mmap chunks; free slots form a linked list protected by a futex lock. `fork()` rebuilds that list for the child and keeps only the calling thread.
-- The initial thread is registered directly in `THREADS[0]` by `__libc_start_main()`; do not call `pthread_self()` there. `alloc_thread_slot()` excludes slot 0 from the free list, and `thread_allocator_after_fork()` updates that slot without scanning the table when the free list has not been built. Scanning the 1024-slot `Thread` table faults in roughly 1 MiB and used to make process startup about 3x musl. `libc.so` is linked with `-Wl,-Bsymbolic` and a generated `--dynamic-list` for the weak `__keel_*_thread_tls` hooks, matching musl's symbolic libc while keeping the loader overrides preemptible.
+- The initial thread is registered directly in `THREADS[0]` by `__libc_start_main()`; do not call `pthread_self()` there. `alloc_thread_slot()` excludes slot 0 from the free list, and `thread_allocator_after_fork()` updates that slot without scanning the table when the free list has not been built. Scanning the 1024-slot `Thread` table faults in roughly 1 MiB and used to make process startup about 3x musl. `libc.so` is linked with `-Wl,-Bsymbolic-functions`; public data stays preemptible for COPY relocations, and `_start` self-relocates the RELA table before the loader runs.
 - TCB offset `0x40` holds the current thread's `Thread *`. Every TCB constructor zeros it, `expand_thread_tls()` preserves it, and `thread_entry()` sets it for new threads. `pthread_self()`/`find_thread()` use it to avoid scanning the table, falling back to a scan only when the pointer is absent or stale. Like the getrandom slot, it is accessed with unaligned loads/stores because TP can be 4-byte aligned.
 - TCB offset `0x20` (reserved in the static TLS layout) is the per-thread list of dynamic TLSDESC extension blocks. Modules loaded after startup get `__tlsdesc_dynamic`, whose descriptor argument packs `(module << 32) | offset`; the resolver lazily maps a per-thread copy of the module's `.tdata` so threads created before `dlopen` see the initial values and keep their own writes. Startup modules keep the static descriptor. Both resolvers must be assembly stubs that preserve every register except the return value: the aarch64 compiler keeps TP in `x2` across the call, and a normal Rust function clobbers it. On aarch64/riscv64 `__tls_get_addr` resolves post-startup modules from the same extension list so `dlsym` and TLSDESC share one copy; x86_64 has no TLSDESC and keeps using the expanded main block.
 - `__tlsdesc_static` and `__tlsdesc_dynamic` are `.hidden`; `__keel_tlsdesc_dynamic` is the Rust helper. RISC-V's cross toolchain emits `R_RISCV_TLS_DTPMOD64`/`__tls_get_addr` rather than TLSDESC today, so the RISC-V dynamic stub is currently dormant but must stay in sync.
@@ -87,10 +105,10 @@ invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so e
 - Regex bytecode, bracket tables, per-bracket ranges and the match stack are realloc-grown (jump offsets are 32-bit). Passwd/group parsing uses `getline` plus growable field/member buffers. AIO completion records and wordexp word buffers are dynamically allocated. These follow musl's `getline`/realloc/dynamic-list approach rather than fixed tables.
 - Internal path and line buffers use Linux's PATH_MAX (4096) or `getline`, including `dladdr`/`dlinfo` names, `/proc/self/maps`, `/proc/self/exe`, `fgetln` and `getmntent`. Public `limits.h` macros stay musl-compatible where musl differs from Linux (for example `HOST_NAME_MAX`, `ARG_MAX`, `NGROUPS_MAX`).
 - `errno` is thread-local for dynamically linked programs: it lives at offset `0x30` in the 256-byte TCB that `ldso` allocates for every thread (`0x00` self pointer, `0x08` generation, `0x28` stack canary). `__libc_start_main` calls `errno_init()`; when no TCB is present (static executables), `errno` falls back to a process-global slot. Internal code must use the `ERRNO!()` accessor, never a direct static.
-- `pthread_create()` carves the TLS block out of the top of an application-provided stack when it fits. This mirrors musl and keeps the loader's separate TLS mmap from landing directly below a `MAP_GROWSDOWN` stack, which would block stack growth (`LTP mmap18`). `__keel_init_thread_tls_at` in `libldso.so` initializes the embedded block.
+- `pthread_create()` carves the TLS block out of the top of an application-provided stack when it fits. This mirrors musl and keeps the loader's separate TLS mmap from landing directly below a `MAP_GROWSDOWN` stack, which would block stack growth (`LTP mmap18`). `__keel_init_thread_tls_at` in `libc.so` initializes the embedded block.
 - `dlopen()` follows musl: `LoadedObject` tracks its PT_LOAD address range, direct `DT_NEEDED` indices, `needed_by` parent and RUNPATH/RPATH. `RTLD_NOLOAD`/`NODELETE`/`GLOBAL`/`LOCAL` and dependency-scope `dlsym` are implemented. The public `dlsym` is a tiny per-arch naked wrapper that passes the caller's return address to `__ldso_dlsym`, which is what makes `RTLD_NEXT` work. `dlclose` validates the handle but, like musl, never unloads modules or runs destructors.
 - `keel-utils` is Rust, not a copy of Alpine's C utilities. It is a statically linked multicall binary for `getconf`/`getent`/`iconv`/`ldd`/`ldconfig`. `ldd` parses ELF directly; `ldconfig` reads SONAME entries directly.
-- `keel-dev` ships the 217-file musl-dev-compatible header set, `libc.a` and Rust `global_asm!` CRT objects including `rcrt1.o`. Static PIE, static non-PIE, constructors, initial-exec TLS and static pthread TLS work; `init_static_tls()` builds a TCB when no dynamic loader is present, and `pthread_create()` allocates static thread TLS from the saved PT_TLS image.
+- `keel-dev` ships the 224-header musl-dev-compatible set (217 musl-dev headers plus 7 keel extras), `libc.a` and Rust `global_asm!` CRT objects including `rcrt1.o`. Static PIE, static non-PIE, constructors, initial-exec TLS and static pthread TLS work; `init_static_tls()` builds a TCB when no dynamic loader is present, and `pthread_create()` allocates static thread TLS from the saved PT_TLS image.
 - `poll()` on aarch64/riscv64 must convert the millisecond timeout to a `struct timespec` before calling `ppoll`; Rust std calls `poll(..., 0)` during startup and would otherwise block forever.
 - The byte loops in `memset_words()` use `write_volatile`; without it LLVM recognises the loop as a `memset` idiom on aarch64 and emits a recursive call to `memset`, overflowing the stack for small unaligned fills (Rust `HashSet` hit this).
 - `match_sym()` must reject `SHN_UNDEF` symbols. ET_EXEC objects can carry a non-zero `st_value` (the PLT stub) for an undefined function; resolving it makes the PLT jump to itself.
@@ -101,14 +119,14 @@ invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so e
 - The `keel` runtime package installs the canonical `/lib/ld-musl-<arch>.so.1` and `/lib/libc.musl-<arch>.so.1` symlinks, provides `musl` and `so:libc.musl-<arch>.so.1`, and replaces `musl`; installing it purges the `musl` package record and switches the system libc.
 - `keel-dev` provides both `libc-dev` and `musl-dev` and replaces `musl-dev`; installing it purges Alpine `musl-dev`, while `build-base`/`g++` dependents remain satisfied. `keel-utils` provides `libc-utils`, `musl-utils`, and `cmd:*`, and replaces `musl-utils`; installing it purges `musl-utils` and `scanelf`.
 - When a new DSO is loaded, TLS layout offsets are assigned **before** relocations (aarch64 TLSDESC/TPOFF embed them) and the relocated `.tdata` image is copied into threads **after** relocations. Do not merge these steps: doing so either corrupts TLSDESC offsets or copies unrelocated pointers.
-- `libc` and `ldso` are `no_std`; only the `src/` loader uses `std`.
+- The combined `libc`/`ldso` is `no_std`; only the standalone `src/` loader uses `std`.
 - C ABI exports need `#[no_mangle] pub unsafe extern "C" fn ...`. A plain Rust function will not appear in `libc.so`/`libc.a`.
 - `libm = "0.2"` is only a stopgap for functions not yet ported. When porting one, remove its `libm::` call.
 - `long double`: keel's x86_64 ABI is 64-bit (fixtures pass `-mlong-double-64`); aarch64/riscv64 use `f128` signatures, though `math_long_double.rs` currently computes through `f64`.
-- `ldso/build.rs` links with `-nostartfiles -nostdlib -e _start -Wl,-Bsymbolic`; keep `_start` as the `global_asm!` entry in `ldso/src/lib.rs`.
-- CI (`.github/workflows/ci.yml`) runs build + `cargo test --workspace` natively on x86_64 and aarch64 (`ubuntu-24.04-arm`). The native riscv64 entry (RISE `ubuntu-24.04-riscv`) is currently commented out because the runner does not come up; the x86-hosted `riscv64-cross` job still cross-builds the musl target and runs the qemu smoke suite (non-blocking, 10 minute cap).
+- `libc/build.rs` links `libc.so` with `-Wl,-Bsymbolic-functions`; keep `_start` as the weak `global_asm!` entry in `libc/src/ldso/mod.rs`. `_start` applies the interpreter's RELATIVE relocations; the loader later resolves its non-RELATIVE entries and skips the RELATIVE ones. The interpreter registers itself as `libc.so` before dependencies so `DT_NEEDED libc.so` resolves to the existing mapping.
+- CI (`.github/workflows/ci.yml`) runs build + `cargo test --workspace` natively on x86_64 and aarch64 (`ubuntu-24.04-arm`). It caches libc-test by upstream HEAD SHA and sets `LIBC_TEST_DIR`, so `wave4`/`wave5` run regression/functional inside `cargo test`; the API suite runs on both arches and the math suite on x86_64. The native riscv64 entry (RISE `ubuntu-24.04-riscv`) is currently commented out because the runner does not come up; the x86-hosted `riscv64-cross` job still cross-builds the musl target and runs the qemu smoke suite (non-blocking, 10 minute cap).
 - `scripts/local-ci.sh` accepts `CI_RUNNER` (podman/docker) and `CI_IMAGE` overrides.
-- All public musl function symbols are exported from `libc.so` or `libldso.so`. Because musl's `libc.so` is also its loader, `scripts/parity-check.sh symbols` compares musl against the union of keel's two libraries. `libc.so` exports a `__tls_get_addr` entry so C++ linkers can resolve `libstdc++.so`; the loader installs its multi-module resolver through `__keel_set_tls_get_addr` before constructors, and static executables use the module-0 fallback. The resolver (`res_*`) and utmp/utmpx are real implementations; `_init`, `_fini`, and `_dl_debug_*` are linker internals and are intentionally absent.
+- All public musl function symbols are exported from the combined `libc.so`. Because musl's `libc.so` is also its loader, `scripts/parity-check.sh symbols` compares the two single-library symbol sets. `libc.so` exports a `__tls_get_addr` entry so C++ linkers can resolve `libstdc++.so`; the loader installs its multi-module resolver through `__keel_set_tls_get_addr` before constructors, and static executables use the module-0 fallback. The resolver (`res_*`) and utmp/utmpx are real implementations; `_init`, `_fini`, and `_dl_debug_*` are linker internals and are intentionally absent.
 - `tests/compat.rs` exercises the non-libc-test ABI surface (resolver, netdb, passwd/group/shadow, utmp, AIO, glob/nftw/realpath, wordexp, fopencookie, DES crypt, dladdr, statfs, sysinfo, posix_getdents, pthread join variants, futimesat, mremap, etc.).
 
 ## Releasing
@@ -117,7 +135,7 @@ Releases are published by `.github/workflows/release.yml` on `v*` tags using cra
 
 Release artifacts use the size-oriented profile. Static consumers should link with `-Wl,--gc-sections`; without it a Rust staticlib pulls in far more code.
 
-One-time setup on crates.io, for **each** of `keel-rt`, `keel-libc`, and `keel-ldso`:
+One-time setup on crates.io, for **each** of `keel-rt`, `keel-libc`, and `keel-utils`:
 
 - open the crate's **Settings → Trusted Publishing → Add a new Trusted Publisher**
 - GitHub repository owner: `mengzhuo`
@@ -125,14 +143,14 @@ One-time setup on crates.io, for **each** of `keel-rt`, `keel-libc`, and `keel-l
 - Workflow filename: `release.yml`
 - Environment: `release`
 
-To cut a release, bump the version in `Cargo.toml`, `libc/Cargo.toml`, and `ldso/Cargo.toml`, commit, then push a matching tag:
+To cut a release, bump the version in `Cargo.toml`, `libc/Cargo.toml`, and `utils/Cargo.toml`, commit, then push a matching tag:
 
 ```bash
 git tag vX.Y.Z
 git push origin main vX.Y.Z
 ```
 
-The workflow verifies that all three manifest versions equal the tag before publishing. It publishes `keel-libc`, `keel-ldso`, then `keel-rt`, and creates a GitHub release. Release artifacts include `keel`, `keel-dev` and `keel-utils` APKs plus `SHA256SUMS`; see `docs/packages.md`.
+The workflow verifies that the three manifest versions equal the tag before publishing. It publishes `keel-libc`, `keel-rt` and `keel-utils`, and creates a GitHub release. Release artifacts include `keel`, `keel-dev` and `keel-utils` APKs plus `SHA256SUMS`; see `docs/packages.md`.
 
 The same workflow builds release artifacts for x86_64, aarch64, and riscv64 and packages them with `scripts/package-apk.sh`. The riscv64 loader and `keel-utils` use `rust-lld` plus Rust's self-contained musl sysroot because that target lacks `crt-static-default`; the cross glibc compiler is not used for static binaries. The script runs `apk mkpkg` inside an Alpine 3.23 container (Docker or podman), producing v3/ADB packages, then writes `dist/SHA256SUMS`. The `.apk` files and checksums are uploaded to the GitHub release; they install with `apk add --allow-untrusted`.
 
@@ -142,8 +160,8 @@ If publishing manually, crates.io verifies each package standalone, where the wo
 
 ```bash
 RUSTFLAGS='-C panic=abort' cargo publish -p keel-libc --registry crates-io
-RUSTFLAGS='-C panic=abort' cargo publish -p keel-ldso --registry crates-io
 cargo publish -p keel-rt --registry crates-io
+cargo publish -p keel-utils --registry crates-io
 ```
 
 The default registry in this environment is a mirror; pass `--registry crates-io` to publish to crates.io.
@@ -152,12 +170,14 @@ The default registry in this environment is a mirror; pass `--registry crates-io
 
 - Cross-build: `CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER=riscv64-linux-gnu-gcc cargo build --workspace --target riscv64gc-unknown-linux-musl`.
 - `scripts/riscv-smoke.sh` cross-builds if needed and runs hello, tiny-PIE/loader, TLS/DSO, math, pthread, socket, net, and other fixtures under `qemu-riscv64`. Requires `gcc-riscv64-linux-gnu` and `qemu-user`. On native riscv64 it uses `musl-gcc` and runs the fixtures directly (set `RISCV_CC`/`QEMU` to override).
-- Building `libc.so`/`libldso.so` with the riscv64 GNU cross linker prints `-z pack-relative-relocs ignored`; that linker does not implement RELR for RISC-V. It is a toolchain warning, not a build failure.
+- The combined `libc.so` uses RELA self-relocation; do not re-enable `-z pack-relative-relocs` until `_start` handles RELR and the loader can apply the interpreter's non-RELATIVE entries safely.
 - `c_char` is `u8` on riscv64 (it is `i8` on x86_64). Use `b'x' as c_char`, not `'x' as i8`, in code compiled for both.
 - `struct stat` is architecture-specific: x86_64 uses the older order; aarch64/riscv64 use the generic 128-byte layout. Keep Rust `Stat` and `include/sys/stat.h` in sync.
 - `nlink_t` and `blksize_t` are 32-bit on aarch64/riscv64 but 64-bit on x86_64; see `include/sys/types.h`.
 
 ## libc-test Harness
+
+Run these inside the test container, after `cargo build --workspace`.
 
 ```bash
 cd libc-test-harness
@@ -171,7 +191,7 @@ cd libc-test-harness
 - Defaults to `LIBC_TEST_DIR=/home/root/libc-test`; override it for another checkout.
 - It symlinks `fake-libs/{libc,libpthread,libm,...}.so` to our `libc.so`, builds `runtest.exe`, and writes `reports/latest-summary.txt` / `latest-raw.txt`.
 - When a test exits 0, any non-empty stderr line not starting with `ldso:` or `JUMP ` is still treated as FAIL.
-- Its fallback build is bare `cargo build`, which will not build `libc.so`/`libldso.so`; run `cargo build --workspace` first.
+- Its fallback build is bare `cargo build`, which will not build `libc.so`; run `cargo build --workspace` first.
 - It creates symlinks in `$LIBC_TEST_DIR/src/<subset>/`, so it mutates the external libc-test checkout.
 - Run one subset at a time. All subsets share `build/`, `fake-libs/`, and `reports/`; concurrent runs race and corrupt counts.
 - `math` intentionally SKIPs `acoshl`, `asinhl`, `lgammal`, and `tgammal`: upstream uses 80-bit long-double vectors while keel's x86_64 ABI is 64-bit. This is recorded in `SKIP_TESTS` in `run.sh`.
@@ -184,7 +204,7 @@ libc-test's assertions. It compiles each libc-test source twice against the
 same musl libc; the two binaries differ only in their ELF interpreter:
 
 - `musl` runs with `$MUSL_LIBC` (the real loader/libc);
-- `keel` runs with `target/debug/libldso.so` and `LD_LIBRARY_PATH=target/debug`.
+- `keel` runs with `target/debug/libc.so` and `LD_LIBRARY_PATH=target/debug`.
 
 It compares exit status, stdout and stderr, retries timing-sensitive tests,
 and skips the x86_64 long-double ABI tests.
@@ -217,10 +237,12 @@ rounds.
 
 ## Current Baseline
 
-Verified on 2026-11-10:
+Baseline (2026-11-10 full run; container `cargo test --workspace` and header
+count rechecked 2026-11-13):
 
 ```text
-cargo test --workspace          # green
+cargo test --workspace          # green in clean Ubuntu and Alpine containers
+scripts/alpine-ci.sh            # Alpine 3.23.3, cargo test green
 ./run.sh api                    # 79/79
 ./run.sh functional             # 73/73
 ./run.sh regression             # 67 PASS, 1 SKIP, 0 FAIL (as root)
@@ -228,7 +250,7 @@ cargo test --workspace          # green
 scripts/parity-check.sh all     # 0 unexpected diffs vs musl 1.2.6
 scripts/riscv-smoke.sh          # riscv64 cross-build + qemu fixtures, 0 failures
 scripts/macro-parity.sh         # 0 mismatches, 0 missing ABI macros (3 arches, C/C++)
-tests/header_rust_consistency.py # 1382/1382 numeric header macros match Rust
+tests/header_rust_consistency.py # 1385/1385 numeric header macros match Rust
 
 LTP 20250930, x86_64, 1488 syscalls tags:
   musl baseline                 # 112 FAIL, 139 TCONF
@@ -238,10 +260,9 @@ math / mm / sched / nptl / ipc  # failure lists identical to musl
 ```
 
 - `scripts/parity-check.sh` needs an x86_64 musl 1.2.6 build; the
-  `/home/root/musl` checkout in this lab is riscv64. Use
-  `MUSL_LIBC=/tmp/opencode/musl-clean-install/lib/libc.so` (or another x86_64
-  1.2.6 build). Passing the riscv64 `libc.so` produces spurious
-  "corrupted shared library" diffs.
+  `/home/root/musl` checkout in this lab is riscv64. Build an x86_64 tree
+  under `/tmp/opencode` and point `MUSL_LIBC` at its `lib/libc.so`. Passing
+  the riscv64 `libc.so` produces spurious "corrupted shared library" diffs.
 - LTP details, setup, and caveats are in `docs/ltp.md`. The full LTP tree must
   be built and installed explicitly; a bare `make -k` leaves about 110
   syscall binaries unbuilt after the `timer_create` failure. Verify with

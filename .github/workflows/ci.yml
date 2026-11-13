@@ -34,6 +34,8 @@ jobs:
     # RISC-V hardware is scarce and slower; keep it non-blocking and capped.
     continue-on-error: ${{ matrix.arch == 'riscv64' }}
     timeout-minutes: ${{ matrix.arch == 'riscv64' && 10 || 360 }}
+    env:
+      LIBC_TEST_DIR: /tmp/libc-test
     steps:
       - uses: actions/checkout@v7
 
@@ -49,8 +51,27 @@ jobs:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-${{ matrix.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Resolve libc-test revision
+        id: libc_test
+        run: |
+          set -euo pipefail
+          sha="$(git ls-remote https://github.com/kraj/libc-test HEAD | cut -f1)"
+          test -n "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Cache libc-test sources
+        uses: actions/cache@v6
+        with:
+          path: /tmp/libc-test
+          key: libc-test-${{ runner.os }}-${{ matrix.arch }}-${{ steps.libc_test.outputs.sha }}
+
       - name: Fetch libc-test sources
-        run: git clone --depth 1 https://github.com/kraj/libc-test /tmp/libc-test
+        run: |
+          if [ ! -d /tmp/libc-test/src ] || \
+             [ "$(git -C /tmp/libc-test rev-parse HEAD 2>/dev/null)" != "${{ steps.libc_test.outputs.sha }}" ]; then
+            rm -rf /tmp/libc-test
+            git clone --depth 1 https://github.com/kraj/libc-test /tmp/libc-test
+          fi
 
       - name: Build all artifacts
         run: cargo build --workspace
@@ -77,13 +98,17 @@ jobs:
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         run: ./scripts/riscv-smoke.sh
 
-      - name: Run libc-test harness (informational)
-        continue-on-error: true
-        env:
-          LIBC_TEST_DIR: /tmp/libc-test
+      # regression/functional run inside cargo test via tests/wave4.rs and wave5.rs.
+      - name: Run libc-test API suite
         run: |
           cd libc-test-harness
-          ./run.sh functional
+          ./run.sh api
+
+      - name: Run libc-test math suite
+        if: matrix.arch == 'x86_64'
+        run: |
+          cd libc-test-harness
+          ./run.sh math
 
   macro-parity:
     runs-on: ubuntu-latest

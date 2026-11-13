@@ -76,7 +76,7 @@ const ENOTRECOVERABLE: c_int = 131;
 // Static executables have no dynamic loader to build a TCB, so they keep the
 // traditional process-global errno. Dynamic programs store it in the TCB, just
 // below the thread pointer. The offset is inside the 256-byte TCB that
-// libldso.so allocates for every thread (0x00 self pointer, 0x08 generation,
+// libc.so allocates for every thread (0x00 self pointer, 0x08 generation,
 // 0x28 stack canary).
 static mut ERRNO_FALLBACK: c_int = 0;
 static ERRNO_TLS_ACTIVE: AtomicUsize = AtomicUsize::new(0);
@@ -2725,32 +2725,72 @@ extern "C" {
     ) -> i64;
 }
 
-#[inline(never)]
-#[linkage = "weak"]
+static mut CREATE_THREAD_TLS_IMPL: usize = 0;
+static mut INIT_THREAD_TLS_IMPL: usize = 0;
+static mut TLS_BLOCK_SIZE_IMPL: usize = 0;
+static mut TLS_BASE_OFFSET_IMPL: usize = 0;
+
+/// Called by the dynamic loader once it is self-relocated.  A static
+/// executable does not call this and keeps the fallback behaviour.
 #[no_mangle]
-pub extern "C" fn __keel_create_thread_tls() -> *mut u8 {
-    core::ptr::null_mut()
+pub unsafe extern "C" fn __keel_set_thread_tls_hooks(
+    create: usize,
+    init: usize,
+    block_size: usize,
+    base_offset: usize,
+) {
+    CREATE_THREAD_TLS_IMPL = create;
+    INIT_THREAD_TLS_IMPL = init;
+    TLS_BLOCK_SIZE_IMPL = block_size;
+    TLS_BASE_OFFSET_IMPL = base_offset;
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
-pub unsafe extern "C" fn __keel_init_thread_tls_at(_block: *mut u8) -> *mut u8 {
-    core::ptr::null_mut()
+pub extern "C" fn __keel_create_thread_tls() -> *mut u8 {
+    let f = unsafe { CREATE_THREAD_TLS_IMPL };
+    if f == 0 {
+        return core::ptr::null_mut();
+    }
+    let f: unsafe extern "C" fn() -> *mut u8 = unsafe { core::mem::transmute(f) };
+    unsafe { f() }
+}
+
+#[inline(never)]
+#[linkage = "weak"]
+#[no_mangle]
+pub unsafe extern "C" fn __keel_init_thread_tls_at(block: *mut u8) -> *mut u8 {
+    let f = INIT_THREAD_TLS_IMPL;
+    if f == 0 {
+        return core::ptr::null_mut();
+    }
+    let f: unsafe extern "C" fn(*mut u8) -> *mut u8 = core::mem::transmute(f);
+    f(block)
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
 pub extern "C" fn __keel_tls_block_size() -> usize {
-    0
+    let f = unsafe { TLS_BLOCK_SIZE_IMPL };
+    if f == 0 {
+        return 0;
+    }
+    let f: extern "C" fn() -> usize = unsafe { core::mem::transmute(f) };
+    f()
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
 pub extern "C" fn __keel_tls_base_offset() -> usize {
-    0
+    let f = unsafe { TLS_BASE_OFFSET_IMPL };
+    if f == 0 {
+        return 0;
+    }
+    let f: extern "C" fn() -> usize = unsafe { core::mem::transmute(f) };
+    f()
 }
 
 #[inline]
@@ -15302,6 +15342,12 @@ pub struct regmatch_t {
 
 include!("regex.rs");
 include!("tz.rs");
+
+// The dynamic loader is part of libc, mirroring musl's single-file design.
+// It is compiled as a module so its private syscall/string helpers do not
+// collide with the libc namespace; its exported entry points remain global.
+#[allow(dead_code, deref_nullptr)]
+mod ldso;
 
 #[cfg(test)]
 mod libc_unit_stub {

@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 KEEL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIBC_TEST_DIR="${LIBC_TEST_DIR:-/home/root/libc-test}"
 LIBC_SO="${KEEL_DIR}/target/debug/libc.so"
-LDSO_SO="${KEEL_DIR}/target/debug/libldso.so"
+LDSO_SO="$LIBC_SO"
 FAKE_LIBS="${SCRIPT_DIR}/fake-libs"
 BUILD_DIR="${SCRIPT_DIR}/build"
 REPORT_DIR="${SCRIPT_DIR}/reports"
@@ -44,12 +44,11 @@ is_flaky() {
 mkdir -p "$FAKE_LIBS" "$BUILD_DIR" "$REPORT_DIR"
 
 
-if [ ! -f "$LIBC_SO" ] || [ ! -f "$LDSO_SO" ]; then
+if [ ! -f "$LIBC_SO" ]; then
     echo ">>> Building keel..."
     (cd "$KEEL_DIR" && cargo build 2>&1) || { echo "FATAL: cargo build failed"; exit 1; }
 fi
 echo ">>> Using libc.so: $LIBC_SO"
-echo ">>> Using libldso.so: $LDSO_SO"
 
 echo ">>> Setting up fake-libs..."
 for lib in libc libpthread libm librt libcrypt libdl libresolv libutil; do

@@ -9,9 +9,9 @@ fn dlopen_musl_semantics() {
     let fixtures = manifest_dir.join("tests/fixtures");
     let include = manifest_dir.join("include");
     let debug = manifest_dir.join("target/debug");
-    let ldso = debug.join("libldso.so");
+    let ldso = debug.join("libc.so");
     let libc = debug.join("libc.so");
-    assert!(ldso.exists(), "libldso.so not found");
+    assert!(ldso.exists(), "libc.so not found");
     assert!(libc.exists(), "libc.so not found");
 
     let dep_src = fixtures.join("dlopen_dep.c");

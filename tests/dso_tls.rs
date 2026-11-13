@@ -9,9 +9,9 @@ fn dso_tls_works_in_main_and_pthread_threads() {
     let fixtures = manifest_dir.join("tests/fixtures");
     let include = manifest_dir.join("include");
 
-    let ldso_path = manifest_dir.join("target/debug/libldso.so");
+    let ldso_path = manifest_dir.join("target/debug/libc.so");
     let libc_path = manifest_dir.join("target/debug/libc.so");
-    assert!(ldso_path.exists(), "libldso.so not found");
+    assert!(ldso_path.exists(), "libc.so not found");
     assert!(libc_path.exists(), "libc.so not found");
 
     let libtls_src = fixtures.join("libtls.c");

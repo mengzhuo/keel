@@ -7,20 +7,12 @@
 // relocations, sets up TLS and transfers control to the program entry point.
 // The architecture/syscall layer is in arch.rs.
 
-#![no_std]
-#![no_main]
-#![allow(dead_code, deref_nullptr, static_mut_refs)]
-
 use core::ffi::{c_char, c_void};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-include!("arch.rs");
+use crate::{memcpy, memmove, memset, strlen};
 
-#[cfg(not(test))]
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
+include!("arch.rs");
 
 // ============================================================
 // Constants
@@ -410,7 +402,7 @@ unsafe fn push_object(value: LoadedObject) -> Option<usize> {
 #[cfg(not(test))]
 #[cfg(target_arch = "x86_64")]
 core::arch::global_asm!(
-    ".global _start",
+    ".weak _start",
     ".type _start, @function",
     "_start:",
     "mov rdi, rsp",
@@ -507,7 +499,7 @@ core::arch::global_asm!(
 #[cfg(not(test))]
 #[cfg(target_arch = "aarch64")]
 core::arch::global_asm!(
-    ".global _start",
+    ".weak _start",
     ".type _start, @function",
     "_start:",
     // Save sp into x29 (frame pointer, callee-saved)
@@ -605,7 +597,7 @@ core::arch::global_asm!(
 #[cfg(not(test))]
 #[cfg(target_arch = "riscv64")]
 core::arch::global_asm!(
-    ".global _start",
+    ".weak _start",
     ".type _start, @function",
     "_start:",
     // Save sp into s0 (frame pointer, callee-saved)
@@ -774,13 +766,7 @@ unsafe fn sym_count_from_hash(h: usize) -> usize {
     nchain
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn strlen(s: *const c_char) -> usize {
-    str_len(s as *const u8)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
+unsafe fn memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
     let a = a as *const u8;
     let b = b as *const u8;
     let mut i = 0usize;
@@ -801,11 +787,6 @@ pub unsafe extern "C" fn memcmp(a: *const c_void, b: *const c_void, n: usize) ->
         i += 1;
     }
     0
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn bcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
-    memcmp(a, b, n)
 }
 
 /// Compare null-terminated `a` (with known length) against null-terminated `b`.
@@ -1839,16 +1820,16 @@ unsafe fn resolve_symbol_with_size(name: *const u8, exclude: usize) -> (u64, usi
         return (0, 0);
     }
     if str_eq(name, name_len, b"__tls_get_addr\0".as_ptr()) {
-        return ((__tls_get_addr as *const () as usize) as u64, 0);
+        return ((crate::__tls_get_addr as *const () as usize) as u64, 0);
     }
     if str_eq(name, name_len, b"__keel_create_thread_tls\0".as_ptr()) {
-        return ((__keel_create_thread_tls as *const () as usize) as u64, 0);
+        return ((ldso_create_thread_tls as *const () as usize) as u64, 0);
     }
     if str_eq(name, name_len, b"__keel_tls_block_size\0".as_ptr()) {
-        return ((__keel_tls_block_size as *const () as usize) as u64, 0);
+        return ((ldso_tls_block_size as *const () as usize) as u64, 0);
     }
     if str_eq(name, name_len, b"__keel_init_thread_tls_at\0".as_ptr()) {
-        return ((__keel_init_thread_tls_at as *const () as usize) as u64, 0);
+        return ((ldso_init_thread_tls_at as *const () as usize) as u64, 0);
     }
 
     for i in 0..LOADED_COUNT {
@@ -2130,6 +2111,13 @@ unsafe fn apply_rela_table(
         let r_type = r_info & 0xffffffff;
         let r_sym_idx = (r_info >> 32) as usize;
         let slot = (base + r_offset) as *mut u64;
+
+        // _start already applied the interpreter's RELATIVE relocations.
+        if (**LOADED.add(obj_idx)).is_self
+            && matches!(r_type, R_X86_64_RELATIVE | R_AARCH64_RELATIVE | R_RISCV_RELATIVE)
+        {
+            continue;
+        }
 
         #[cfg(target_arch = "riscv64")]
         if r_type == R_RISCV_COPY {
@@ -3078,7 +3066,7 @@ unsafe fn symbol_value(obj_idx: usize, sym_idx: usize) -> *mut u8 {
             ti_module: obj_idx,
             ti_offset: st_value as usize,
         };
-        return __tls_get_addr(&ti);
+        return __ldso_tls_get_addr(&ti);
     }
     (obj.base + st_value) as *mut u8
 }
@@ -3311,7 +3299,7 @@ pub struct TlsIndex {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
+pub unsafe extern "C" fn __ldso_tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
     let module = (*ti).ti_module;
     let offset = (*ti).ti_offset;
     // x86_64 has no dynamic TLSDESC descriptors, so its dlopen'ed modules
@@ -3349,7 +3337,7 @@ pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __keel_create_thread_tls() -> *mut u8 {
+unsafe fn ldso_create_thread_tls() -> *mut u8 {
     let total = TLS_TOTAL_SIZE + TCB_SIZE;
     if total == 0 {
         return core::ptr::null_mut();
@@ -3369,7 +3357,7 @@ pub unsafe extern "C" fn __keel_create_thread_tls() -> *mut u8 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __keel_init_thread_tls_at(block: *mut u8) -> *mut u8 {
+unsafe fn ldso_init_thread_tls_at(block: *mut u8) -> *mut u8 {
     // Lay out the TLS block inside an application-provided thread stack.
     // musl does the same: keeping the loader's separate mmap away from the
     // stack leaves MAP_GROWSDOWN free to grow into the pages below it.
@@ -3377,12 +3365,12 @@ pub unsafe extern "C" fn __keel_init_thread_tls_at(block: *mut u8) -> *mut u8 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __keel_tls_block_size() -> usize {
+unsafe fn ldso_tls_block_size() -> usize {
     TLS_TOTAL_SIZE + TCB_SIZE
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __keel_tls_base_offset() -> usize {
+unsafe fn ldso_tls_base_offset() -> usize {
     tls_var_area_offset_from_tp() + tls_var_area_offset_from_block()
 }
 
@@ -3941,6 +3929,16 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
         }
     }
 
+    // The interpreter is also libc in this build.  Register it before
+    // dependencies so DT_NEEDED libc.so resolves to the existing mapping
+    // instead of mapping the file a second time.
+    register_self(ldso_base);
+    if LOADED_COUNT > 0 {
+        let idx = LOADED_COUNT - 1;
+        set_loaded_name(idx, b"libc.so\0".as_ptr(), 7);
+        (**LOADED.add(idx)).global = true;
+    }
+
     // 5. Load the executable's DT_NEEDED entries, then every loaded
     // object's dependencies, breadth-first. DSO dependencies are not
     // optional: real programs (curl, git, python, ...) rely on them.
@@ -3960,10 +3958,6 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
         scan += 1;
     }
 
-    // Register the interpreter last: symbol lookup walks LOADED in order, and
-    // the loader's private memcpy/strlen/etc. must never shadow libc.
-    register_self(ldso_base);
-
     compute_tls_layout();
     STATIC_TLS_COUNT = LOADED_COUNT;
 
@@ -3971,10 +3965,16 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     // libc.so exports a link-time `__tls_get_addr` for static C++ runtimes.
     // Point it at the loader's multi-module resolver before constructors or
     // main can call it (including via dlsym).
+    crate::__keel_set_thread_tls_hooks(
+        ldso_create_thread_tls as *const () as usize,
+        ldso_init_thread_tls_at as *const () as usize,
+        ldso_tls_block_size as *const () as usize,
+        ldso_tls_base_offset as *const () as usize,
+    );
     let set_tls_get_addr = resolve_symbol(b"__keel_set_tls_get_addr\0".as_ptr());
     if set_tls_get_addr != 0 {
         let setter: unsafe extern "C" fn(usize) = core::mem::transmute(set_tls_get_addr);
-        setter(__tls_get_addr as *const () as usize);
+        setter(__ldso_tls_get_addr as *const () as usize);
     }
     register_dlopen_callbacks();
 
@@ -4258,82 +4258,4 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
             options(noreturn)
         );
     }
-}
-
-// ============================================================
-// Memory functions (required by no_std linker)
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn memset(s: *mut c_void, c: i32, n: usize) -> *mut c_void {
-    let d = s as *mut u8;
-    let byte = c as u8;
-    #[cfg(target_arch = "x86_64")]
-    {
-        core::arch::asm!("rep stosb", inout("rdi") d => _, inout("rcx") n => _, in("al") byte,
-                         options(nostack, preserves_flags));
-    }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        let word = 0x0101_0101_0101_0101u64 * byte as u64;
-        let mut i = 0usize;
-        while i + 8 <= n {
-            core::ptr::write_unaligned(d.add(i) as *mut u64, word);
-            i += 8;
-        }
-        while i < n {
-            *d.add(i) = byte;
-            i += 1;
-        }
-    }
-    s
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void {
-    let d = dst as *mut u8;
-    let s = src as *const u8;
-    #[cfg(target_arch = "x86_64")]
-    {
-        core::arch::asm!("rep movsb", inout("rdi") d => _, inout("rsi") s => _,
-                         inout("rcx") n => _, options(nostack, preserves_flags));
-    }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        let mut i = 0usize;
-        while i + 8 <= n {
-            core::ptr::write_unaligned(d.add(i) as *mut u64,
-                core::ptr::read_unaligned(s.add(i) as *const u64));
-            i += 8;
-        }
-        while i < n {
-            *d.add(i) = *s.add(i);
-            i += 1;
-        }
-    }
-    dst
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn memmove(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void {
-    let dst = dst as *mut u8;
-    let src = src as *const u8;
-    if (dst as usize) < (src as usize) {
-        let mut i = 0;
-        while i < n {
-            unsafe {
-                *dst.add(i) = *src.add(i);
-            }
-            i += 1;
-        }
-    } else {
-        let mut i = n;
-        while i > 0 {
-            i -= 1;
-            unsafe {
-                *dst.add(i) = *src.add(i);
-            }
-        }
-    }
-    dst as *mut c_void
 }

@@ -10,8 +10,8 @@ fn ldso_sets_up_tls() {
     let tlstest_src = fixtures.join("tlstest.c");
     let tlstest_bin = fixtures.join("tlstest");
 
-    let ldso_path = manifest_dir.join("target/debug/libldso.so");
-    assert!(ldso_path.exists(), "libldso.so not found at {}", ldso_path.display());
+    let ldso_path = manifest_dir.join("target/debug/libc.so");
+    assert!(ldso_path.exists(), "libc.so not found at {}", ldso_path.display());
 
     let status = Command::new("musl-gcc")
         .args([

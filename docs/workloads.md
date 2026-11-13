@@ -3,7 +3,7 @@
 This page answers a single question: **do real, unmodified musl-linked programs
 run under keel?** Nine applications from Alpine 3.23 are executed in two
 identical chroots — one with the stock musl loader, one with keel's
-`libldso.so` + `libc.so` — and the observable output is compared.
+`libc.so` — and the observable output is compared.
 
 Everything below is a snapshot from **2026-11-06** on x86\_64, taken with
 keel 0.4.2.  The current release is 0.1.0; the later loader/libc changes
@@ -35,7 +35,7 @@ exit status and the same relevant stdout as the musl baseline.
 - Two chroots:
   - `alpine-root`: pristine musl loader and libc.
   - `alpine-keel`: same files, but `/lib/ld-musl-x86_64.so.1` is keel's
-    `libldso.so`, `/lib/libc.musl-x86_64.so.1` points at keel's `libc.so`,
+    `libc.so`, and `/lib/libc.musl-x86_64.so.1` points at the same file,
     and `LD_LIBRARY_PATH=/opt/keel`.
 - `/proc`, `/dev`, `/sys` and a shared `/work` directory are bind-mounted into
   both chroots. PostgreSQL runs as uid 1000 (its package user); the other
@@ -85,7 +85,7 @@ The general shape of the setup:
 
 ```bash
 # 1. Build keel (dev or release; release is what the container used)
-cargo build --release -p keel-libc -p keel-ldso --target x86_64-unknown-linux-gnu
+cargo build --release -p keel-libc --target x86_64-unknown-linux-gnu
 
 # 2. Create the pristine rootfs (Docker is only used for apk)
 docker run --rm --network host -v "$PWD/alpine-root:/rootfs" alpine:3.23 \
@@ -98,10 +98,9 @@ docker run --rm --network host -v "$PWD/alpine-root:/rootfs" alpine:3.23 \
 # 3. Clone it and install keel as the runtime
 cp -a alpine-root alpine-keel
 mkdir -p alpine-keel/opt/keel
-cp target/x86_64-unknown-linux-gnu/release/libc.so   alpine-keel/opt/keel/
-cp target/x86_64-unknown-linux-gnu/release/libldso.so alpine-keel/opt/keel/
+cp target/x86_64-unknown-linux-gnu/release/libc.so alpine-keel/opt/keel/
 cp alpine-keel/lib/ld-musl-x86_64.so.1 alpine-keel/lib/ld-musl-x86_64.so.1.musl
-cp alpine-keel/opt/keel/libldso.so alpine-keel/lib/ld-musl-x86_64.so.1
+cp alpine-keel/opt/keel/libc.so alpine-keel/lib/ld-musl-x86_64.so.1
 ln -sfn /opt/keel/libc.so alpine-keel/lib/libc.musl-x86_64.so.1
 
 # 4. Run a script in a chroot

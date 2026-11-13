@@ -51,7 +51,7 @@ test (`move_pages12`) is skipped as `TCONF` under keel.  See
 - Two chroots:
   - `alpine-root`: stock musl loader and libc. This is the baseline.
   - `alpine-keel`: same files; `/lib/ld-musl-x86_64.so.1` is keel's
-    `libldso.so`, `/lib/libc.musl-x86_64.so.1` points at keel's `libc.so`,
+    `libc.so`, `/lib/libc.musl-x86_64.so.1` points at the same combined `libc.so`,
     and tests run with `LD_LIBRARY_PATH=/opt/keel`.
 - A suite is run with `runltp -f <suite>` in one chroot, then the other.
   `-C` and `-T` record failing and skipped tags. The two tag lists are diffed
@@ -132,7 +132,7 @@ includes fixes for, among others:
   top of an application-provided stack, as musl does. A separate TLS `mmap`
   can land directly below a `MAP_GROWSDOWN` stack and prevent it from growing;
   this made `mmap18` fail intermittently. `__keel_init_thread_tls_at` in
-  `libldso.so` initializes the embedded block.
+  `libc.so` initializes the embedded block.
 - **Loader.** GNU symbol versioning now prefers the default version
   (`foo@@VER`) instead of the first old ABI (`foo@VER`). This mattered for
   libnuma, which exports incompatible 1.1 and 1.2 implementations of
@@ -199,9 +199,8 @@ make -k -j8
 make -k install || true          # then build skipped dirs / install TCONF stubs (see above)
 
 # 2. Install keel into the second chroot.
-cp target/x86_64-unknown-linux-gnu/release/libc.so   /path/alpine-keel/opt/keel/
-cp target/x86_64-unknown-linux-gnu/release/libldso.so /path/alpine-keel/opt/keel/
-cp /path/alpine-keel/opt/keel/libldso.so /path/alpine-keel/lib/ld-musl-x86_64.so.1
+cp target/x86_64-unknown-linux-gnu/release/libc.so /path/alpine-keel/opt/keel/
+cp /path/alpine-keel/opt/keel/libc.so /path/alpine-keel/lib/ld-musl-x86_64.so.1
 ln -sfn /opt/keel/libc.so /path/alpine-keel/lib/libc.musl-x86_64.so.1
 
 # 3. Set the IPC sysctls and detach stale loop devices (see Method above).

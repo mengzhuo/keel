@@ -28,7 +28,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Build release libraries
-        run: cargo build --release -p keel-libc -p keel-ldso --target x86_64-unknown-linux-gnu
+        run: cargo build --release -p keel-libc --target x86_64-unknown-linux-gnu
 
       - name: Run upstream test suites
         env:

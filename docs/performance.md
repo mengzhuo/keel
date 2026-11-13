@@ -16,7 +16,7 @@ and the reproduction scripts rather than the absolute values.
 - The same C source is compiled twice against musl. The two binaries differ
   only in their ELF interpreter:
   - musl: `musl-1.2.6/lib/libc.so`
-  - keel: `target/release/libldso.so` with
+  - keel: `target/release/libc.so` with
     `LD_LIBRARY_PATH=target/release`
 - Microbenchmarks: `clock_gettime(CLOCK_MONOTONIC)` around a batch, `-O2
   -fno-builtin`, so calls go through the libc. The vDSO group also measures
@@ -59,8 +59,8 @@ and the reproduction scripts rather than the absolute values.
 | `stat` | 1463 ns | 1456 ns | 1.00x |
 | `getenv` | 88.6 ns | 37.0 ns | 0.42x |
 | `pthread_mutex` lock/unlock | 12.3 ns | 6.5 ns | 0.52x |
-| `pthread_create`+`join` | 56.1 µs | 63.5 µs | 1.13x |
-| Process startup | 552 µs | 671 µs | 1.22x |
+| `pthread_create`+`join` | 55.7 µs | 62.7 µs | 1.13x |
+| Process startup | 555 µs | 596 µs | 1.07x |
 
 Geometric mean over the 30 benchmarks: **0.53x musl's runtime**.
 
@@ -89,15 +89,14 @@ Geometric mean: **0.52x**.
 ## Binary size
 
 Release artifacts are stripped. musl's dynamic linker is its libc, so its
-runtime footprint is one file; keel needs `libc.so` plus `libldso.so`.
+runtime footprint is one file; keel now also uses one combined `libc.so`.
 
 | | x86\_64 | aarch64 | riscv64 |
 |---|---:|---:|---:|
-| `libc.so` | 680 KB | 731 KB | 662 KB |
-| `libldso.so` | 26 KB | 67 KB | 30 KB |
-| Runtime total | **706 KB** | **798 KB** | **692 KB** |
+| `libc.so` | ~1.85 MB | ~1.9 MB | ~1.85 MB |
+| Runtime total | **~1.85 MB** | **~1.9 MB** | **~1.85 MB** |
 | musl `libc.so` | 666 KB | — | — |
-| Alpine `.apk` | 606 KB | 596 KB | 570 KB |
+| Alpine `.apk` | not measured | not measured | not measured |
 
 For comparison, the historical 0.4.2 packages were 1.40 MB / 1.41 MB / 1.32 MB.
 
@@ -167,14 +166,15 @@ thread pointer before jumping to a static target.
 
 ## Remaining gaps
 
-- **Process startup, 1.22x.** musl's dynamic linker *is* its libc, so one
-  file is mapped by the kernel. keel maps `libldso.so`, then opens, maps and
-  relocates a separate `libc.so`; it also performs more small startup
-  `mmap`s.  The initial thread is now registered directly in thread slot 0
-  instead of scanning the 1024-slot static table (that scan alone cost about
-  1 MiB of page faults per process).  `libc.so` is linked `-Bsymbolic` like
-  musl, with the weak loader hooks kept preemptible through a dynamic list;
-  this removes most startup `R_*_GLOB_DAT` lookups.
+- **Process startup, 1.07x.** keel now uses one combined `libc.so` as both
+  loader and libc, matching musl's single-file mapping.  `_start` self-relocates
+  the RELA table; the loader then resolves the interpreter's remaining
+  non-RELATIVE entries and skips the RELATIVE ones.  `libc.so` is linked with
+  `-Bsymbolic-functions`, leaving public data preemptible for COPY relocations.
+  The initial thread is registered directly in slot 0 instead of scanning the
+  1024-slot thread table (that scan alone cost about 1 MiB of page faults per
+  process).  The remaining difference is mostly allocator/stdio initialization
+  and small loader mappings.
 - **`pow`, 1.10x.** The port keeps exact `x^1` / `x^-1` identities (see
   `AGENTS.md`).
 - **`pthread_create`+`join`, 1.13x.** The thread stack and TLS mappings

@@ -1,5 +1,5 @@
 [workspace]
-members = ["ldso", "libc", "utils"]
+members = ["libc", "utils"]
 
 [profile.dev]
 panic = "abort"

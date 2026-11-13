@@ -29,9 +29,7 @@ pub fn include_dir() -> PathBuf {
 }
 
 pub fn require_runtime() {
-    let ldso = debug_dir().join("libldso.so");
     let libc = debug_dir().join("libc.so");
-    assert!(ldso.exists(), "libldso.so not found at {}", ldso.display());
     assert!(libc.exists(), "libc.so not found at {}", libc.display());
 }
 
@@ -43,7 +41,7 @@ fn musl_gcc() -> Command {
         .arg("-I")
         .arg(include_dir())
         .arg("-Wl,--dynamic-linker")
-        .arg(debug_dir().join("libldso.so"))
+        .arg(debug_dir().join("libc.so"))
         .arg("-L")
         .arg(debug_dir())
         .arg("-Wl,--allow-shlib-undefined");

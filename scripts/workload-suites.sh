@@ -101,12 +101,11 @@ host_mount() {
 
 build_keel() {
     local libc=$ROOT/target/$TARGET/release/libc.so
-    local ldso=$ROOT/target/$TARGET/release/libldso.so
-    if [[ ! -f $libc || ! -f $ldso ]]; then
-        log "building keel release libraries"
-        (cd "$ROOT" && cargo build --release -p keel-libc -p keel-ldso --target "$TARGET")
+    if [[ ! -f $libc ]]; then
+        log "building keel release libc"
+        (cd "$ROOT" && cargo build --release -p keel-libc --target "$TARGET")
     fi
-    [[ -f $libc && -f $ldso ]] || die "keel release libraries are missing"
+    [[ -f $libc ]] || die "keel release libc is missing"
 }
 
 unmount_rootfs() {
@@ -133,15 +132,13 @@ create_rootfs() {
 
 install_keel() {
     local libc=$ROOT/target/$TARGET/release/libc.so
-    local ldso=$ROOT/target/$TARGET/release/libldso.so
     log "installing keel into $KEEL_ROOT"
     mkdir -p "$KEEL_ROOT/opt/keel"
     cp "$libc" "$KEEL_ROOT/opt/keel/libc.so"
-    cp "$ldso" "$KEEL_ROOT/opt/keel/libldso.so"
     if [[ ! -f $KEEL_ROOT/lib/$LOADER.musl ]]; then
         cp "$KEEL_ROOT/lib/$LOADER" "$KEEL_ROOT/lib/$LOADER.musl"
     fi
-    cp "$ldso" "$KEEL_ROOT/lib/$LOADER"
+    cp "$libc" "$KEEL_ROOT/lib/$LOADER"
     ln -sfn /opt/keel/libc.so "$KEEL_ROOT/lib/libc.musl-x86_64.so.1"
     # Building Git's test helper uses -lc; point the dev symlink at keel's
     # libc instead of the loader.

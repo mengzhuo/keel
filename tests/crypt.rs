@@ -9,8 +9,8 @@ fn crypt_under_libc_so() {
 
     let libc_path = manifest_dir.join("target/debug/libc.so");
     assert!(libc_path.exists(), "libc.so not found");
-    let ldso_path = manifest_dir.join("target/debug/libldso.so");
-    assert!(ldso_path.exists(), "libldso.so not found");
+    let ldso_path = manifest_dir.join("target/debug/libc.so");
+    assert!(ldso_path.exists(), "libc.so not found");
 
     // Create test C source
     let test_src = r#"
