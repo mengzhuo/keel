@@ -5,7 +5,7 @@ split:
 
 | Package | Contents | Installed size |
 |---|---|---|
-| `keel` | `libc.so`, `libldso.so`, `keel-loader` | about 1.8 MiB |
+| `keel` | `libc.so` (loader + libc), `keel-loader` | about 1.9 MiB |
 | `keel-dev` | headers, `libc.a`, Rust-built CRT objects, linker stubs | about 10 MiB |
 | `keel-utils` | `getconf`, `getent`, `iconv`, `ldd`, `ldconfig` | about 1.9 MiB |
 
@@ -17,7 +17,6 @@ Installs the runtime libraries under `/usr/lib/keel`:
 
 ```text
 /usr/lib/keel/libc.so
-/usr/lib/keel/libldso.so
 /usr/lib/keel/libc.musl-<arch>.so.1 -> libc.so
 /usr/bin/keel-loader
 ```
@@ -26,12 +25,12 @@ The `/usr/lib/keel/libc.musl-<arch>.so.1` alias lets third-party DSOs that
 record the musl SONAME (notably `libgcc_s.so.1`) resolve to keel libc.
 
 `keel-loader` is the standalone mapper for static PIE and static ELF
-binaries.  Dynamic binaries use `libldso.so` as their ELF interpreter.
+binaries.  Dynamic binaries use `libc.so` as their ELF interpreter.
 
 The package also installs symlinks at the canonical musl paths:
 
 ```text
-/lib/ld-musl-<arch>.so.1 -> /usr/lib/keel/libldso.so
+/lib/ld-musl-<arch>.so.1 -> /usr/lib/keel/libc.so
 /lib/libc.musl-<arch>.so.1 -> /usr/lib/keel/libc.so
 ```
 
@@ -120,7 +119,7 @@ apk add --allow-untrusted keel-utils-<version>-r0.<arch>.apk
 ## Building packages
 
 ```sh
-cargo build --release -p keel-libc -p keel-ldso --target x86_64-unknown-linux-gnu
+cargo build --release -p keel-libc --target x86_64-unknown-linux-gnu
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
   cargo build --release -p keel-rt --target x86_64-unknown-linux-musl
 # ... aarch64 and riscv64 builds ...

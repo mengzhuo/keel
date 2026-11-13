@@ -4,7 +4,7 @@
 mod common;
 
 #[test]
-fn daemon_double_fork_under_libldso() {
+fn daemon_double_fork_under_libc() {
     let output = common::run_fixture("daemon", &["-D_GNU_SOURCE"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);

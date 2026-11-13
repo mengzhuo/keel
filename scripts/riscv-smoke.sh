@@ -38,7 +38,7 @@ GCCINC="$("$CC_BIN" -print-file-name=include)"
 TMP="$(mktemp -d /tmp/keel-riscv-smoke.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-if [ ! -f "$T/libc.so" ] || [ ! -f "$T/libldso.so" ] || [ ! -x "$T/keel" ]; then
+if [ ! -f "$T/libc.so" ] || [ ! -x "$T/keel" ]; then
     echo ">>> cross-building keel for $TARGET_NAME"
     (cd "$ROOT" && CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$CC_BIN" \
         cargo build --workspace --target "$TARGET_NAME") || exit 1
@@ -62,7 +62,7 @@ run() {
     local name=$1 src=$2
     shift 2
     local out="$TMP/$name"
-    if ! (cd "$ROOT" && "${CC[@]}" "$@" -Wl,--dynamic-linker="$T/libldso.so" \
+    if ! (cd "$ROOT" && "${CC[@]}" "$@" -Wl,--dynamic-linker="$T/libc.so" \
         -L"$LIBS" "$src" -Wl,--allow-shlib-undefined -lc -o "$out") \
         >"$TMP/$name.build" 2>&1; then
         echo "BUILDFAIL $name: $(grep -m1 -E 'error:|undefined reference' "$TMP/$name.build" | head -c 160)"

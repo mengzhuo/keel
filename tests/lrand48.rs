@@ -4,7 +4,7 @@
 mod common;
 
 #[test]
-fn lrand48_musl_vectors_under_libldso() {
+fn lrand48_musl_vectors_under_libc() {
     let output = common::run_fixture("lrand48", &["-D_GNU_SOURCE"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);

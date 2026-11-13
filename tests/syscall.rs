@@ -4,7 +4,7 @@
 mod common;
 
 #[test]
-fn syscall_sign_extend_under_libldso() {
+fn syscall_sign_extend_under_libc() {
     let output = common::run_fixture("syscall", &["-D_GNU_SOURCE"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);

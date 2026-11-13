@@ -54,7 +54,7 @@ At runtime, `LD_LIBRARY_PATH=/usr/lib/keel` is set so DSOs that record
    automatically purges Alpine's `musl` package.
 3. `keel` installs the canonical paths as symlinks:
    - `/lib/libc.musl-<arch>.so.1 -> /usr/lib/keel/libc.so`
-   - `/lib/ld-musl-<arch>.so.1 -> /usr/lib/keel/libldso.so`
+   - `/lib/ld-musl-<arch>.so.1 -> /usr/lib/keel/libc.so`
 4. `keel-utils` provides `musl-utils`, so installing it automatically purges
    `musl-utils` and `scanelf`, and installs Rust `getconf`, `getent`, `iconv`,
    `ldd` and `ldconfig`.
@@ -74,7 +74,7 @@ At runtime, `LD_LIBRARY_PATH=/usr/lib/keel` is set so DSOs that record
   constructors and initial-exec TLS are supported.
 - `/usr/bin/keel-loader` is the standalone mapper for static PIE/static ELF
   binaries, not a replacement for the dynamic interpreter. The image uses
-  `/lib/ld-musl-<arch>.so.1` (keel `libldso.so`) for normal dynamic binaries.
+  `/lib/ld-musl-<arch>.so.1` (keel `libc.so`) for normal dynamic binaries.
 - The stock musl files are replaced in place; the `keel` package itself
   declares `provides: musl` and `replaces: musl`, and installing it purges
   the `musl` package. Use `apk fix musl` only if you intend to switch back.

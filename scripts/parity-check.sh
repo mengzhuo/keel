@@ -9,7 +9,7 @@
 # libc twice.  The two binaries differ only in their ELF interpreter:
 #
 #   musl   -> $MUSL_LIBC                (the real musl loader/libc)
-#   keel  -> target/debug/libldso.so   (with LD_LIBRARY_PATH=target/debug)
+#   keel  -> target/debug/libc.so   (with LD_LIBRARY_PATH=target/debug)
 #
 # Running both and comparing exit status, stdout and stderr therefore checks
 # the exact promise of keel: an unmodified musl-linked binary behaves the
@@ -19,7 +19,7 @@
 #   scripts/parity-check.sh [functional|regression|all|symbols]
 #
 # `symbols` compares the exported dynamic symbol sets instead of running
-# tests. keel's libc and ldso exports are unioned because musl's libc.so is
+# tests. keel's combined libc/loader exports are compared because musl's libc.so is
 # also its loader; the four linker-internal symbols musl exports are allowed
 # to be absent.
 #
@@ -88,7 +88,7 @@ if [ ! -d "$LIBC_TEST_DIR/src" ]; then
     exit 1
 fi
 
-if [ ! -f "$ROOT/target/debug/libc.so" ] || [ ! -f "$ROOT/target/debug/libldso.so" ]; then
+if [ ! -f "$ROOT/target/debug/libc.so" ]; then
     echo ">>> building keel..."
     (cd "$ROOT" && cargo build --workspace) || exit 1
 fi
@@ -100,12 +100,11 @@ if [ "$SUBSET" = "symbols" ]; then
     keel_syms="$PARITY_DIR/keel.syms"
     nm -D --defined-only "$MUSL_LIBC" \
         | awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' | sort -u > "$musl_syms"
-    # musl's libc.so is also its loader. Compare the union of keel's libc
-    # and ldso exports, otherwise loader-only symbols such as __tls_get_addr
+    # musl's libc.so is also its loader. keel's combined libc.so contains
+    # both, so loader symbols such as __tls_get_addr are present.
     # look missing.
     {
         nm -D --defined-only "$ROOT/target/debug/libc.so"
-        nm -D --defined-only "$ROOT/target/debug/libldso.so"
     } | awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' | sort -u > "$keel_syms"
     comm -23 "$musl_syms" "$keel_syms" > "$PARITY_DIR/missing.syms"
     comm -13 "$musl_syms" "$keel_syms" > "$PARITY_DIR/extra.syms"
@@ -165,7 +164,7 @@ if [ "${musl_version:-}" != "1.2.6" ]; then
     echo ">>> note: keel ports musl 1.2.6 behavior; an older baseline can"
     echo ">>>       report differences that are not keel bugs."
 fi
-echo ">>> keel ldso:    $ROOT/target/debug/libldso.so"
+echo ">>> keel libc:    $ROOT/target/debug/libc.so"
 echo ">>> libc-test:     $LIBC_TEST_DIR"
 
 # ---------------------------------------------------------------------------
@@ -318,7 +317,7 @@ for dir in $DIRS; do
                 INTERP="$MUSL_LIBC"
                 OBJ_VARIANT="$OBJ"
             else
-                INTERP="$ROOT/target/debug/libldso.so"
+                INTERP="$ROOT/target/debug/libc.so"
                 OBJ_VARIANT="$OBJ_KEEL"
             fi
             if ! "$CC" "${CFLAGS[@]}" -g -rdynamic \
@@ -420,7 +419,7 @@ done
     echo "BuildError: $BUILDERR"
     echo "Timeouts:   $TIMEOUTS"
     echo "musl:       $MUSL_LIBC"
-    echo "keel:      $ROOT/target/debug/libldso.so"
+    echo "keel:      $ROOT/target/debug/libc.so"
 } | tee -a "$REPORT"
 
 if [ $DIFF -ne 0 ] || [ $BUILDERR -ne 0 ]; then

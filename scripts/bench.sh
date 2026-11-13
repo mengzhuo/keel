@@ -8,7 +8,7 @@
 #
 # The same C source is compiled twice against musl; the binaries differ only
 # in their ELF interpreter, so the same code runs on musl and with keel's
-# libldso.so/libc.so at run time.
+# libc.so at run time.
 #
 # Usage:
 #   scripts/bench.sh
@@ -69,12 +69,12 @@ CFLAGS=(-O2 -fno-builtin -pthread -fPIE -pie)
 echo ">>> compiling benchmarks..."
 "$CC" "${CFLAGS[@]}" -Wl,--dynamic-linker="$MUSL_LIBC" \
     "$ROOT/scripts/bench/perf_test.c" -o "$BENCH_DIR/perf_musl" -lm || exit 1
-"$CC" "${CFLAGS[@]}" -Wl,--dynamic-linker="$TARGET_DIR/release/libldso.so" \
+"$CC" "${CFLAGS[@]}" -Wl,--dynamic-linker="$TARGET_DIR/release/libc.so" \
     "$ROOT/scripts/bench/perf_test.c" -o "$BENCH_DIR/perf_keel" -lm || exit 1
 "$CC" -O2 -static "$ROOT/scripts/bench/spawn_bench.c" -o "$BENCH_DIR/spawn_bench" || exit 1
 "$CC" -O2 -fPIE -pie -Wl,--dynamic-linker="$MUSL_LIBC" \
     "$ROOT/scripts/bench/hello_main.c" -o "$BENCH_DIR/hello_musl" || exit 1
-"$CC" -O2 -fPIE -pie -Wl,--dynamic-linker="$TARGET_DIR/release/libldso.so" \
+"$CC" -O2 -fPIE -pie -Wl,--dynamic-linker="$TARGET_DIR/release/libc.so" \
     "$ROOT/scripts/bench/hello_main.c" -o "$BENCH_DIR/hello_keel" || exit 1
 
 rm -f "$BENCH_DIR"/musl_*.txt "$BENCH_DIR"/keel_*.txt
@@ -121,6 +121,6 @@ printf "%-24s %14s %14s %11sx\n" "process_startup" "$m" "$c" "$ratio"
 runs=$(awk -F'\t' '$1 == "thread_runs" { print $2 }' "$BENCH_DIR"/keel_*.txt | sort -u | tr '\n' ' ')
 echo
 echo "baseline: $MUSL_LIBC"
-echo "keel:    $TARGET_DIR/release/libldso.so"
+echo "keel:    $TARGET_DIR/release/libc.so"
 echo "threads:  $runs (expected 2000 per round)"
 echo "results:  $BENCH_DIR"

@@ -4,7 +4,7 @@
 mod common;
 
 #[test]
-fn va_list_abi_under_libldso() {
+fn va_list_abi_under_libc() {
     let output = common::run_fixture("va_list_abi", &["-D_GNU_SOURCE"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);

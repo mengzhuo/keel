@@ -4,7 +4,7 @@
 mod common;
 
 #[test]
-fn fnmatch_posix_classes_under_libldso() {
+fn fnmatch_posix_classes_under_libc() {
     let output = common::run_fixture("fnmatch", &["-D_GNU_SOURCE"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);

@@ -14,11 +14,11 @@
 #        CONTAINER_RUNTIME=podman scripts/package-apk.sh
 #
 # Expects the release artifacts produced by:
-#   cargo build --release -p keel-libc -p keel-ldso --target x86_64-unknown-linux-gnu
+#   cargo build --release -p keel-libc --target x86_64-unknown-linux-gnu
 #   CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
 #     cargo build --release -p keel-rt --target x86_64-unknown-linux-musl
 #   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-#     cargo build --release -p keel-libc -p keel-ldso --target aarch64-unknown-linux-gnu
+#     cargo build --release -p keel-libc --target aarch64-unknown-linux-gnu
 #   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
 #     cargo build --release -p keel-rt --target aarch64-unknown-linux-musl
 #   CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER=riscv64-linux-gnu-gcc \
@@ -87,16 +87,15 @@ mkpkg() {
 }
 
 package_runtime() {
-    local arch="$1" libc="$2" ldso="$3" loader="$4"
+    local arch="$1" libc="$2" loader="$3"
     local dir
     dir="$(mktemp -d)"
     install -d "$dir/usr/lib/keel" "$dir/usr/bin" "$dir/usr/share/doc/keel" "$dir/lib"
     install -m 755 "$ROOT/$libc" "$dir/usr/lib/keel/libc.so"
-    install -m 755 "$ROOT/$ldso" "$dir/usr/lib/keel/libldso.so"
     # The runtime package is a drop-in for Alpine's musl package.  These are
     # symlinks rather than copies so a single libc/loader serves both layouts.
     ln -s /usr/lib/keel/libc.so "$dir/lib/libc.musl-${arch}.so.1"
-    ln -s /usr/lib/keel/libldso.so "$dir/lib/ld-musl-${arch}.so.1"
+    ln -s /usr/lib/keel/libc.so "$dir/lib/ld-musl-${arch}.so.1"
     # libgcc_s.so.1 (and other third-party DSOs) records the musl SONAME.
     # Keep a local alias so keel-utils can resolve it through DT_RPATH
     # without installing keel as the system libc.
@@ -162,7 +161,6 @@ package_utils() {
 # loader (std) for musl so it runs on Alpine.
 package_runtime x86_64 \
     target/x86_64-unknown-linux-gnu/release/libc.so \
-    target/x86_64-unknown-linux-gnu/release/libldso.so \
     target/x86_64-unknown-linux-musl/release/keel
 package_dev x86_64 target/x86_64-unknown-linux-gnu/release/libc.a
 package_utils x86_64
@@ -172,7 +170,6 @@ package_utils x86_64
 # musl (the libraries do not depend on the C library).
 package_runtime aarch64 \
     target/aarch64-unknown-linux-gnu/release/libc.so \
-    target/aarch64-unknown-linux-gnu/release/libldso.so \
     target/aarch64-unknown-linux-musl/release/keel
 package_dev aarch64 target/aarch64-unknown-linux-gnu/release/libc.a
 package_utils aarch64
@@ -180,7 +177,6 @@ package_utils aarch64
 # riscv64: everything is built for the musl target.
 package_runtime riscv64 \
     target/riscv64gc-unknown-linux-musl/release/libc.so \
-    target/riscv64gc-unknown-linux-musl/release/libldso.so \
     target/riscv64gc-unknown-linux-musl/release/keel
 package_dev riscv64 target/riscv64gc-unknown-linux-musl/release/libc.a
 package_utils riscv64

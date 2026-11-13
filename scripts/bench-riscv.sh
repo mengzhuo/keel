@@ -55,7 +55,7 @@ CRT=("$MUSL_RISCV/Scrt1.o" "$MUSL_RISCV/crti.o" "$MUSL_RISCV/crtn.o")
     -Wl,--dynamic-linker="$MUSL_RISCV/libc.so" -o "$OUT/perf_musl" || exit 1
 "$CC" "${CFLAGS[@]}" "${CRT[@]}" -I "$ROOT/include" \
     "$ROOT/scripts/bench/riscv_perf.c" -L "$TR" -lc -lgcc \
-    -Wl,--dynamic-linker="$TR/libldso.so" -o "$OUT/perf_keel" || exit 1
+    -Wl,--dynamic-linker="$TR/libc.so" -o "$OUT/perf_keel" || exit 1
 
 echo ">>> measuring ($ROUNDS rounds)..."
 rm -f "$OUT"/musl_*.txt "$OUT"/keel_*.txt
@@ -86,5 +86,5 @@ for k in $keys; do
 done
 echo
 echo "baseline: $MUSL_RISCV/libc.so"
-echo "keel:    $TR/libldso.so"
+echo "keel:    $TR/libc.so"
 echo "results:  $OUT"

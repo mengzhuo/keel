@@ -6,7 +6,7 @@
 |---|---|
 | Package | `busybox-1.37.0-r30` (Alpine 3.23) |
 | Version | `BusyBox v1.37.0 (2025-12-16 14:19:28 UTC) multi-call binary` |
-| Interpreter | keel `libldso.so` + `libc.so` |
+| Interpreter | keel `libc.so` |
 | Baseline | same package with stock musl 1.2.6 |
 
 ## What was tested

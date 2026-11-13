@@ -4,7 +4,7 @@
 mod common;
 
 #[test]
-fn strtol_under_libldso() {
+fn strtol_under_libc() {
     let output = common::run_fixture("strtol", &["-D_GNU_SOURCE"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);

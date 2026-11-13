@@ -5,7 +5,7 @@ for Linux. It runs unmodified musl-linked binaries on x86\_64, aarch64 and
 riscv64, and provides `libc.a` for static linking.
 
 - musl 1.2.6 ABI with the full public symbol surface
-- `libldso.so` as the ELF interpreter; no source changes or rebuilds
+- `libc.so` as the ELF interpreter; no source changes or rebuilds
 - `no_std` libc and loader, BSD-3-Clause
 
 ## Status

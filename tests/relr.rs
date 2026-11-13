@@ -10,9 +10,9 @@ fn packed_relative_relocations_work() {
     let include = manifest_dir.join("include");
     let debug = manifest_dir.join("target/debug");
 
-    let ldso = debug.join("libldso.so");
+    let ldso = debug.join("libc.so");
     let libc = debug.join("libc.so");
-    assert!(ldso.exists(), "libldso.so not found");
+    assert!(ldso.exists(), "libc.so not found");
     assert!(libc.exists(), "libc.so not found");
 
     let dso = fixtures.join("librelr_dso.so");

@@ -3,7 +3,7 @@
 [`docs/workloads.md`](workloads.md) answers whether a handful of real programs
 start and perform their basic task.  This page goes one step further: it runs
 the programs' **own test suites** against two identical Alpine chroots, one
-with stock musl 1.2.6 and one with keel's `libldso.so` + `libc.so`.
+with stock musl 1.2.6 and one with keel's `libc.so`.
 
 The suites are deliberately kept separate from the release gate.  They take
 several minutes, need Docker/chroot, and some upstream tests are sensitive to
@@ -34,7 +34,7 @@ sudo ./scripts/workload-suites.sh python       # one suite
 sudo ./scripts/workload-suites.sh git nginx
 ```
 
-The script builds `libc.so`/`libldso.so` in release mode, creates the two
+The script builds the combined `libc.so` in release mode, creates the two
 rootfs copies with `apk` (Docker or podman), bind-mounts `/proc`, `/sys`,
 `/dev` and the shared work directory, builds Git's `t/helper/test-tool` under
 keel, runs both sides, and writes logs plus normalized failure lists to
