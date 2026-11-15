@@ -3349,6 +3349,28 @@ pub unsafe extern "C" fn pthread_create(
     0
 }
 
+/// Tear down a joined or detached thread slot. The TLS block is kept mapped:
+/// some runtimes (notably V8) retain pointers into an exited thread's TLS
+/// and dereference them during process teardown.
+unsafe fn release_finished_slot(slot: *mut Thread) {
+    let stack = (*slot).stack;
+    let stack_size = (*slot).stack_size;
+    let stack_owned = (*slot).stack_owned;
+    (*slot).tid = -1;
+    (*slot).detach_state = DT_JOINABLE;
+    (*slot).result = core::ptr::null_mut();
+    (*slot).stack = core::ptr::null_mut();
+    (*slot).stack_size = 0;
+    (*slot).stack_owned = false;
+    (*slot).fs_base = core::ptr::null_mut();
+    (*slot).tls_base = core::ptr::null_mut();
+    (*slot).tls_size = 0;
+    if stack_owned && !stack.is_null() && stack_size > 0 {
+        sys_munmap(stack, stack_size);
+    }
+    release_thread_slot(slot);
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut c_void) -> c_int {
     let slot = thread as *mut Thread;
@@ -3365,32 +3387,7 @@ pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut c_void
         pthread_testcancel();
     }
     if !retval.is_null() { *retval = (*slot).result; }
-    let stack = (*slot).stack;
-    let stack_size = (*slot).stack_size;
-    let stack_owned = (*slot).stack_owned;
-    let tls_base = (*slot).tls_base;
-    let tls_size = (*slot).tls_size;
-    (*slot).tid = -1;
-    (*slot).detach_state = DT_JOINABLE;
-    (*slot).result = core::ptr::null_mut();
-    (*slot).stack = core::ptr::null_mut();
-    (*slot).stack_size = 0;
-    (*slot).stack_owned = false;
-    (*slot).fs_base = core::ptr::null_mut();
-    (*slot).tls_base = core::ptr::null_mut();
-    (*slot).tls_size = 0;
-    if stack_owned && !stack.is_null() && stack_size > 0 { sys_munmap(stack, stack_size); }
-    // Keep the TLS mapping but return its pages to the kernel. Some runtimes
-    // (notably V8) retain pointers into an exited thread's TLS and read them
-    // during process teardown; unmapping makes that a SIGSEGV, while zero
-    // pages are handled gracefully. The VA range is tiny (TLS_TOTAL_SIZE).
-    // Retain the TLS block instead of unmapping it. V8 keeps pointers into a
-    // joined thread's TLS and dereferences them during process teardown;
-    // unmapping turns that into SIGSEGV, and MADV_DONTNEED races with it.
-    // The block is small (TLS_TOTAL_SIZE + TCB_SIZE) and bounded by thread
-    // creation, so keeping it mapped is the safe trade-off.
-    let _ = (tls_base, tls_size);
-    release_thread_slot(slot);
+    release_finished_slot(slot);
     0
 }
 
@@ -3400,22 +3397,7 @@ pub unsafe extern "C" fn pthread_detach(thread: PthreadT) -> c_int {
     if slot.is_null() { return EINVAL; }
     let old = a_cas(&raw mut (*slot).detach_state, DT_JOINABLE, DT_DETACHED);
     if old == DT_EXITED {
-        let stack = (*slot).stack;
-        let stack_size = (*slot).stack_size;
-        let stack_owned = (*slot).stack_owned;
-        let tls_base = (*slot).tls_base;
-        let tls_size = (*slot).tls_size;
-        (*slot).tid = -1;
-        (*slot).stack = core::ptr::null_mut();
-        (*slot).stack_size = 0;
-        (*slot).stack_owned = false;
-        (*slot).fs_base = core::ptr::null_mut();
-        (*slot).tls_base = core::ptr::null_mut();
-        (*slot).tls_size = 0;
-        if stack_owned && !stack.is_null() && stack_size > 0 { sys_munmap(stack, stack_size); }
-        // See pthread_join: keep the TLS block mapped after the thread dies.
-        let _ = (tls_base, tls_size);
-        release_thread_slot(slot);
+        release_finished_slot(slot);
     }
     0
 }
