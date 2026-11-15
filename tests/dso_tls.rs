@@ -28,8 +28,10 @@ fn dso_tls_works_in_main_and_pthread_threads() {
         .expect("failed to run musl-gcc for libtls.so");
     assert!(status.success(), "musl-gcc libtls.so compilation failed");
 
+    let out = manifest_dir.join("target/fixtures");
+    std::fs::create_dir_all(&out).expect("create target/fixtures");
     let src = fixtures.join("dso_tls_test.c");
-    let bin = fixtures.join("dso_tls_test");
+    let bin = out.join("dso_tls_test");
     let status = Command::new("musl-gcc")
         .args([
             "-fPIE",

@@ -7,6 +7,8 @@ use std::process::Command;
 fn packed_relative_relocations_work() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixtures = manifest_dir.join("tests/fixtures");
+    let out = manifest_dir.join("target/fixtures");
+    std::fs::create_dir_all(&out).expect("create target/fixtures");
     let include = manifest_dir.join("include");
     let debug = manifest_dir.join("target/debug");
 
@@ -15,7 +17,7 @@ fn packed_relative_relocations_work() {
     assert!(ldso.exists(), "libc.so not found");
     assert!(libc.exists(), "libc.so not found");
 
-    let dso = fixtures.join("librelr_dso.so");
+    let dso = out.join("librelr_dso.so");
     let dso_src = fixtures.join("relr_dso.c");
     let output = Command::new("musl-gcc")
         .args([
@@ -35,7 +37,7 @@ fn packed_relative_relocations_work() {
         return;
     }
 
-    let exe = fixtures.join("relr_test");
+    let exe = out.join("relr_test");
     let exe_src = fixtures.join("relr_test.c");
     let output = Command::new("musl-gcc")
         .args([
@@ -49,7 +51,7 @@ fn packed_relative_relocations_work() {
             "-L",
             debug.to_str().unwrap(),
             "-L",
-            fixtures.to_str().unwrap(),
+            out.to_str().unwrap(),
             exe_src.to_str().unwrap(),
             "-Wl,--allow-shlib-undefined",
             "-lrelr_dso",
@@ -78,7 +80,7 @@ fn packed_relative_relocations_work() {
     let path = format!(
         "{}:{}",
         debug.to_str().unwrap(),
-        fixtures.to_str().unwrap()
+        out.to_str().unwrap()
     );
     let output = Command::new(&exe)
         .env("LD_LIBRARY_PATH", path)

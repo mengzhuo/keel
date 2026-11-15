@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <grp.h>
+#include <netdb.h>
 #include <pwd.h>
 #include <shadow.h>
 #include <stdint.h>
@@ -89,6 +90,22 @@ int main(void)
     int neg = -1;
     unsigned int groups1[1];
     CHECK(getgrouplist("root", 0, groups1, &neg) == -1);
+
+    /* getserv*_r must return the caller's struct, not a dead stack copy. */
+    {
+        struct servent se, *sres;
+        char sbuf[512];
+        memset(&se, 0, sizeof se);
+        memset(sbuf, 0xcc, sizeof sbuf);
+        r = getservbyname_r("http", "tcp", &se, sbuf, sizeof sbuf, &sres);
+        if (r == 0) {
+            CHECK(sres == &se);
+            CHECK(in_buf(se.s_name, sbuf, sizeof sbuf));
+            CHECK(strcmp(se.s_name, "http") == 0);
+        } else {
+            CHECK(r == 2); /* NDB_ENOENT: service database may be minimal */
+        }
+    }
 
     /* Shadow may be unreadable in unprivileged CI; only check when the
        non-reentrant lookup succeeds. */

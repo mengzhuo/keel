@@ -24,6 +24,13 @@ pub fn fixtures_dir() -> PathBuf {
     manifest_dir().join("tests/fixtures")
 }
 
+/// Generated binaries and DSOs live under target/, never in the source tree.
+pub fn build_fixtures_dir() -> PathBuf {
+    let dir = manifest_dir().join("target/fixtures");
+    std::fs::create_dir_all(&dir).expect("failed to create target/fixtures");
+    dir
+}
+
 pub fn include_dir() -> PathBuf {
     manifest_dir().join("include")
 }
@@ -65,7 +72,7 @@ pub fn compile_file(src: &Path, bin: &Path, extra: &[&str]) -> PathBuf {
 
 pub fn compile_fixture(name: &str, extra: &[&str]) -> PathBuf {
     let src = fixtures_dir().join(format!("{name}_test.c"));
-    let bin = fixtures_dir().join(format!("{name}_test"));
+    let bin = build_fixtures_dir().join(format!("{name}_test"));
     compile_file(&src, &bin, extra)
 }
 
@@ -74,7 +81,7 @@ pub fn compile_fixture(name: &str, extra: &[&str]) -> PathBuf {
 pub fn compile_static(src_name: &str, bin_name: &str) -> PathBuf {
     require_runtime();
     let src = fixtures_dir().join(src_name);
-    let bin = fixtures_dir().join(bin_name);
+    let bin = build_fixtures_dir().join(bin_name);
     let libc_a = debug_dir().join("libc.a");
     assert!(libc_a.exists(), "libc.a not found at {}", libc_a.display());
 
@@ -135,7 +142,7 @@ pub fn run_named_with_env(
     envs: &[(&str, &str)],
 ) -> Output {
     let src = fixtures_dir().join(format!("{src_name}.c"));
-    let bin = fixtures_dir().join(bin_name);
+    let bin = build_fixtures_dir().join(bin_name);
     compile_file(&src, &bin, extra);
     let mut command = Command::new(&bin);
     command.env("LD_LIBRARY_PATH", debug_dir());

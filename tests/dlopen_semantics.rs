@@ -7,6 +7,8 @@ use std::process::Command;
 fn dlopen_musl_semantics() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixtures = manifest_dir.join("tests/fixtures");
+    let out = manifest_dir.join("target/fixtures");
+    std::fs::create_dir_all(&out).expect("create target/fixtures");
     let include = manifest_dir.join("include");
     let debug = manifest_dir.join("target/debug");
     let ldso = debug.join("libc.so");
@@ -15,15 +17,15 @@ fn dlopen_musl_semantics() {
     assert!(libc.exists(), "libc.so not found");
 
     let dep_src = fixtures.join("dlopen_dep.c");
-    let dep = fixtures.join("libdlopen_dep.so");
+    let dep = out.join("libdlopen_dep.so");
     let a_src = fixtures.join("dlopen_a.c");
-    let a = fixtures.join("libdlopen_a.so");
+    let a = out.join("libdlopen_a.so");
     let b_src = fixtures.join("dlopen_b.c");
-    let b = fixtures.join("libdlopen_b.so");
-    let ghost = fixtures.join("libdlopen_ghost.so");
-    let missing = fixtures.join("libdlopen_missing.so");
+    let b = out.join("libdlopen_b.so");
+    let ghost = out.join("libdlopen_ghost.so");
+    let missing = out.join("libdlopen_missing.so");
     let main_src = fixtures.join("dlopen_semantics_test.c");
-    let main = fixtures.join("dlopen_semantics_test");
+    let main = out.join("dlopen_semantics_test");
 
     let status = Command::new("musl-gcc")
         .args(["-shared", "-fPIC", "-Wl,-soname,libdlopen_dep.so"])
@@ -43,7 +45,7 @@ fn dlopen_musl_semantics() {
         ])
         .arg(&a_src)
         .args(["-L"])
-        .arg(&fixtures)
+        .arg(&out)
         .args(["-Wl,--no-as-needed", "-ldlopen_dep"])
         .args(["-L"])
         .arg(&debug)
@@ -84,7 +86,7 @@ fn dlopen_musl_semantics() {
         ])
         .arg(&b_src)
         .args(["-L"])
-        .arg(&fixtures)
+        .arg(&out)
         .arg("-ldlopen_ghost")
         .args(["-L"])
         .arg(&debug)

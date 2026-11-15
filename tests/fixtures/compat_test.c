@@ -24,6 +24,7 @@
 #include <wordexp.h>
 #include <monetary.h>
 #include <wchar.h>
+#include <wctype.h>
 #include <time.h>
 #include <dlfcn.h>
 #include <crypt.h>
@@ -134,7 +135,63 @@ int main(void) {
     char tmpl[] = "/tmp/keel-compat-XXXXXX";
     int fd = mkostemps(tmpl, 0, O_CLOEXEC);
     CHECK(fd >= 0, "mkostemps");
-    if (fd >= 0) { close(fd); unlink(tmpl); }
+    if (fd >= 0) {
+        CHECK((fcntl(fd, F_GETFD) & FD_CLOEXEC) != 0, "mkostemps O_CLOEXEC");
+        close(fd);
+        unlink(tmpl);
+    }
+
+    /* mkostemp must honour its flags too. */
+    char otmpl[] = "/tmp/keel-ostemp-XXXXXX";
+    fd = mkostemp(otmpl, O_CLOEXEC);
+    CHECK(fd >= 0, "mkostemp");
+    if (fd >= 0) {
+        CHECK((fcntl(fd, F_GETFD) & FD_CLOEXEC) != 0, "mkostemp O_CLOEXEC");
+        close(fd);
+        unlink(otmpl);
+    }
+
+    /* lockf maps F_LOCK/F_ULOCK onto fcntl record locks. */
+    char lpath[] = "/tmp/keel-lockf-XXXXXX";
+    fd = mkstemp(lpath);
+    CHECK(fd >= 0, "lockf mkstemp");
+    if (fd >= 0) {
+        CHECK(lockf(fd, F_LOCK, 0) == 0, "lockf F_LOCK");
+        CHECK(lockf(fd, F_ULOCK, 0) == 0, "lockf F_ULOCK");
+        errno = 0;
+        CHECK(lockf(fd, 99, 0) == -1 && errno == EINVAL, "lockf bad cmd");
+        close(fd);
+        unlink(lpath);
+    }
+
+    /* lchmod must not pass an unknown flag straight to the kernel. */
+    char mpath[] = "/tmp/keel-lchmod-XXXXXX";
+    fd = mkstemp(mpath);
+    CHECK(fd >= 0, "lchmod mkstemp");
+    if (fd >= 0) {
+        close(fd);
+        CHECK(lchmod(mpath, 0600) == 0, "lchmod regular file");
+        unlink(mpath);
+    }
+
+    CHECK(strstr(strerror(-1), "18446744073709551615") == NULL, "strerror negative");
+    CHECK(iswalpha(WEOF) == 0, "iswalpha WEOF");
+    CHECK(iswprint(WEOF) == 0, "iswprint WEOF");
+    CHECK(iswalpha(0xE9) == 0, "iswalpha latin-1 (C locale)");
+    CHECK(iswprint(0xE9) == 0, "iswprint latin-1 (C locale)");
+
+    /* vfwprintf must not fail when the output exceeds 4096 wide chars. */
+    {
+        static wchar_t wbig[6000];
+        for (int i = 0; i < 5999; i++) wbig[i] = L'x';
+        wbig[5999] = 0;
+        FILE *wf = tmpfile();
+        CHECK(wf != NULL, "fwprintf tmpfile");
+        if (wf) {
+            CHECK(fwprintf(wf, L"%ls", wbig) == 5999, "fwprintf long output");
+            fclose(wf);
+        }
+    }
 
     struct timeval tv[2] = {{1111111, 0}, {2222222, 0}};
     char path[] = "/tmp/keel-futimes-XXXXXX";

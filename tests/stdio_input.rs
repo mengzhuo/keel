@@ -11,7 +11,7 @@ use std::process::Command;
 fn stdio_input_functions_under_libc_so() {
     let bin = common::compile_fixture("stdio_input", &[]);
 
-    let input_path = common::fixtures_dir().join("stdio_input_test.txt");
+    let input_path = common::build_fixtures_dir().join("stdio_input_test.txt");
     {
         let mut f = File::create(&input_path).expect("create input file");
         f.write_all(b"hi\nxy\nz").expect("write input");

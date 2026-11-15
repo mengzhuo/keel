@@ -37,6 +37,10 @@ REVISION="${REVISION:-r0}"
 PKGVER="${VERSION}-${REVISION}"
 IMAGE="${APK_BUILDER_IMAGE:-alpine:3.23}"
 
+# Never sign stale packages from an earlier version: the release uploads
+# every dist/*.apk and the checksum file.
+rm -f "$DIST"/*.apk "$DIST/SHA256SUMS"
+
 if [ -z "${CONTAINER_RUNTIME:-}" ]; then
     if command -v docker >/dev/null 2>&1; then
         CONTAINER_RUNTIME=docker
@@ -90,6 +94,7 @@ package_runtime() {
     local arch="$1" libc="$2" loader="$3"
     local dir
     dir="$(mktemp -d)"
+    trap 'rm -rf "$dir"' EXIT
     install -d "$dir/usr/lib/keel" "$dir/usr/bin" "$dir/usr/share/doc/keel" "$dir/lib"
     install -m 755 "$ROOT/$libc" "$dir/usr/lib/keel/libc.so"
     # The runtime package is a drop-in for Alpine's musl package.  These are
@@ -112,6 +117,7 @@ package_dev() {
     local arch="$1" libc_a="$2"
     local dir
     dir="$(mktemp -d)"
+    trap 'rm -rf "$dir"' EXIT
     install -d "$dir/usr/include" "$dir/usr/lib"
 
     cp -a "$ROOT/include/." "$dir/usr/include/"
@@ -140,6 +146,7 @@ package_utils() {
     local arch="$1"
     local dir
     dir="$(mktemp -d)"
+    trap 'rm -rf "$dir"' EXIT
     install -d "$dir/usr/bin" "$dir/sbin"
     install -m 755 "$DIST/utils/$arch/keel-utils" "$dir/usr/bin/keel-utils"
     for cmd in getconf getent iconv ldd; do

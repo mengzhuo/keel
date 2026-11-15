@@ -141,6 +141,40 @@ static void test_strtod(void) {
     errno = 0;
     f = strtof("1e-46", NULL);
     if (f != 0.0f || errno != ERANGE) { puts("strtof underflow fail"); exit(1); }
+
+    /* A bare exponent marker is not part of the number. */
+    d = strtod("1e", &end);
+    if (d != 1.0 || *end != 'e') { puts("strtod bare exponent fail"); exit(1); }
+    errno = 0;
+    d = strtod("0e-99999", &end);
+    if (d != 0.0 || *end != 0 || errno != 0) { puts("strtod zero exponent fail"); exit(1); }
+
+    /* No conversion at all sets EINVAL. */
+    errno = 0;
+    d = strtod(".", &end);
+    if (d != 0.0 || *end != '.' || errno != EINVAL) { puts("strtod no digits fail"); exit(1); }
+
+    /* Leading fractional zeros shift the exponent, not the mantissa. */
+    char tiny[64];
+    memset(tiny, 0, sizeof tiny);
+    tiny[0] = '1'; tiny[1] = 'e'; tiny[2] = '-'; tiny[3] = '3'; tiny[4] = '0'; tiny[5] = '0';
+    d = strtod(tiny, NULL);
+    if (d != 1e-300) { puts("strtod small exponent fail"); exit(1); }
+    char frac[800];
+    frac[0] = '0'; frac[1] = '.';
+    memset(frac + 2, '0', 700);
+    memset(frac + 702, '1', 96);
+    frac[798] = 0;
+    errno = 0;
+    d = strtod(frac, NULL);
+    if (d != 0.0 || errno != ERANGE) { puts("strtod long fraction fail"); exit(1); }
+
+    /* A mantissa longer than the internal buffer still overflows. */
+    char big[900];
+    memset(big, '9', 800); big[800] = 0;
+    errno = 0;
+    d = strtod(big, NULL);
+    if (!isinf(d) || errno != ERANGE) { puts("strtod long mantissa fail"); exit(1); }
 }
 
 int main(void) {

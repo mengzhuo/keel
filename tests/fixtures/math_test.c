@@ -125,6 +125,14 @@ int main(void) {
     if (llrintl(2.7L) != 3) return 97;
     if (check(sinh(0x1.d3e0d2f5d98d6p-2), 0x1.e45428082fb8cp-2, 1e-15)) return 98;
 
+    /* signgam and __signgam are aliases in musl. */
+    signgam = 0;
+    __signgam = 0;
+    if (check(lgamma(-0.5), 1.2655121234846454, 1e-12)) return 99;
+    if (signgam != -1 || __signgam != -1) return 100;
+    if (checkf(lgammaf(3.0f), 0.6931471805599453f, 1e-6f)) return 101;
+    if (signgam != 1 || __signgam != 1) return 102;
+
     printf("math ok\n");
     return 0;
 }

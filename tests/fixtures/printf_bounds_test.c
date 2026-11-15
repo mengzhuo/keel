@@ -55,6 +55,12 @@ int main(void)
     CHECK(strcmp(small, "[1    ]") == 0);
     fclose(f);
 
+    /* The stream float path used to write width padding at fbuf+4096. */
+    f = tmpfile();
+    CHECK(f != NULL);
+    CHECK(fprintf(f, "%200f", 1.0) == 200);
+    fclose(f);
+
     /* Wide printf shares format_int/format_f64_full. */
     n = swprintf(wbuf, 8192, L"%.2000f", 1.0);
     CHECK(n == 1101);
@@ -62,6 +68,30 @@ int main(void)
     n = swprintf(wbuf, 8192, L"%10000d", 1);
     CHECK(n == 4096);
     CHECK(wcslen(wbuf) == 4096);
+
+    /* %h/%hh/%j length modifiers narrow like musl. */
+    n = snprintf(buf, sizeof buf, "%hd %hhd %hu %hhu %hx %hhx %hX %#ho",
+                 65536 + 65, 256 + 7, 65536 + 9, 256 + 3, 0x12345, 0x234,
+                 0xbeef, 0x1ff);
+    CHECK(n > 0);
+    CHECK(strcmp(buf, "65 7 9 3 2345 34 BEEF 0777") == 0);
+    n = snprintf(buf, sizeof buf, "%jd %ju %jx",
+                 (long long)-1234567890123LL,
+                 (unsigned long long)18446744073709551615ULL,
+                 0xdeadbeefcafebabeULL);
+    CHECK(n > 0);
+    CHECK(strcmp(buf, "-1234567890123 18446744073709551615 deadbeefcafebabe") == 0);
+    n = swprintf(wbuf, 8192, L"%hd %hhu %jd", 65536 + 66, 256 + 4, (long long)-5);
+    CHECK(n > 0);
+    CHECK(wcscmp(wbuf, L"66 4 -5") == 0);
+    f = tmpfile();
+    CHECK(f != NULL);
+    CHECK(fprintf(f, "%hd %hhu", 65536 + 68, 256 + 6) == 4);
+    rewind(f);
+    memset(small, 0, sizeof small);
+    CHECK(fgets(small, sizeof small, f) != NULL);
+    CHECK(strcmp(small, "68 6") == 0);
+    fclose(f);
 
     printf("printf bounds ok\n");
     return 0;

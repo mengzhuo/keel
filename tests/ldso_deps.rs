@@ -7,6 +7,8 @@ use std::process::Command;
 fn ldso_runs_pie_with_dependency() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixtures = manifest_dir.join("tests/fixtures");
+    let out = manifest_dir.join("target/fixtures");
+    std::fs::create_dir_all(&out).expect("create target/fixtures");
 
     // Build ldso
 
@@ -15,7 +17,7 @@ fn ldso_runs_pie_with_dependency() {
 
     // Build libfoo.so
     let libfoo_src = fixtures.join("libfoo.c");
-    let libfoo_so = fixtures.join("libfoo.so");
+    let libfoo_so = out.join("libfoo.so");
     let status = Command::new("musl-gcc")
         .args([
             "-shared",
@@ -30,7 +32,7 @@ fn ldso_runs_pie_with_dependency() {
 
     // Build needfoo (PIE, nostdlib, nostartfiles, dynamic-linker=ldso, -lfoo)
     let needfoo_src = fixtures.join("needfoo.c");
-    let needfoo_bin = fixtures.join("needfoo");
+    let needfoo_bin = out.join("needfoo");
     let status = Command::new("musl-gcc")
         .args([
             "-fPIE",
@@ -40,7 +42,7 @@ fn ldso_runs_pie_with_dependency() {
             "-Wl,--dynamic-linker",
             ldso_path.to_str().unwrap(),
             "-L",
-            fixtures.to_str().unwrap(),
+            out.to_str().unwrap(),
             needfoo_src.to_str().unwrap(),
             "-Wl,--allow-shlib-undefined",
             "-lfoo",
@@ -56,7 +58,7 @@ fn ldso_runs_pie_with_dependency() {
     // test setup. Real binaries expect their dependencies on the search path.
     let lib_path = format!(
         "{}:{}",
-        fixtures.display(),
+        out.display(),
         manifest_dir.join("target/debug").display()
     );
     let output = Command::new(&needfoo_bin)

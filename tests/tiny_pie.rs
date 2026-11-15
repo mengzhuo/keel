@@ -5,9 +5,12 @@ use std::process::Command;
 
 #[test]
 fn loader_runs_tiny_pie() {
-    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let fixtures = manifest_dir.join("tests/fixtures");
+    let out = manifest_dir.join("target/fixtures");
+    std::fs::create_dir_all(&out).expect("create target/fixtures");
     let tiny_src = fixtures.join("tiny.c");
-    let tiny_bin = fixtures.join("tiny");
+    let tiny_bin = out.join("tiny");
 
     let status = Command::new("musl-gcc")
         .args([

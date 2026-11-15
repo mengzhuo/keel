@@ -61,6 +61,20 @@ static void test_inet(void) {
     p = inet_ntoa(a.s_addr);
     CHECK(p && strcmp(p, "10.0.128.31") == 0, "inet_ntoa");
 
+    /* inet_makeaddr uses musl's class thresholds (256/65536), and
+       inet_lnaof/inet_netof read s_addr without a second byte swap. */
+    struct in_addr m = inet_makeaddr(10, 1);
+    uint32_t raw_m;
+    memcpy(&raw_m, &m, sizeof raw_m);
+    CHECK(raw_m == 0x0a000001u, "inet_makeaddr class A");
+    CHECK(inet_lnaof(m) == 1, "inet_lnaof class A");
+    CHECK(inet_netof(m) == 10, "inet_netof class A");
+    m = inet_makeaddr(128, 1);
+    memcpy(&raw_m, &m, sizeof raw_m);
+    CHECK(raw_m == 0x80000001u, "inet_makeaddr class B");
+    CHECK(inet_lnaof(m) == 1, "inet_lnaof class B");
+    CHECK(inet_netof(m) == 32768, "inet_netof class B");
+
     unsigned char addr6[16];
     const char *in6 = "::ffff:192.168.0.1";
     r = inet_pton(AF_INET6, in6, addr6);

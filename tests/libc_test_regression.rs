@@ -53,8 +53,8 @@ fn libc_test_regression_zero_failures() {
 
     let fail = parse_count(&stdout, "FAIL:");
     assert!(
-        fail <= 1,
-        "expected at most one flaky FAIL in regression harness summary, got {}:\n{}",
+        fail == 0,
+        "expected zero FAILs in regression harness summary, got {}:\n{}",
         fail,
         stdout
     );

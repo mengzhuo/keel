@@ -38,6 +38,16 @@ int main(void) {
     if (toupper_l('z', loc) != 'Z') return 26;
 
     freelocale(loc);
+
+    /* glibc-compatible ctype tables, as exported by musl. */
+    const unsigned short *b = *__ctype_b_loc();
+    const int *lo = *__ctype_tolower_loc();
+    const int *up = *__ctype_toupper_loc();
+    if (b['a'] == 0 || b['A'] == 0 || b['0'] == 0) return 27;
+    if (b[' '] == 0 || b[-1] != 0) return 28;
+    if (lo['A'] != 'a' || lo['a'] != 'a') return 29;
+    if (up['a'] != 'A' || up['A'] != 'A') return 30;
+
     puts("ctype ok");
     return 0;
 }

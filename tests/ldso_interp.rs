@@ -7,8 +7,10 @@ use std::process::Command;
 fn ldso_runs_tiny_pie() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixtures = manifest_dir.join("tests/fixtures");
+    let out = manifest_dir.join("target/fixtures");
+    std::fs::create_dir_all(&out).expect("create target/fixtures");
     let tiny_src = fixtures.join("tiny.c");
-    let tiny_bin = fixtures.join("tiny_ldso");
+    let tiny_bin = out.join("tiny_ldso");
 
     let ldso_path = manifest_dir.join("target/debug/libc.so");
     assert!(ldso_path.exists(), "libc.so not found at {}", ldso_path.display());

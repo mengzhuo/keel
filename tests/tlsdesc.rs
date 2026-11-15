@@ -8,7 +8,7 @@ use std::process::Command;
 
 fn build_tls_dso() -> PathBuf {
     let src = common::fixtures_dir().join("tlsdesc_dso.c");
-    let bin = common::fixtures_dir().join("libtlsdesc.so");
+    let bin = common::build_fixtures_dir().join("libtlsdesc.so");
     let status = Command::new("musl-gcc")
         .args([
             "-shared",

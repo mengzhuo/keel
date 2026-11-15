@@ -113,6 +113,19 @@ int main(void) {
     if (!lt) { puts("invalid TZ rule fail"); return 9; }
 
 
+    /* A long tm_zone must not overflow strftime's internal buffer. */
+    {
+        char zone[256];
+        char out[128];
+        memset(zone, 'A', sizeof zone - 1);
+        zone[sizeof zone - 1] = 0;
+        memset(&tm, 0, sizeof tm);
+        tm.tm_zone = zone;
+        tm.tm_isdst = 0;
+        size_t zl = strftime(out, sizeof out, "%Z", &tm);
+        if (zl >= sizeof out) { puts("strftime zone fail"); return 10; }
+    }
+
     /* tm_mday-1 must be computed in a wide type. */
     memset(&tm, 0, sizeof tm);
     tm.tm_year = 120; /* 2020-01-01 */
