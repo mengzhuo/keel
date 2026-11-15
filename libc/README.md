@@ -28,4 +28,5 @@ Output is in `target/debug/libc.so` and `target/debug/libc.a`.
 
 ## License
 
-[BSD-3-Clause](../LICENSE)
+[BSD-3-Clause](../LICENSE); musl-derived parts are covered by the
+MIT notice in [NOTICE](../NOTICE).

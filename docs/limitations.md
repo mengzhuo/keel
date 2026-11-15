@@ -48,15 +48,15 @@ regressions.  It is not an exhaustive security review.
   bytes return `FNM_NOMATCH` instead of being matched with a heap buffer.
 - **`tsearch` is unbalanced.**  The search tree is a plain BST, so lookups
   and inserts are O(n) in the worst case; musl uses an AVL tree.
+- **`wordexp` supports a subset of shell parameter expansion.**  `$VAR`,
+  `${VAR}`, `$$`, command substitution and globbing work; `${VAR:-word}`,
+  `${VAR:+word}`, `$?` and positional parameters are not expanded.
 
 ## Loader
 
 - **The standalone `keel` mapper drops the environment.**  It builds an
   `argv` and auxiliary vector for the target but gives it an empty `envp`.
   Dynamic binaries using `libc.so` as the interpreter are not affected.
-- **The executable's direct `DT_NEEDED` list is capped at 32 entries.**
-  Additional direct dependencies of the main executable are ignored; the
-  loader's object and dependency tables for DSOs grow dynamically.
 - **`dlclose` does not unload.**  It validates the handle but does not unmap
   objects or run `DT_FINI`/`DT_FINI_ARRAY`, matching musl's behaviour.
 - **`RTLD_DEEPBIND` is not provided.**  It is not part of musl's API.

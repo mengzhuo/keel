@@ -1248,6 +1248,27 @@ unsafe fn getaddrinfo_locked(
                     if family != 0 { break; }
                 }
             }
+            // AF_INET6 + AI_V4MAPPED: fall back to (or, with AI_ALL, also
+            // append) the IPv4 address mapped into ::ffff:a.b.c.d.
+            if family == AF_INET6
+                && flags & AI_V4MAPPED_V != 0
+                && (flags & AI_ALL_V != 0 || !got)
+                && count < addrs.len()
+            {
+                let h = gethostbyname2(node, AF_INET);
+                if !h.is_null() && (*h).h_length >= 4 {
+                    addrs[count][10] = 0xff;
+                    addrs[count][11] = 0xff;
+                    core::ptr::copy_nonoverlapping(
+                        (*h).h_addr_list.read() as *const u8,
+                        addrs[count].as_mut_ptr().add(12),
+                        4,
+                    );
+                    fams[count] = AF_INET6;
+                    count += 1;
+                    got = true;
+                }
+            }
             if !got {
                 return if h_errno == TRY_AGAIN { EAI_AGAIN_V } else { EAI_NONAME_V };
             }

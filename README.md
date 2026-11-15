@@ -52,4 +52,5 @@ release workflow details are in `AGENTS.md`.
 - [Performance](docs/performance.md)
 - [Alpine packages](docs/packages.md)
 
-keel is licensed under [BSD-3-Clause](LICENSE).
+keel is licensed under [BSD-3-Clause](LICENSE). Parts ported from musl
+retain its MIT notice, reproduced in [NOTICE](NOTICE).

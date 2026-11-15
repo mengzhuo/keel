@@ -22,4 +22,5 @@ command, matching the `musl-utils` interface.
 
 ## License
 
-[BSD-3-Clause](../LICENSE)
+[BSD-3-Clause](../LICENSE); musl-derived parts are covered by the
+MIT notice in [NOTICE](../NOTICE).

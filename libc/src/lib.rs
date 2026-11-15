@@ -10410,6 +10410,16 @@ unsafe fn wfmt_write_str(dst: *mut wchar_t, pos: usize, cap: usize, s: *const u8
     pos + len
 }
 
+struct HeapGuard(*mut u8);
+
+impl Drop for HeapGuard {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { crate::free(self.0 as *mut c_void); }
+        }
+    }
+}
+
 #[no_mangle]
 unsafe fn vswprintf_impl(
     s: *mut *mut wchar_t,
@@ -10422,17 +10432,21 @@ unsafe fn vswprintf_impl(
     let mut buf = *s;
     let mut cap = if grow { n } else { n - 1 };
     let mut pos = 0usize;
-    // format specifiers are ASCII; narrow buffer suffices for parsing
-    let mut fmt_narrow = [0u8; 256];
-    let mut flen = 0usize;
-    loop {
-        let ch = *fmt.add(flen) as u32;
-        if ch == 0 { break; }
-        if flen >= 255 { return -1; }
-        fmt_narrow[flen] = if ch < 128 { ch as u8 } else { b'?' };
-        flen += 1;
+    // Format specifiers are ASCII. Keep one byte per wide character so a
+    // non-ASCII literal can still be emitted from the original string.
+    let fmt_len = wcslen(fmt);
+    let fmt_cap = fmt_len.saturating_add(1);
+    let fmt_guard = HeapGuard(crate::malloc(fmt_cap) as *mut u8);
+    let fmt_narrow = fmt_guard.0;
+    if fmt_narrow.is_null() {
+        ERRNO!() = ENOMEM;
+        return -1;
     }
-    fmt_narrow[flen] = 0;
+    for k in 0..fmt_len {
+        let ch = *fmt.add(k) as u32;
+        *fmt_narrow.add(k) = if ch < 128 { ch as u8 } else { b'?' };
+    }
+    *fmt_narrow.add(fmt_len) = 0;
     let mut fi = 0usize;
     macro_rules! wc {
         ($c:expr) => {
@@ -10448,13 +10462,17 @@ unsafe fn vswprintf_impl(
         }
     }
     loop {
-        let c = fmt_narrow[fi];
+        let c = *fmt_narrow.add(fi);
         if c == 0 { break; }
-        if c != b'%' { wc!(c); fi += 1; continue; }
+        if c != b'%' {
+            wc!(*fmt.add(fi) as u32);
+            fi += 1;
+            continue;
+        }
         fi += 1;
         let mut flags: u8 = 0;
         loop {
-            match fmt_narrow[fi] {
+            match *fmt_narrow.add(fi) {
                 b'-' => { flags |= FLAG_MINUS; fi += 1; }
                 b'+' => { flags |= FLAG_PLUS; fi += 1; }
                 b' ' => { flags |= FLAG_SPACE; fi += 1; }
@@ -10464,37 +10482,37 @@ unsafe fn vswprintf_impl(
             }
         }
         let mut width: usize = 0;
-        if fmt_narrow[fi] == b'*' {
+        if *fmt_narrow.add(fi) == b'*' {
             let w = args.next_arg::<c_int>();
             width = fmt_star_width(w, &mut flags);
             fi += 1;
         } else {
-            while fmt_narrow[fi] >= b'0' && fmt_narrow[fi] <= b'9' {
-                width = width.saturating_mul(10).saturating_add((fmt_narrow[fi] - b'0') as usize); fi += 1;
+            while *fmt_narrow.add(fi) >= b'0' && *fmt_narrow.add(fi) <= b'9' {
+                width = width.saturating_mul(10).saturating_add((*fmt_narrow.add(fi) - b'0') as usize); fi += 1;
             }
         }
         width = fmt_width(width);
         let mut precision: i32 = -1;
-        if fmt_narrow[fi] == b'.' {
+        if *fmt_narrow.add(fi) == b'.' {
             fi += 1;
-            if fmt_narrow[fi] == b'*' {
+            if *fmt_narrow.add(fi) == b'*' {
                 let p = args.next_arg::<c_int>();
                 precision = if p < 0 { -1 } else { fmt_precision(p) }; fi += 1;
             } else {
                 precision = 0;
-                while fmt_narrow[fi] >= b'0' && fmt_narrow[fi] <= b'9' {
-                    precision = precision.saturating_mul(10).saturating_add((fmt_narrow[fi] - b'0') as i32); fi += 1;
+                while *fmt_narrow.add(fi) >= b'0' && *fmt_narrow.add(fi) <= b'9' {
+                    precision = precision.saturating_mul(10).saturating_add((*fmt_narrow.add(fi) - b'0') as i32); fi += 1;
                 }
                 precision = fmt_precision(precision);
             }
         }
-        let len_mod = fmt_narrow[fi];
+        let len_mod = *fmt_narrow.add(fi);
         if len_mod == b'h' || len_mod == b'l' || len_mod == b'j' || len_mod == b'z' || len_mod == b't' || len_mod == b'L' {
             fi += 1;
-            let spec = fmt_narrow[fi];
+            let spec = *fmt_narrow.add(fi);
             if (len_mod == b'h' && spec == b'h') || (len_mod == b'l' && spec == b'l') {
                 fi += 1;
-                let spec2 = fmt_narrow[fi];
+                let spec2 = *fmt_narrow.add(fi);
                 match (len_mod, spec, spec2) {
                     (b'h', b'h', b'n') => { let p = args.next_arg::<*mut c_void>(); if !p.is_null() { *(p as *mut u8) = pos as u8; } }
                     (b'l', b'l', b'n') => { let p = args.next_arg::<*mut c_void>(); if !p.is_null() { *(p as *mut c_longlong) = pos as c_longlong; } }
@@ -10745,7 +10763,7 @@ unsafe fn vswprintf_impl(
                 }
             }
         } else {
-            let spec = fmt_narrow[fi];
+            let spec = *fmt_narrow.add(fi);
             match spec {
                 b'd' | b'i' => {
                     let d = args.next_arg::<c_int>();
