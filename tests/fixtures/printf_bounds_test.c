@@ -69,6 +69,11 @@ int main(void)
     CHECK(n == 4096);
     CHECK(wcslen(wbuf) == 4096);
 
+    /* %lc honours width and left-justification like %c. */
+    n = snprintf(buf, sizeof buf, "[%3lc][%-3lc]", (wint_t)L'x', (wint_t)L'y');
+    CHECK(n == 10);
+    CHECK(strcmp(buf, "[  x][y  ]") == 0);
+
     /* %h/%hh/%j length modifiers narrow like musl. */
     n = snprintf(buf, sizeof buf, "%hd %hhd %hu %hhu %hx %hhx %hX %#ho",
                  65536 + 65, 256 + 7, 65536 + 9, 256 + 3, 0x12345, 0x234,

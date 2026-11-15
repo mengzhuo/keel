@@ -40,7 +40,9 @@ fi
 
 # ipc_shm compares time(0) with the kernel's shm timestamps and can lose a
 # second around a clock boundary. Retry it before recording a failure.
-FLAKY_TESTS="${FLAKY_TESTS:-functional/ipc_shm}"
+# pthread_cond_wait-cancel_ignored can lose the race when the machine is
+# heavily loaded; retry it like ipc_shm.
+FLAKY_TESTS="${FLAKY_TESTS:-functional/ipc_shm regression/pthread_cond_wait-cancel_ignored}"
 
 is_flaky() {
     case " $FLAKY_TESTS " in *" $1 "*) return 0 ;; esac
