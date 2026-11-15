@@ -9961,67 +9961,69 @@ unsafe fn wcs_to_bytes(ws: *const wchar_t, buf: *mut u8, bufsz: usize) -> usize 
     i
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn wcstol(s: *const wchar_t, endptr: *mut *mut wchar_t, base: c_int) -> c_long {
-    let mut buf = [0u8; 256];
-    wcs_to_bytes(s, buf.as_mut_ptr(), 256);
-    let mut end: *mut c_char = core::ptr::null_mut();
-    let r = strtol(buf.as_ptr() as *const c_char, &mut end, base);
-    if !endptr.is_null() {
-        let offset = end as usize - buf.as_ptr() as usize;
-        *endptr = s.add(offset) as *mut wchar_t;
-    }
-    r
+macro_rules! wcsto_int {
+    ($name:ident, $ret:ty, $conv:ident) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $name(
+            s: *const wchar_t,
+            endptr: *mut *mut wchar_t,
+            base: c_int,
+        ) -> $ret {
+            let cap = wcslen(s).saturating_add(1);
+            let heap = cap > 256;
+            let mut stack = [0u8; 256];
+            let buf = if heap {
+                crate::malloc(cap) as *mut u8
+            } else {
+                stack.as_mut_ptr()
+            };
+            if buf.is_null() {
+                ERRNO!() = ENOMEM;
+                return 0;
+            }
+            wcs_to_bytes(s, buf, cap);
+            let mut end: *mut c_char = core::ptr::null_mut();
+            let r = $conv(buf as *const c_char, &mut end, base);
+            if !endptr.is_null() {
+                let offset = end as usize - buf as usize;
+                *endptr = s.add(offset) as *mut wchar_t;
+            }
+            if heap {
+                crate::free(buf as *mut c_void);
+            }
+            r
+        }
+    };
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn wcstoul(s: *const wchar_t, endptr: *mut *mut wchar_t, base: c_int) -> c_ulong {
-    let mut buf = [0u8; 256];
-    wcs_to_bytes(s, buf.as_mut_ptr(), 256);
-    let mut end: *mut c_char = core::ptr::null_mut();
-    let r = strtoul(buf.as_ptr() as *const c_char, &mut end, base);
-    if !endptr.is_null() {
-        let offset = end as usize - buf.as_ptr() as usize;
-        *endptr = s.add(offset) as *mut wchar_t;
-    }
-    r
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn wcstoll(s: *const wchar_t, endptr: *mut *mut wchar_t, base: c_int) -> c_longlong {
-    let mut buf = [0u8; 256];
-    wcs_to_bytes(s, buf.as_mut_ptr(), 256);
-    let mut end: *mut c_char = core::ptr::null_mut();
-    let r = strtoll(buf.as_ptr() as *const c_char, &mut end, base);
-    if !endptr.is_null() {
-        let offset = end as usize - buf.as_ptr() as usize;
-        *endptr = s.add(offset) as *mut wchar_t;
-    }
-    r
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn wcstoull(s: *const wchar_t, endptr: *mut *mut wchar_t, base: c_int) -> c_ulonglong {
-    let mut buf = [0u8; 256];
-    wcs_to_bytes(s, buf.as_mut_ptr(), 256);
-    let mut end: *mut c_char = core::ptr::null_mut();
-    let r = strtoull(buf.as_ptr() as *const c_char, &mut end, base);
-    if !endptr.is_null() {
-        let offset = end as usize - buf.as_ptr() as usize;
-        *endptr = s.add(offset) as *mut wchar_t;
-    }
-    r
-}
+wcsto_int!(wcstol, c_long, strtol);
+wcsto_int!(wcstoul, c_ulong, strtoul);
+wcsto_int!(wcstoll, c_longlong, strtoll);
+wcsto_int!(wcstoull, c_ulonglong, strtoull);
 
 #[no_mangle]
 pub unsafe extern "C" fn wcstod(s: *const wchar_t, endptr: *mut *mut wchar_t) -> f64 {
-    let mut buf = [0u8; 256];
-    wcs_to_bytes(s, buf.as_mut_ptr(), 256);
+    let cap = wcslen(s).saturating_add(1);
+    let heap = cap > 256;
+    let mut stack = [0u8; 256];
+    let buf = if heap {
+        crate::malloc(cap) as *mut u8
+    } else {
+        stack.as_mut_ptr()
+    };
+    if buf.is_null() {
+        ERRNO!() = ENOMEM;
+        return 0.0;
+    }
+    wcs_to_bytes(s, buf, cap);
     let mut end: *mut c_char = core::ptr::null_mut();
-    let r = strtod(buf.as_ptr() as *const c_char, &mut end);
+    let r = strtod(buf as *const c_char, &mut end);
     if !endptr.is_null() {
-        let offset = end as usize - buf.as_ptr() as usize;
+        let offset = end as usize - buf as usize;
         *endptr = s.add(offset) as *mut wchar_t;
+    }
+    if heap {
+        crate::free(buf as *mut c_void);
     }
     r
 }
@@ -16714,40 +16716,64 @@ pub unsafe extern "C" fn wcswidth(s: *const u32, n: usize) -> i32 {
 pub unsafe extern "C" fn wcsftime(s: *mut u32, maxsize: usize, fmt: *const u32, tm: *const c_void) -> usize {
     if s.is_null() || fmt.is_null() || maxsize == 0 { return 0; }
     // Convert the wide format string to multibyte, let strftime do the work,
-    // then convert the result back.
-    let mut cfmt = [0u8; 1024];
+    // then convert the result back. Both buffers scale with the inputs.
+    let wlen = wcslen(fmt as *const wchar_t);
+    let cfmt_cap = match wlen.checked_mul(4).and_then(|v| v.checked_add(1)) {
+        Some(v) => v,
+        None => return 0,
+    };
+    let cfmt = crate::malloc(cfmt_cap) as *mut u8;
+    if cfmt.is_null() { ERRNO!() = ENOMEM; return 0; }
     let mut o = 0usize;
     let mut i = 0usize;
     let mut st: c_uint = 0;
-    while *fmt.add(i) != 0 && o + 8 < cfmt.len() {
+    while *fmt.add(i) != 0 {
         let n = wcrtomb(
-            cfmt.as_mut_ptr().add(o) as *mut c_char,
+            cfmt.add(o) as *mut c_char,
             *fmt.add(i) as c_int,
             &mut st as *mut c_uint,
         );
-        if n == !0usize { return 0; }
+        if n == !0usize || o + n >= cfmt_cap {
+            crate::free(cfmt as *mut c_void);
+            return 0;
+        }
         o += n;
         i += 1;
     }
-    cfmt[o] = 0;
-    let mut out = [0u8; 4096];
-    let mut lim = maxsize.saturating_mul(4);
-    if lim > out.len() { lim = out.len(); }
-    let n = strftime(out.as_mut_ptr() as *mut c_char, lim, cfmt.as_ptr() as *const c_char, tm as *const tm);
-    if n == 0 { return 0; }
+    *cfmt.add(o) = 0;
+    let out_cap = match maxsize.checked_mul(4).and_then(|v| v.checked_add(1)) {
+        Some(v) => v,
+        None => { crate::free(cfmt as *mut c_void); return 0; }
+    };
+    let out = crate::malloc(out_cap) as *mut u8;
+    if out.is_null() {
+        crate::free(cfmt as *mut c_void);
+        ERRNO!() = ENOMEM;
+        return 0;
+    }
+    let n = strftime(out as *mut c_char, out_cap, cfmt as *const c_char, tm as *const tm);
+    crate::free(cfmt as *mut c_void);
+    if n == 0 {
+        crate::free(out as *mut c_void);
+        return 0;
+    }
     let mut ws = 0usize;
     let mut p = 0usize;
     while p < n && ws + 1 < maxsize {
         let mut wc: c_int = 0;
         let mut st2: c_uint = 0;
-        let r = mbrtowc(&mut wc, out.as_ptr().add(p) as *const c_char, n - p, &mut st2);
-        if r == !0usize { return 0; }
+        let r = mbrtowc(&mut wc, out.add(p) as *const c_char, n - p, &mut st2);
+        if r == !0usize {
+            crate::free(out as *mut c_void);
+            return 0;
+        }
         if r == 0 || r == !1usize { break; }
         *s.add(ws) = wc as u32;
         ws += 1;
         p += r;
     }
     *s.add(ws) = 0;
+    crate::free(out as *mut c_void);
     ws
 }
 

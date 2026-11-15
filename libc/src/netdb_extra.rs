@@ -1130,9 +1130,6 @@ unsafe fn getaddrinfo_locked(
 
     if node.is_null() {
         if family == 0 || family == AF_INET6 {
-            if family == 0 && flags & AI_V4MAPPED_V != 0 && flags & AI_ALL_V != 0 {
-                // handled below through IPv4 too
-            }
             addrs[count] = [0; 16];
             if flags & AI_PASSIVE_V == 0 {
                 addrs[count][15] = 1;
@@ -1157,6 +1154,13 @@ unsafe fn getaddrinfo_locked(
             if family == 0 || family == AF_INET {
                 addrs[count][..4].copy_from_slice(&tmp[..4]);
                 fams[count] = AF_INET;
+                count += 1;
+            } else if family == AF_INET6 && flags & AI_V4MAPPED_V != 0 {
+                // ::ffff:a.b.c.d
+                addrs[count][10] = 0xff;
+                addrs[count][11] = 0xff;
+                addrs[count][12..16].copy_from_slice(&tmp[..4]);
+                fams[count] = AF_INET6;
                 count += 1;
             }
         }
