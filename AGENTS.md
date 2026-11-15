@@ -254,13 +254,13 @@ rechecked on 2026-11-15 against the current `libc-test` checkout):
 cargo test --workspace          # green in clean Ubuntu and Alpine containers
 scripts/alpine-ci.sh            # Alpine 3.23.3, cargo test green
 ./run.sh api                    # 79/79
-./run.sh functional             # 73/73
+./run.sh functional             # 72/72 (pinned libc-test)
 ./run.sh regression             # 66 PASS, 2 SKIP, 0 FAIL (as root; malloc-brk-fail is skipped on Linux >= 4.7)
 ./run.sh math                   # 195 PASS, 4 SKIP, 0 FAIL
 scripts/parity-check.sh all     # 0 unexpected diffs vs musl 1.2.6
 scripts/riscv-smoke.sh          # riscv64 cross-build + qemu fixtures, 0 failures
 scripts/macro-parity.sh         # 0 mismatches, 0 missing ABI macros (3 arches, C/C++)
-cargo run -q -p keel-header-check -- --include include  # 1442/1442 numeric header macros match Rust
+cargo run -q -p keel-header-check -- --include include  # 1440/1440 numeric header macros match Rust
 
 LTP 20250930, x86_64, 1488 syscalls tags:
   musl baseline                 # 112 FAIL, 139 TCONF

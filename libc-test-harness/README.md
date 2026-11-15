@@ -45,7 +45,7 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
   binaries are built here; the root integration tests cover `libc.a`.
 - **Only the functional subset runs by default** — use `./run.sh all` for everything.
 
-Current baseline (x86_64, current `libc-test` checkout): `functional` 73/73,
+Current baseline (x86_64, pinned `libc-test` checkout): `functional` 72/72,
 `regression` 66 PASS + 2 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The
 regression skip is `pthread_atfork-errno-clobber`, which can only pass as an
 unprivileged user and also fails under musl when root. On aarch64,
