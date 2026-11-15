@@ -1397,7 +1397,7 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
     const PAGE: u64 = 4096;
     let total_size = ((max_vaddr_end + PAGE - 1) & !(PAGE - 1)) as usize;
 
-    // ponytail: ASLR may place our own stack or the executable at the
+    // ASLR may place our own stack or the executable at the
     // desired base. Probe for a free span before committing with MAP_FIXED.
     let mut base = desired_base;
     let actual_base = loop {
@@ -3809,7 +3809,8 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     let mut dt_hash: u64 = 0;
     let mut dt_versym: u64 = 0;
 
-    // ponytail: max 32 DT_NEEDED, enough for any realistic binary
+    // TODO: grow this array dynamically.  The executable's direct DT_NEEDED
+    // list is capped at 32 entries here; any additional entries are dropped.
     let mut needed_offsets: [u64; 32] = [0; 32];
     let mut needed_count: usize = 0;
 

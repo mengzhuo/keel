@@ -47,7 +47,8 @@ pub const ST_NOATIME: c_ulong = 1024;
 pub const ST_NODIRATIME: c_ulong = 2048;
 pub const ST_RELATIME: c_ulong = 4096;
 
-// ponytail: SYS_statfs(137) vs SYS_statfs64(305) identical on x86_64
+// The kernel's statfs structure is already 64-bit on all supported
+// architectures, so the separate statfs64 syscall is not needed.
 #[inline]
 unsafe fn sys_statfs(path: *const c_char, buf: *mut kernel_statfs) -> i64 {
     <Arch as Syscalls>::syscall2(SYS_STATFS, path as i64, buf as i64)

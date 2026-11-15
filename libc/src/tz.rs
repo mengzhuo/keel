@@ -4,8 +4,6 @@
 // Time zone support, ported from musl's src/time/__tz.c.  The parser handles
 // TZif v1/v2/v3 files and POSIX TZ strings (including the M/J/n DST rules).
 
-use core::sync::atomic::AtomicBool;
-
 const TZNAME_LEN: usize = 255;
 const PATH_BUF: usize = 512;
 
@@ -64,6 +62,116 @@ unsafe fn zi_dotprod(z: *const u8, v: &[u8; 6]) -> usize {
     y
 }
 
+unsafe fn zi_u32_at(map: *const u8, map_size: usize, off: usize) -> Option<u32> {
+    if off.checked_add(4)? > map_size {
+        return None;
+    }
+    Some(zi_read32(map.add(off)))
+}
+
+// Validate a TZif image before installing pointers into it.  A malformed
+// file must not be able to make TZ_TRANS/TZ_TYPES/TZ_ABBREVS point outside
+// the mmap (CVE-2014-3484-class parser issue, and the same input can reach
+// localtime through TZ).
+unsafe fn tzif_install(map: *const u8, map_size: usize) -> bool {
+    if map_size < 44 {
+        return false;
+    }
+    let version = *map.add(4);
+    let (scale, trans_off) = if version != 0 {
+        // v1 header + v1 data block, then the v2 header.
+        let skip = zi_dotprod(map.add(20), &[1, 1, 8, 5, 6, 1]);
+        let off = match skip.checked_add(44).and_then(|v| v.checked_add(44)) {
+            Some(v) => v,
+            None => return false,
+        };
+        if off > map_size {
+            return false;
+        }
+        (3usize, off)
+    } else {
+        (2usize, 44usize)
+    };
+    if trans_off > map_size {
+        return false;
+    }
+    let timecnt = match zi_u32_at(map, map_size, trans_off - 12) {
+        Some(v) => v as usize,
+        None => return false,
+    };
+    let typecnt = match zi_u32_at(map, map_size, trans_off - 8) {
+        Some(v) => v as usize,
+        None => return false,
+    };
+    let charcnt = match zi_u32_at(map, map_size, trans_off - 4) {
+        Some(v) => v as usize,
+        None => return false,
+    };
+    // Keep the validation work bounded; real TZif files are far below these.
+    if timecnt > 200_000 || typecnt > 256 || charcnt > 65_536 {
+        return false;
+    }
+    let trans_size = match timecnt.checked_mul(1usize << scale) {
+        Some(v) => v,
+        None => return false,
+    };
+    let types_off = match trans_off
+        .checked_add(trans_size)
+        .and_then(|v| v.checked_add(timecnt))
+    {
+        Some(v) => v,
+        None => return false,
+    };
+    let type_size = match typecnt.checked_mul(6) {
+        Some(v) => v,
+        None => return false,
+    };
+    let abbrev_off = match types_off.checked_add(type_size) {
+        Some(v) => v,
+        None => return false,
+    };
+    let abbrev_end = match abbrev_off.checked_add(charcnt) {
+        Some(v) => v,
+        None => return false,
+    };
+    if abbrev_end > map_size {
+        return false;
+    }
+
+    let trans = map.add(trans_off);
+    let index = map.add(trans_off + trans_size);
+    let types = map.add(types_off);
+    let abbrevs = map.add(abbrev_off);
+    for i in 0..timecnt {
+        if *index.add(i) as usize >= typecnt {
+            return false;
+        }
+    }
+    for i in 0..typecnt {
+        let base = types.add(6 * i);
+        let ai = *base.add(5) as usize;
+        if ai >= charcnt {
+            return false;
+        }
+        // tzname points into this table and is used as a C string later;
+        // require a NUL before the end of the abbreviation block.
+        let mut j = ai;
+        while j < charcnt && *abbrevs.add(j) != 0 {
+            j += 1;
+        }
+        if j == charcnt {
+            return false;
+        }
+    }
+
+    TZ_TRANS = trans;
+    TZ_INDEX = index;
+    TZ_TYPES = types;
+    TZ_ABBREVS = abbrevs;
+    TZ_ABBREVS_END = map.add(abbrev_end);
+    true
+}
+
 unsafe fn map_tzfile(path: *const c_char) -> (*const u8, usize) {
     let fd = crate::open(path, 0, 0);
     if fd < 0 {
@@ -101,7 +209,7 @@ unsafe fn is_alpha(c: c_char) -> bool {
 unsafe fn getint(p: &mut *const c_char) -> i32 {
     let mut x = 0i32;
     while is_digit(**p) {
-        x = x * 10 + (**p - b'0' as c_char) as i32;
+        x = x.saturating_mul(10).saturating_add((**p - b'0' as c_char) as i32);
         *p = (*p).add(1);
     }
     x
@@ -115,16 +223,17 @@ unsafe fn getoff(p: &mut *const c_char) -> i32 {
     } else if **p == b'+' as c_char {
         *p = (*p).add(1);
     }
-    let mut off = 3600 * getint(p);
+    let mut off = 3600i32.saturating_mul(getint(p));
     if **p == b':' as c_char {
         *p = (*p).add(1);
-        off += 60 * getint(p);
+        off = off.saturating_add(60i32.saturating_mul(getint(p)));
         if **p == b':' as c_char {
             *p = (*p).add(1);
-            off += getint(p);
+            off = off.saturating_add(getint(p));
         }
     }
-    if neg { -off } else { off }
+    let off = off.clamp(-86400, 86400);
+    if neg { off.saturating_neg() } else { off }
 }
 
 unsafe fn getname(d: *mut c_char, p: &mut *const c_char) {
@@ -170,6 +279,11 @@ unsafe fn getrule(p: &mut *const c_char, rule: &mut [i32; 5]) {
         rule[2] = getint(p);
         *p = (*p).add(1);
         rule[3] = getint(p);
+        // month, week-of-month, and day-of-month.  Without these clamps a
+        // TZ string such as M99.1.1 indexes month_to_secs out of bounds.
+        rule[1] = rule[1].clamp(1, 12);
+        rule[2] = rule[2].clamp(1, 5);
+        rule[3] = rule[3].clamp(1, 31);
     }
     if **p == b'/' as c_char {
         *p = (*p).add(1);
@@ -400,6 +514,12 @@ unsafe fn do_tzset() {
             map = core::ptr::null();
             s = utc_name();
         }
+    }
+
+    if !map.is_null() && !tzif_install(map, map_size) {
+        map = core::ptr::null();
+        map_size = 0;
+        s = utc_name();
     }
 
     TZ_MAP = map;

@@ -3,11 +3,12 @@
 
 // Internal bounds-checked view over C buffers.
 //
-// The only unsafe operation in this file is the construction of the views:
+// The unsafe precondition is established once, when a view is constructed:
 // the caller promises that `base..base+len` (InBuf) or `base..base+cap`
-// (OutBuf) is valid for the duration of the view.  Once constructed, every
-// access goes through checked arithmetic and returns None/false instead of
-// reading or writing outside the declared range.
+// (OutBuf) is valid for the duration of the view.  Every later access goes
+// through checked arithmetic and returns None/false instead of reading or
+// writing outside the declared range; the remaining unsafe blocks are
+// justified by that invariant.
 //
 // These are internal helpers: do not add #[no_mangle] or public C symbols.
 

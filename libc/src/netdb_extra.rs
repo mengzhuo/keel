@@ -764,6 +764,21 @@ pub unsafe extern "C" fn getnameinfo(
     servlen: u32,
     flags: c_int,
 ) -> c_int {
+    name_lock();
+    let r = getnameinfo_locked(sa, salen, host, hostlen, serv, servlen, flags);
+    name_unlock();
+    r
+}
+
+unsafe fn getnameinfo_locked(
+    sa: *const c_void,
+    salen: u32,
+    host: *mut c_char,
+    hostlen: u32,
+    serv: *mut c_char,
+    servlen: u32,
+    flags: c_int,
+) -> c_int {
     if sa.is_null() { return EAI_FAIL_V; }
     let family = *(sa as *const u16) as c_int;
     let mut addr = [0u8; 16];
@@ -1000,6 +1015,18 @@ unsafe fn nd_parse_service(service: *const c_char, socktype: c_int, protocol: c_
 
 #[no_mangle]
 pub unsafe extern "C" fn getaddrinfo(
+    node: *const c_char,
+    service: *const c_char,
+    hints: *const AddrInfo,
+    res: *mut *mut AddrInfo,
+) -> c_int {
+    name_lock();
+    let r = getaddrinfo_locked(node, service, hints, res);
+    name_unlock();
+    r
+}
+
+unsafe fn getaddrinfo_locked(
     node: *const c_char,
     service: *const c_char,
     hints: *const AddrInfo,

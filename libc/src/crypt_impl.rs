@@ -409,7 +409,7 @@ const BF_FLAGS_BY_SUBTYPE: [u8; 26] = [2,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
 const BF_MAGIC_W: [u32; 6] = [0x4F727068, 0x65616E42, 0x65686F6C, 0x64657253, 0x63727944, 0x6F756274];
 
-// ponytail: Blowfish S-boxes stored as 4 flat arrays; total ~4KB static data
+// Blowfish S-boxes are stored as four flat arrays (~4 KiB of static data).
 const BF_S0: [u32; 256] = [
     0xd1310ba6,0x98dfb5ac,0x2ffd72db,0xd01adfb7,0xb8e1afed,0x6a267e96,0xba7c9045,0xf12c7f99,
     0x24a19947,0xb3916cf7,0x0801f2e2,0x858efc16,0x636920d8,0x71574e69,0xa458fea3,0xf4933d7e,

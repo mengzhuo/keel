@@ -42,6 +42,24 @@ static int write_tzif_v1(const char *path) {
     return n == (ssize_t)sizeof buf ? 0 : -1;
 }
 
+
+/* A malformed TZif with huge counts; the parser must fall back to UTC. */
+static int write_tzif_bad(const char *path) {
+    unsigned char buf[44];
+    memset(buf, 0, sizeof buf);
+    memcpy(buf, "TZif", 4);
+    buf[4] = 0;
+    put32(buf + 32, 0xffffffff); /* timecnt */
+    put32(buf + 36, 0xffffffff); /* typecnt */
+    put32(buf + 40, 0);          /* charcnt */
+
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return -1;
+    ssize_t n = write(fd, buf, sizeof buf);
+    close(fd);
+    return n == (ssize_t)sizeof buf ? 0 : -1;
+}
+
 int main(void) {
     struct tm tm;
 
@@ -71,6 +89,29 @@ int main(void) {
         return 4;
     }
     unlink(path);
+
+    /* Malformed TZif: bounded parsing, UTC fallback, no crash. */
+    char bad[] = "/tmp/keel-tzif-bad-XXXXXX";
+    fd = mkstemp(bad);
+    if (fd < 0) return 6;
+    close(fd);
+    if (write_tzif_bad(bad) != 0) { unlink(bad); return 7; }
+    setenv("TZ", bad, 1);
+    tzset();
+    lt = localtime(&t);
+    if (!lt || !tzname[0] || strcmp(tzname[0], "UTC") != 0) {
+        printf("bad tzif fail: zone=%s\n", tzname[0] ? tzname[0] : "(none)");
+        unlink(bad);
+        return 8;
+    }
+    unlink(bad);
+
+    /* Invalid POSIX rule fields must be clamped, not used as indexes. */
+    setenv("TZ", "EST5EDT,M99.1.1/0,M10.1.1/0", 1);
+    tzset();
+    lt = localtime(&t);
+    if (!lt) { puts("invalid TZ rule fail"); return 9; }
+
 
     /* tm_mday-1 must be computed in a wide type. */
     memset(&tm, 0, sizeof tm);

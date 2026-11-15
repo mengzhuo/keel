@@ -6,10 +6,11 @@
 // lc = __seed48[3..7] = multiplier a (three u16) + addend c (one u16)
 // Default: xi=[0,0,0] lc=[0xe66d,0xdeec,0x0005,0x000b] => a=0x5DEECE66D c=0xB
 
-// ponytail: static mut; no_std, no threads, matches musl's global __seed48
+// Process-global state, matching musl's __seed48; callers that share it
+// across threads must serialize.
 static mut __SEED48: [u16; 7] = [0, 0, 0, 0xe66d, 0xdeec, 0x0005, 0x000b];
 
-// ponytail: saved old seed for seed48() return
+// Saved old seed for the seed48() return value.
 static mut __SEED48_OLD: [u16; 3] = [0, 0, 0];
 
 #[inline]
