@@ -5101,16 +5101,6 @@ unsafe fn iconv_decode(enc: i32, src: *const u8, src_left: usize) -> (u32, usize
             if b < 128 { return (b as u32, 1, 0); }
             (WIN1252_TO_U[b as usize - 128], 1, 0)
         }
-        ENC_WIN1251 => {
-            let b = *src;
-            if b < 128 { return (b as u32, 1, 0); }
-            (WIN1251_TO_U[b as usize - 128], 1, 0)
-        }
-        ENC_KOI8R => {
-            let b = *src;
-            if b < 128 { return (b as u32, 1, 0); }
-            (KOI8R_TO_U[b as usize - 128], 1, 0)
-        }
         ENC_GBK | ENC_GB2312 => {
             let c = *src;
             if c < 128 { return (c as u32, 1, 0); }
@@ -5191,7 +5181,47 @@ unsafe fn iconv_decode(enc: i32, src: *const u8, src_left: usize) -> (u32, usize
     }
 }
 
+unsafe fn encode_single_byte(
+    table: &[u32; 128],
+    c: u32,
+    dst: *mut u8,
+    dst_left: usize,
+) -> (usize, c_int) {
+    if let Some(b) = u_to_iso8859(table, c) {
+        if dst_left < 1 { return (0, E2BIG); }
+        *dst = b;
+        (1, 0)
+    } else {
+        (0, EILSEQ)
+    }
+}
+
 unsafe fn iconv_encode(enc: i32, c: u32, dst: *mut u8, dst_left: usize) -> (usize, c_int) {
+    // All ISO-8859 tables, Windows-1251 and KOI8-R share the same
+    // ASCII-passthrough + reverse-table encoding.
+    let single_byte_table = match enc {
+        ENC_ISO8859_2 => Some(&ISO8859_2_TO_U),
+        ENC_ISO8859_3 => Some(&ISO8859_3_TO_U),
+        ENC_ISO8859_4 => Some(&ISO8859_4_TO_U),
+        ENC_ISO8859_5 => Some(&ISO8859_5_TO_U),
+        ENC_ISO8859_6 => Some(&ISO8859_6_TO_U),
+        ENC_ISO8859_7 => Some(&ISO8859_7_TO_U),
+        ENC_ISO8859_8 => Some(&ISO8859_8_TO_U),
+        ENC_ISO8859_9 => Some(&ISO8859_9_TO_U),
+        ENC_ISO8859_10 => Some(&ISO8859_10_TO_U),
+        ENC_ISO8859_11 => Some(&ISO8859_11_TO_U),
+        ENC_ISO8859_13 => Some(&ISO8859_13_TO_U),
+        ENC_ISO8859_14 => Some(&ISO8859_14_TO_U),
+        ENC_ISO8859_15 => Some(&ISO8859_15_TO_U),
+        ENC_ISO8859_16 => Some(&ISO8859_16_TO_U),
+        ENC_WIN1251 => Some(&WIN1251_TO_U),
+        ENC_KOI8R => Some(&KOI8R_TO_U),
+        _ => None,
+    };
+    if let Some(table) = single_byte_table {
+        return encode_single_byte(table, c, dst, dst_left);
+    }
+
     match enc {
         ENC_UTF8 => {
             if c < 0x80 {
@@ -5276,104 +5306,6 @@ unsafe fn iconv_encode(enc: i32, c: u32, dst: *mut u8, dst_left: usize) -> (usiz
             if c < 256 {
                 if dst_left < 1 { return (0, E2BIG); }
                 *dst = c as u8; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_2 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_2_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_3 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_3_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_4 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_4_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_5 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_5_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_6 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_6_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_7 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_7_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_8 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_8_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_9 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_9_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_10 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_10_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_11 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_11_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_13 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_13_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_14 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_14_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_15 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_15_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
-            }
-            (0, EILSEQ)
-        }
-        ENC_ISO8859_16 => {
-            if let Some(b) = u_to_iso8859(&ISO8859_16_TO_U, c) {
-                if dst_left < 1 { return (0, E2BIG); }
-                *dst = b; return (1, 0);
             }
             (0, EILSEQ)
         }
@@ -7854,446 +7786,27 @@ pub unsafe extern "C" fn vdprintf(fd: c_int, fmt: *const c_char, mut args: VaLis
 // ============================================================
 
 unsafe fn format_to_buf(buf: *mut u8, cap: usize, fmt: *const c_char, args: &mut VaList<'_>) -> c_int {
-    let mut pos = 0usize;
-    let mut i = 0usize;
-    let mut count = 0usize;
-    macro_rules! wc {
-        ($c:expr) => { if pos < cap { *buf.add(pos) = $c; } pos += 1; count += 1; }
-    }
-    macro_rules! ws {
-        ($s:expr, $len:expr) => {{
-            let __len = $len;
-            for k in 0..__len { if pos + k < cap { *buf.add(pos + k) = *$s.add(k); } }
-            pos += __len; count += __len;
-        }}
-    }
-    // Write formatted buffer respecting cap, at current pos
-    macro_rules! ws_buf {
-        ($src:expr, $len:expr) => {{
-            let __len = $len;
-            for k in 0..__len { if pos + k < cap { *buf.add(pos + k) = *$src.add(k); } }
-            pos += __len; count += __len;
-        }}
-    }
-    loop {
-        let c = *fmt.add(i) as u8;
-        if c == 0 { break; }
-        if c != b'%' { wc!(c); i += 1; continue; }
-        i += 1;
-        // Parse flags
-        let mut flags: u8 = 0;
-        loop {
-            let fc = *fmt.add(i) as u8;
-            match fc {
-                b'-' => { flags |= FLAG_MINUS; i += 1; }
-                b'+' => { flags |= FLAG_PLUS; i += 1; }
-                b' ' => { flags |= FLAG_SPACE; i += 1; }
-                b'0' => { flags |= FLAG_ZERO; i += 1; }
-                b'#' => { flags |= FLAG_HASH; i += 1; }
-                _ => break,
-            }
+    // Reuse the shared format engine with buffer writer closures instead of
+    // maintaining a second copy of the conversion table.
+    let pos = core::cell::Cell::new(0usize);
+    let write_char = |c: u8| {
+        let p = pos.get();
+        if p < cap { *buf.add(p) = c; }
+        pos.set(p + 1);
+    };
+    let write_str = |s: *const u8, len: usize| {
+        let p = pos.get();
+        for k in 0..len {
+            if p + k < cap { *buf.add(p + k) = *s.add(k); }
         }
-        // Parse width
-        let mut width: usize = 0;
-        if *fmt.add(i) as u8 == b'*' {
-            width = fmt_star_width(args.next_arg::<c_int>(), &mut flags); i += 1;
-        } else {
-            while (*fmt.add(i) as u8) >= b'0' && (*fmt.add(i) as u8) <= b'9' {
-                width = width.saturating_mul(10).saturating_add(((*fmt.add(i) as u8) - b'0') as usize); i += 1;
-            }
-        }
-        width = fmt_width(width);
-        // Parse precision
-        let mut precision: i32 = -1;
-        if *fmt.add(i) as u8 == b'.' {
-            i += 1;
-            if *fmt.add(i) as u8 == b'*' {
-                precision = args.next_arg::<c_int>(); i += 1;
-                    if precision >= 0 { precision = fmt_precision(precision); }
-            } else {
-                precision = 0;
-                while (*fmt.add(i) as u8) >= b'0' && (*fmt.add(i) as u8) <= b'9' {
-                    precision = precision.saturating_mul(10).saturating_add(((*fmt.add(i) as u8) - b'0') as i32); i += 1;
-                }
-                precision = fmt_precision(precision);
-            }
-        }
-        // Parse length modifier
-        let len_mod = *fmt.add(i) as u8;
-        let spec: u8;
-        if len_mod == b'h' || len_mod == b'l' || len_mod == b'j' || len_mod == b'z' || len_mod == b't' || len_mod == b'L' {
-            i += 1;
-            let len_mod2 = *fmt.add(i) as u8;
-            if (len_mod == b'h' && len_mod2 == b'h') || (len_mod == b'l' && len_mod2 == b'l') {
-                i += 1;
-                spec = *fmt.add(i) as u8;
-                match (len_mod, len_mod2, spec) {
-                    (b'h', b'h', b'n') => {
-                        let p = args.next_arg::<*mut c_void>();
-                        if !p.is_null() { *(p as *mut u8) = count as u8; }
-                    }
-                    (b'l', b'l', b'n') => {
-                        let p = args.next_arg::<*mut c_void>();
-                        if !p.is_null() { *(p as *mut c_longlong) = count as c_longlong; }
-                    }
-                    (b'h', b'h', b'd') | (b'h', b'h', b'i') => {
-                        let val = args.next_arg::<c_int>() as i8 as c_int;
-                        let neg = val < 0;
-                        let abs = if neg { val.wrapping_neg() as u64 } else { val as u64 };
-                        let b = format_u64(abs);
-                        let sign = if neg { Some(b'-') } else if flags & FLAG_PLUS != 0 { Some(b'+') } else if flags & FLAG_SPACE != 0 { Some(b' ') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, sign, None, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'h', b'h', b'u') => {
-                        let val = args.next_arg::<c_uint>() as u8;
-                        let b = format_u64(val as u64);
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'h', b'h', b'x') => {
-                        let val = args.next_arg::<c_uint>() as u8;
-                        let b = format_hex(val as u64, false);
-                        let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(b'x') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'h', b'h', b'X') => {
-                        let val = args.next_arg::<c_uint>() as u8;
-                        let b = format_hex(val as u64, true);
-                        let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(b'X') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'h', b'h', b'o') => {
-                        let val = args.next_arg::<c_uint>() as u8;
-                        let b = format_octal(val as u64, flags & FLAG_HASH != 0);
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, flags & FLAG_HASH != 0);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'l', b'd') | (b'l', b'l', b'i') => {
-                        let val = args.next_arg::<c_longlong>();
-                        let neg = val < 0;
-                        let abs = if neg { val.wrapping_neg() as u64 } else { val as u64 };
-                        let b = format_u64(abs);
-                        let sign = if neg { Some(b'-') } else if flags & FLAG_PLUS != 0 { Some(b'+') } else if flags & FLAG_SPACE != 0 { Some(b' ') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, sign, None, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'l', b'u') => {
-                        let val = args.next_arg::<c_ulonglong>();
-                        let b = format_u64(val as u64);
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'l', b'o') => {
-                        let val = args.next_arg::<c_ulonglong>();
-                        let b = format_octal(val as u64, flags & FLAG_HASH != 0);
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, flags & FLAG_HASH != 0);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'l', b'x') | (b'l', b'l', b'X') => {
-                        let val = args.next_arg::<c_ulonglong>();
-                        let b = format_hex(val as u64, spec == b'X');
-                        let pc = if spec == b'X' { b'X' } else { b'x' };
-                        let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(pc) } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    _ => { wc!(b'%'); wc!(len_mod); wc!(len_mod2); wc!(spec); }
-                }
-            } else {
-                spec = len_mod2;
-                let lm = match len_mod {
-                        b'z' | b't' if spec != b'n' => b'l',
-                        // intmax_t is long on every target keel supports.
-                        b'j' if spec != b'n' => b'l',
-                        _ => len_mod,
-                    };
-                match (lm, spec) {
-                    (b'h', b'n') => {
-                        let p = args.next_arg::<*mut c_void>();
-                        if !p.is_null() { *(p as *mut u16) = count as u16; }
-                    }
-                    (b'l', b'n') => {
-                        let p = args.next_arg::<*mut c_void>();
-                        if !p.is_null() { *(p as *mut c_long) = count as c_long; }
-                    }
-                    (b'z', b'n') | (b't', b'n') => {
-                        let p = args.next_arg::<*mut c_void>();
-                        if !p.is_null() { *(p as *mut usize) = count; }
-                    }
-                    (b'j', b'n') => {
-                        let p = args.next_arg::<*mut c_void>();
-                        if !p.is_null() { *(p as *mut c_ulonglong) = count as c_ulonglong; }
-                    }
-                    (b'h', b'd') | (b'h', b'i') => {
-                        let val = args.next_arg::<c_int>() as i16 as c_int;
-                        let neg = val < 0;
-                        let abs = if neg { val.wrapping_neg() as u64 } else { val as u64 };
-                        let b = format_u64(abs);
-                        let sign = if neg { Some(b'-') } else if flags & FLAG_PLUS != 0 { Some(b'+') } else if flags & FLAG_SPACE != 0 { Some(b' ') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, sign, None, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'h', b'u') => {
-                        let val = args.next_arg::<c_uint>() as u16;
-                        let b = format_u64(val as u64);
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'h', b'x') => {
-                        let val = args.next_arg::<c_uint>() as u16;
-                        let b = format_hex(val as u64, false);
-                        let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(b'x') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'h', b'X') => {
-                        let val = args.next_arg::<c_uint>() as u16;
-                        let b = format_hex(val as u64, true);
-                        let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(b'X') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'h', b'o') => {
-                        let val = args.next_arg::<c_uint>() as u16;
-                        let b = format_octal(val as u64, flags & FLAG_HASH != 0);
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, flags & FLAG_HASH != 0);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'd') | (b'l', b'i') => {
-                        let val = args.next_arg::<c_long>();
-                        let neg = val < 0;
-                        let abs = if neg { val.wrapping_neg() as u64 } else { val as u64 };
-                        let b = format_u64(abs);
-                        let sign = if neg { Some(b'-') } else if flags & FLAG_PLUS != 0 { Some(b'+') } else if flags & FLAG_SPACE != 0 { Some(b' ') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, sign, None, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'u') => {
-                        let val = args.next_arg::<c_ulong>();
-                        let b = format_u64(val as u64);
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b's') => {
-                        let p = args.next_arg::<*const wchar_t>();
-                        if p.is_null() {
-                            let slen = if precision >= 0 { (precision as usize).min(6) } else { 6 };
-                            let pad = width.saturating_sub(slen);
-                            if flags & FLAG_MINUS != 0 { ws!(b"(null)".as_ptr(), slen); for _ in 0..pad { wc!(b' '); } }
-                            else { for _ in 0..pad { wc!(b' '); } ws!(b"(null)".as_ptr(), slen); }
-                        } else {
-                            let mut mb = [0u8; 4096];
-                            let mut n = wide_to_mb(mb.as_mut_ptr(), mb.len(), p);
-                            if precision >= 0 && (precision as usize) < n { n = precision as usize; }
-                            let pad = width.saturating_sub(n);
-                            if flags & FLAG_MINUS != 0 { ws!(mb.as_ptr(), n); for _ in 0..pad { wc!(b' '); } }
-                            else { for _ in 0..pad { wc!(b' '); } ws!(mb.as_ptr(), n); }
-                        }
-                    }
-                    (b'l', b'c') => {
-                        let ch = args.next_arg::<c_int>();
-                        let mut mb = [0u8; 8];
-                        let mut st: c_uint = 0;
-                        let n = wcrtomb(mb.as_mut_ptr() as *mut c_char, ch, &mut st);
-                        if n != !0usize {
-                            let pad = width.saturating_sub(n);
-                            if flags & FLAG_MINUS != 0 {
-                                ws!(mb.as_ptr(), n);
-                                for _ in 0..pad { wc!(b' '); }
-                            } else {
-                                for _ in 0..pad { wc!(b' '); }
-                                ws!(mb.as_ptr(), n);
-                            }
-                        }
-                    }
-                    (b'l', b'x') => {
-                        let val = args.next_arg::<c_ulong>();
-                        let b = format_hex(val as u64, false);
-                        let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(b'x') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'X') => {
-                        let val = args.next_arg::<c_ulong>();
-                        let b = format_hex(val as u64, true);
-                        let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(b'X') } else { None };
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'o') => {
-                        let val = args.next_arg::<c_ulong>();
-                        let b = format_octal(val as u64, flags & FLAG_HASH != 0);
-                        let mut fbuf = [0u8; FMT_INT_BUF];
-                        let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, flags & FLAG_HASH != 0);
-                        ws_buf!(fbuf.as_ptr(), len);
-                    }
-                    (b'l', b'f') | (b'l', b'F') | (b'l', b'e') | (b'l', b'E')
-                    | (b'l', b'g') | (b'l', b'G') | (b'l', b'a') | (b'l', b'A') => {
-                        let val = args.next_arg::<f64>();
-                        let ucase = spec == b'F' || spec == b'E' || spec == b'G' || spec == b'A';
-                        let ftype = match spec | 0x20 { b'f' => FMT_F, b'e' => FMT_E, b'g' => FMT_G, b'a' => FMT_A, _ => FMT_F };
-                        let mut fbuf = [0u8; 4224];
-                        let flen = format_f64_full(fbuf.as_mut_ptr(), val, ftype, precision, flags, ucase);
-                        let mut wbuf = [0u8; 4224];
-                        let wlen = apply_width_flags(wbuf.as_mut_ptr(), fbuf.as_ptr(), flen, width, flags);
-                        ws_buf!(wbuf.as_ptr(), wlen);
-                    }
-                    (b'L', b'f') | (b'L', b'F') | (b'L', b'e') | (b'L', b'E')
-                    | (b'L', b'g') | (b'L', b'G') | (b'L', b'a') | (b'L', b'A') => {
-                        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-                        let val = {
-                            let lo: u64 = args.next_arg::<u64>();
-                            let hi: u64 = args.next_arg::<u64>();
-                            let combined: u128 = ((hi as u128) << 64) | (lo as u128);
-                            f128::from_bits(combined) as f64
-                        };
-                        #[cfg(target_arch = "x86_64")]
-                        let val = args.next_arg::<f64>();
-                        let ucase = spec == b'F' || spec == b'E' || spec == b'G' || spec == b'A';
-                        let ftype = match spec | 0x20 { b'f' => FMT_F, b'e' => FMT_E, b'g' => FMT_G, b'a' => FMT_A, _ => FMT_F };
-                        let mut fbuf = [0u8; 4224];
-                        let flen = format_f64_full(fbuf.as_mut_ptr(), val, ftype, precision, flags, ucase);
-                        let mut wbuf = [0u8; 4224];
-                        let wlen = apply_width_flags(wbuf.as_mut_ptr(), fbuf.as_ptr(), flen, width, flags);
-                        ws_buf!(wbuf.as_ptr(), wlen);
-                    }
-                    _ => { wc!(b'%'); wc!(len_mod); wc!(spec); }
-                }
-            }
-        } else {
-            spec = *fmt.add(i) as u8;
-            match spec {
-                b's' => {
-                    let s = args.next_arg::<*const c_char>();
-                    if s.is_null() {
-                        let slen = if precision >= 0 { (precision as usize).min(6) } else { 6 };
-                        let padded_len = if width > slen { width } else { slen };
-                        let pad = padded_len - slen;
-                        if flags & FLAG_MINUS != 0 {
-                            ws!(b"(null)".as_ptr(), slen);
-                            for _ in 0..pad { wc!(b' '); }
-                        } else {
-                            for _ in 0..pad { wc!(b' '); }
-                            ws!(b"(null)".as_ptr(), slen);
-                        }
-                    } else {
-                        let full_len = strlen(s as *const c_char);
-                        let slen = if precision >= 0 { (precision as usize).min(full_len) } else { full_len };
-                        let padded_len = if width > slen { width } else { slen };
-                        let pad = padded_len - slen;
-                        if flags & FLAG_MINUS != 0 {
-                            ws!(s as *const u8, slen);
-                            for _ in 0..pad { wc!(b' '); }
-                        } else {
-                            for _ in 0..pad { wc!(b' '); }
-                            ws!(s as *const u8, slen);
-                        }
-                    }
-                }
-                b'd' | b'i' => {
-                    let d = args.next_arg::<c_int>();
-                    let neg = d < 0;
-                    let abs = if neg { d.wrapping_neg() as u64 } else { d as u64 };
-                    let b = format_u64(abs);
-                    let sign = if neg { Some(b'-') } else if flags & FLAG_PLUS != 0 { Some(b'+') } else if flags & FLAG_SPACE != 0 { Some(b' ') } else { None };
-                    let mut fbuf = [0u8; FMT_INT_BUF];
-                    let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, sign, None, precision, width, flags, false);
-                    ws_buf!(fbuf.as_ptr(), len);
-                }
-                b'u' => {
-                    let u = args.next_arg::<c_uint>();
-                    let b = format_u64(u as u64);
-                    let mut fbuf = [0u8; FMT_INT_BUF];
-                    let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, false);
-                    ws_buf!(fbuf.as_ptr(), len);
-                }
-                b'x' => {
-                    let x = args.next_arg::<c_uint>();
-                    let b = format_hex(x as u64, false);
-                    let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(b'x') } else { None };
-                    let mut fbuf = [0u8; FMT_INT_BUF];
-                    let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                    ws_buf!(fbuf.as_ptr(), len);
-                }
-                b'X' => {
-                    let x = args.next_arg::<c_uint>();
-                    let b = format_hex(x as u64, true);
-                    let prefix = if flags & FLAG_HASH != 0 && !(b.1 == 1 && b.0[0] == b'0') { Some(b'X') } else { None };
-                    let mut fbuf = [0u8; FMT_INT_BUF];
-                    let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, prefix, precision, width, flags, false);
-                    ws_buf!(fbuf.as_ptr(), len);
-                }
-                b'o' => {
-                    let o = args.next_arg::<c_uint>();
-                    let b = format_octal(o as u64, flags & FLAG_HASH != 0);
-                    let mut fbuf = [0u8; FMT_INT_BUF];
-                    let len = format_int(fbuf.as_mut_ptr(), b.0.as_ptr(), b.1, None, None, precision, width, flags, flags & FLAG_HASH != 0);
-                    ws_buf!(fbuf.as_ptr(), len);
-                }
-                b'c' => {
-                    let ch = args.next_arg::<c_int>();
-                    if width > 1 {
-                        let pad = width - 1;
-                        if flags & FLAG_MINUS != 0 {
-                            wc!(ch as u8);
-                            for _ in 0..pad { wc!(b' '); }
-                        } else {
-                            for _ in 0..pad { wc!(b' '); }
-                            wc!(ch as u8);
-                        }
-                    } else {
-                        wc!(ch as u8);
-                    }
-                }
-                b'p' => {
-                    wc!(b'0'); wc!(b'x');
-                    let p = args.next_arg::<*const c_void>();
-                    let b = format_hex(p as u64, false);
-                    ws!(b.0.as_ptr(), b.1);
-                }
-                b'f' | b'F' | b'e' | b'E' | b'g' | b'G' | b'a' | b'A' => {
-                    let val = args.next_arg::<f64>();
-                    let ucase = spec == b'F' || spec == b'E' || spec == b'G' || spec == b'A';
-                    let ftype = match spec | 0x20 { b'f' => FMT_F, b'e' => FMT_E, b'g' => FMT_G, b'a' => FMT_A, _ => FMT_F };
-                    let mut fbuf = [0u8; 4224];
-                    let flen = format_f64_full(fbuf.as_mut_ptr(), val, ftype, precision, flags, ucase);
-                    let mut wbuf = [0u8; 4224];
-                    let wlen = apply_width_flags(wbuf.as_mut_ptr(), fbuf.as_ptr(), flen, width, flags);
-                    ws_buf!(wbuf.as_ptr(), wlen);
-                }
-                b'%' => { wc!(b'%'); }
-                b'n' => {
-                    let p = args.next_arg::<*mut c_void>();
-                    if !p.is_null() { *(p as *mut c_int) = count as c_int; }
-                }
-                _ => { wc!(b'%'); wc!(spec); }
-            }
-        }
-        i += 1;
+        pos.set(p + len);
+    };
+    let count = impl_format!(fmt, *args, write_char, write_str);
+    if cap > 0 {
+        let end = core::cmp::min(count as usize, cap - 1);
+        *buf.add(end) = 0;
     }
-    if cap > 0 { let null_pos = if pos < cap { pos } else { cap - 1 }; *buf.add(null_pos) = 0; }
-    count as c_int
+    count
 }
 
 #[no_mangle]
