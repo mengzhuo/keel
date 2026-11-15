@@ -197,7 +197,21 @@ fn convert_buffer<W: Write>(
                     break;
                 }
             }
-            Some(posix::EINVAL) if at_eof => break,
+            Some(posix::EINVAL) => {
+                if at_eof {
+                    if skip_invalid {
+                        // -c discards a truncated sequence.
+                        consumed = pending.len();
+                        break;
+                    }
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "incomplete character or shift sequence",
+                    ));
+                }
+                // The current chunk ends mid-character; wait for more input.
+                break;
+            }
             _ => return Err(err),
         }
     }

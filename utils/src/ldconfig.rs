@@ -30,12 +30,13 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         match arg.as_str() {
             "-v" | "--verbose" => verbose = true,
             "-n" | "-N" | "-X" => {}
-            "-f" | "-C" => {
-                i += 1; // consume the cache-file argument
-            }
-            "-r" => {
+            "-f" | "-C" | "-r" => {
                 i += 1;
-                if i < args.len() {
+                if i >= args.len() {
+                    eprintln!("ldconfig: option {arg} requires an argument");
+                    return ExitCode::from(1);
+                }
+                if arg == "-r" {
                     root = Some(PathBuf::from(&args[i]));
                 }
             }

@@ -26,7 +26,17 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
     let mut index = 0usize;
     while index < args.len() && args[index].starts_with('-') {
         match args[index].as_str() {
-            "-s" => index += 1, // separator; accepted for compatibility
+            // glibc's -s SERVICE selects an NSS service; keel reads /etc
+            // directly, so consume the operand but otherwise ignore it.
+            "-s" => {
+                index += 1;
+                if index >= args.len() {
+                    eprintln!("getent: option -s requires an argument");
+                    return ExitCode::from(1);
+                }
+                index += 1;
+            }
+            _ if arg_prefix(&args[index], "--service=") => index += 1,
             "--" => {
                 index += 1;
                 break;
@@ -164,6 +174,7 @@ where
 
 fn hosts(keys: &[String]) -> Result<bool, String> {
     let mut found = false;
+    let mut matched = vec![false; keys.len()];
     if let Ok(text) = fs::read_to_string("/etc/hosts") {
         for line in text.lines() {
             let line = line.split('#').next().unwrap_or("").trim();
@@ -173,21 +184,33 @@ fn hosts(keys: &[String]) -> Result<bool, String> {
             let mut fields = line.split_whitespace();
             let Some(addr) = fields.next() else { continue };
             let names: Vec<&str> = fields.collect();
-            let matched = keys.is_empty()
-                || keys
-                    .iter()
-                    .any(|key| key == addr || names.iter().any(|name| name == key));
-            if matched {
+            if keys.is_empty() {
+                println!("{}\t{}", addr, names.join(" "));
+                found = true;
+                continue;
+            }
+            let mut line_matched = false;
+            for (i, key) in keys.iter().enumerate() {
+                if key == addr || names.iter().any(|name| name == key) {
+                    line_matched = true;
+                    matched[i] = true;
+                }
+            }
+            if line_matched {
                 println!("{}\t{}", addr, names.join(" "));
                 found = true;
             }
         }
     }
-    if found || keys.is_empty() {
+    if keys.is_empty() {
         return Ok(found);
     }
 
-    for key in keys {
+    // Resolve only the keys /etc/hosts did not satisfy.
+    for (i, key) in keys.iter().enumerate() {
+        if matched[i] {
+            continue;
+        }
         if let Ok(ip) = key.parse::<IpAddr>() {
             println!("{}\t{}", ip, key);
             found = true;
@@ -241,4 +264,8 @@ fn shells(keys: &[String]) -> Result<bool, String> {
         }
     }
     Ok(found)
+}
+
+fn arg_prefix(arg: &str, prefix: &str) -> bool {
+    arg.starts_with(prefix)
 }
