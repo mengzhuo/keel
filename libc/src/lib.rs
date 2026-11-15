@@ -109,29 +109,13 @@ unsafe fn errno_ptr() -> *mut c_int {
     if ERRNO_TLS_ACTIVE.load(Ordering::Relaxed) == 0 {
         return core::ptr::addr_of_mut!(ERRNO_FALLBACK);
     }
-    #[cfg(target_arch = "x86_64")]
-    let tp: usize = {
-        let tp: usize;
-        core::arch::asm!("mov {}, fs:[0]", out(reg) tp, options(nostack, preserves_flags));
-        tp
-    };
-    #[cfg(target_arch = "aarch64")]
-    let tp: usize = {
-        let tp: usize;
-        core::arch::asm!("mrs {}, tpidr_el0", out(reg) tp, options(nostack, preserves_flags));
-        tp
-    };
-    #[cfg(target_arch = "riscv64")]
-    let tp: usize = {
-        let tp: usize;
-        core::arch::asm!("mv {}, tp", out(reg) tp, options(nostack, preserves_flags));
-        tp
-    };
-    #[cfg(target_arch = "x86_64")]
-    let tcb = tp;
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-    let tcb = tp - 256;
-    (tcb + ERRNO_TCB_OFFSET) as *mut c_int
+    // tcb_slot() performs the TP read and self-pointer validation once.
+    let slot = tcb_slot(ERRNO_TCB_OFFSET);
+    if slot.is_null() {
+        core::ptr::addr_of_mut!(ERRNO_FALLBACK)
+    } else {
+        slot as *mut c_int
+    }
 }
 
 /// Called once from __libc_start_main. The dynamic loader has already set up
@@ -18237,35 +18221,18 @@ pub unsafe extern "C" fn fcvt(value: f64, ndigit: i32, decpt: *mut i32, sign: *m
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn gcvt(value: f64, _ndigit: i32, buf: *mut core::ffi::c_char) -> *mut core::ffi::c_char {
-    // Simple implementation - convert to string
-    if value == 0.0 {
-        *buf = '0' as c_char;
-        *buf.add(1) = 0;
+pub unsafe extern "C" fn gcvt(value: f64, ndigit: i32, buf: *mut core::ffi::c_char) -> *mut core::ffi::c_char {
+    if buf.is_null() {
         return buf;
     }
-    let mut i = 0;
-    let v = if value < 0.0 { *buf = '-' as c_char; i = 1; -value } else { value };
-    // Integer part
-    let mut int_part = v as i64;
-    let mut digits = [0u8; 32];
-    let mut di = 0;
-    if int_part == 0 {
-        digits[0] = 0;
-        di = 1;
+    // musl implements gcvt as sprintf("%.*g"); cap the write at a size that
+    // always covers %g's output for the requested precision.
+    let cap = if ndigit > 0 {
+        (ndigit as usize).saturating_mul(2).saturating_add(32).min(4096)
     } else {
-        while int_part > 0 && di < 32 {
-            digits[di] = (int_part % 10) as u8;
-            int_part /= 10;
-            di += 1;
-        }
-    }
-    while di > 0 && i < 79 {
-        di -= 1;
-        *buf.add(i) = (b'0' + digits[di]) as c_char;
-        i += 1;
-    }
-    *buf.add(i) = 0;
+        32
+    };
+    crate::snprintf(buf, cap, b"%.*g\0".as_ptr() as *const core::ffi::c_char, ndigit, value);
     buf
 }
 
@@ -20883,10 +20850,19 @@ pub unsafe extern "C" fn __assert_fail(expr: *const core::ffi::c_char, file: *co
     crate::abort()
 }
 
+const QUICK_EXIT_MAX: usize = 32;
+static mut QUICK_EXIT_FNS: [Option<unsafe extern "C" fn()>; QUICK_EXIT_MAX] =
+    [None; QUICK_EXIT_MAX];
+static mut QUICK_EXIT_COUNT: usize = 0;
+
 #[no_mangle]
-pub unsafe extern "C" fn at_quick_exit(_func: Option<unsafe extern "C" fn()>) -> i32 {
-    // TODO: keep musl's 32-entry callback table and run it from
-    // quick_exit().  This currently accepts the callback and ignores it.
+pub unsafe extern "C" fn at_quick_exit(func: Option<unsafe extern "C" fn()>) -> i32 {
+    let Some(func) = func else { return -1; };
+    if QUICK_EXIT_COUNT >= QUICK_EXIT_MAX {
+        return -1;
+    }
+    QUICK_EXIT_FNS[QUICK_EXIT_COUNT] = Some(func);
+    QUICK_EXIT_COUNT += 1;
     0
 }
 
@@ -21151,6 +21127,13 @@ pub unsafe extern "C" fn pselect(nfds: i32, readfds: *mut u8, writefds: *mut u8,
 
 #[no_mangle]
 pub unsafe extern "C" fn quick_exit(status: i32) -> ! {
+    // Run handlers in reverse registration order, like atexit.
+    while QUICK_EXIT_COUNT > 0 {
+        QUICK_EXIT_COUNT -= 1;
+        if let Some(func) = QUICK_EXIT_FNS[QUICK_EXIT_COUNT] {
+            func();
+        }
+    }
     crate::_exit(status)
 }
 

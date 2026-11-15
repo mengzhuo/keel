@@ -134,6 +134,12 @@ int unlockpt(int);
 char *ptsname(int);
 int ptsname_r(int, char *, size_t);
 
+#ifdef _GNU_SOURCE
+char *ecvt(double, int, int *, int *);
+char *fcvt(double, int, int *, int *);
+char *gcvt(double, int, char *);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

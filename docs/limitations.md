@@ -44,8 +44,6 @@ regressions.  It is not an exhaustive security review.
 
 ## Process and file APIs
 
-- **`at_quick_exit` callbacks are not run.**  The function accepts the
-  callback but `quick_exit` is an alias for `_exit`.
 - **`getpass` leaves terminal echo enabled.**  It reads from stdin without
   the termios echo handling that musl uses.
 - **The base page size is hardcoded to 4096.**  `getpagesize` and
