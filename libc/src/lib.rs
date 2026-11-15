@@ -3287,12 +3287,12 @@ pub unsafe extern "C" fn pthread_create(
     let Some(slot_ref) = alloc_thread_slot() else { return EAGAIN; };
     let slot = slot_ref as *mut Thread;
     let stack_size = if !attr.is_null() {
-        let s = *((*attr).__i.as_ptr() as *const usize);
+        let s = attr_stack_size(attr);
         if s > 0 { s } else { STACK_SIZE }
     } else { STACK_SIZE };
     // musl stores the stack *top* in pthread_attr_t; zero means "allocate".
     let user_top = if !attr.is_null() {
-        *((*attr).__i.as_ptr().add(4) as *const *mut c_void)
+        attr_stack_top(attr)
     } else {
         core::ptr::null_mut()
     };
@@ -3435,12 +3435,33 @@ pub unsafe extern "C" fn pthread_exit(retval: *mut c_void) -> ! {
     sys_exit_thread(0)
 }
 
+// pthread_attr_t stores a usize stack size at __i[0..2], a usize guard at
+// __i[2..4], the stack top pointer at __i[4..6], and scalar flags after it.
+unsafe fn attr_stack_size(attr: *const pthread_attr_t) -> usize {
+    *((*attr).__i.as_ptr() as *const usize)
+}
+unsafe fn attr_set_stack_size(attr: *mut pthread_attr_t, sz: usize) {
+    *((*attr).__i.as_mut_ptr() as *mut usize) = sz;
+}
+unsafe fn attr_stack_top(attr: *const pthread_attr_t) -> *mut c_void {
+    *((*attr).__i.as_ptr().add(4) as *const *mut c_void)
+}
+unsafe fn attr_set_stack_top(attr: *mut pthread_attr_t, top: *mut c_void) {
+    *((*attr).__i.as_mut_ptr().add(4) as *mut *mut c_void) = top;
+}
+unsafe fn attr_guard_size(attr: *const pthread_attr_t) -> usize {
+    *((*attr).__i.as_ptr().add(2) as *const usize)
+}
+unsafe fn attr_set_guard_size(attr: *mut pthread_attr_t, sz: usize) {
+    *((*attr).__i.as_mut_ptr().add(2) as *mut usize) = sz;
+}
+
 // --- pthread_attr_* ---
 #[no_mangle]
 pub unsafe extern "C" fn pthread_attr_init(attr: *mut pthread_attr_t) -> c_int {
     core::ptr::write_bytes(attr, 0, 1);
-    *((*attr).__i.as_mut_ptr() as *mut usize) = STACK_SIZE;
-    *((*attr).__i.as_mut_ptr().add(2) as *mut usize) = 4096;
+    attr_set_stack_size(attr, STACK_SIZE);
+    attr_set_guard_size(attr, 4096);
     (*attr).__i[6] = PTHREAD_CREATE_JOINABLE;
     (*attr).__i[7] = PTHREAD_INHERIT_SCHED;
     0
@@ -3459,27 +3480,27 @@ pub unsafe extern "C" fn pthread_attr_getdetachstate(attr: *const pthread_attr_t
 #[no_mangle]
 pub unsafe extern "C" fn pthread_attr_setstacksize(attr: *mut pthread_attr_t, sz: usize) -> c_int {
     if sz < 2048 { return EINVAL; }
-    *((*attr).__i.as_mut_ptr() as *mut usize) = sz;
-    *((*attr).__i.as_mut_ptr().add(4) as *mut *mut c_void) = core::ptr::null_mut();
+    attr_set_stack_size(attr, sz);
+    attr_set_stack_top(attr, core::ptr::null_mut());
     0
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_attr_getstacksize(attr: *const pthread_attr_t, sz: *mut usize) -> c_int {
-    *sz = *((*attr).__i.as_ptr() as *const usize); 0
+    *sz = attr_stack_size(attr); 0
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_attr_setstack(attr: *mut pthread_attr_t, addr: *mut c_void, sz: usize) -> c_int {
     if sz < 2048 { return EINVAL; }
-    *((*attr).__i.as_mut_ptr() as *mut usize) = sz;
+    attr_set_stack_size(attr, sz);
     // musl stores the top of the stack, not its base.
-    *((*attr).__i.as_mut_ptr().add(4) as *mut *mut c_void) = (addr as *mut u8).add(sz) as *mut c_void;
+    attr_set_stack_top(attr, (addr as *mut u8).add(sz) as *mut c_void);
     0
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_attr_getstack(attr: *const pthread_attr_t, addr: *mut *mut c_void, sz: *mut usize) -> c_int {
-    let size = *((*attr).__i.as_ptr() as *const usize);
+    let size = attr_stack_size(attr);
     *sz = size;
-    let top = *((*attr).__i.as_ptr().add(4) as *const *mut c_void);
+    let top = attr_stack_top(attr);
     *addr = if top.is_null() {
         core::ptr::null_mut()
     } else {
@@ -3489,11 +3510,11 @@ pub unsafe extern "C" fn pthread_attr_getstack(attr: *const pthread_attr_t, addr
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_attr_setguardsize(attr: *mut pthread_attr_t, sz: usize) -> c_int {
-    *((*attr).__i.as_mut_ptr().add(2) as *mut usize) = sz; 0
+    attr_set_guard_size(attr, sz); 0
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_attr_getguardsize(attr: *const pthread_attr_t, sz: *mut usize) -> c_int {
-    *sz = *((*attr).__i.as_ptr().add(2) as *const usize); 0
+    *sz = attr_guard_size(attr); 0
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_attr_setscope(_attr: *mut pthread_attr_t, scope: c_int) -> c_int {
@@ -8634,7 +8655,17 @@ pub unsafe extern "C" fn pclose(f: *mut FILE) -> c_int {
 // ============================================================
 
 const L_TMPNAM: usize = 20;
-static mut TMPNAM_COUNTER: c_uint = 0;
+static TMPNAM_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+unsafe fn tmp_seed() -> c_uint {
+    let mut ts: timespec = core::mem::zeroed();
+    if sys_clock_gettime(CLOCK_REALTIME, &mut ts) < 0 {
+        let mut v: u32 = 0;
+        crate::getrandom(&mut v as *mut u32 as *mut u8, core::mem::size_of::<u32>(), 0);
+        return v;
+    }
+    ts.tv_nsec as u32
+}
 
 unsafe fn fill_tmpname(out: *mut c_char, seed: c_uint) {
     let prefix = b"/tmp/tmp\0";
@@ -8651,9 +8682,7 @@ pub unsafe extern "C" fn tmpfile() -> *mut FILE {
     let mut ctr: c_uint = 0;
     loop {
         ctr = ctr.wrapping_add(1);
-        let mut ts: timespec = core::mem::zeroed();
-        let _ = sys_clock_gettime(CLOCK_REALTIME, &mut ts);
-        let seed = (ts.tv_nsec as c_uint).wrapping_add(ctr);
+        let seed = tmp_seed().wrapping_add(ctr);
         fill_tmpname(name.as_mut_ptr() as *mut c_char, seed);
         let fd = sys_open(name.as_ptr(), (O_RDWR | O_CREAT | O_EXCL) as i64, 0o600);
         if fd >= 0 {
@@ -8670,10 +8699,8 @@ pub unsafe extern "C" fn tmpfile() -> *mut FILE {
 pub unsafe extern "C" fn tmpnam(s: *mut c_char) -> *mut c_char {
     static mut BUF: [c_char; L_TMPNAM] = [0; L_TMPNAM];
     let out = if s.is_null() { core::ptr::addr_of_mut!(BUF) as *mut c_char } else { s };
-    TMPNAM_COUNTER = TMPNAM_COUNTER.wrapping_add(1);
-    let mut ts: timespec = core::mem::zeroed();
-    let _ = sys_clock_gettime(CLOCK_REALTIME, &mut ts);
-    let seed = (ts.tv_nsec as c_uint).wrapping_add(TMPNAM_COUNTER);
+    let counter = TMPNAM_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let seed = tmp_seed().wrapping_add(counter);
     fill_tmpname(out, seed);
     out
 }
@@ -10213,12 +10240,30 @@ pub unsafe extern "C" fn fgetwc(f: *mut FILE) -> wint_t {
     let mut n = 1usize;
     while n < len {
         let c2 = fgetc(f);
-        if c2 == -1 { return WEOF; }
+        if c2 == -1 {
+            // Put the partial sequence back so a later read sees it.
+            while n > 1 {
+                n -= 1;
+                ungetc(buf[n] as c_int, f);
+            }
+            return WEOF;
+        }
         buf[n] = c2 as u8;
         n += 1;
     }
     let r = mbrtowc(&mut wc, buf.as_ptr() as *const c_char, n, &mut state);
-    if r == !0usize || r == !1usize { WEOF } else { wc as wint_t }
+    if r == !0usize {
+        ERRNO!() = EILSEQ;
+        WEOF
+    } else if r == !1usize {
+        while n > 0 {
+            n -= 1;
+            ungetc(buf[n] as c_int, f);
+        }
+        WEOF
+    } else {
+        wc as wint_t
+    }
 }
 
 #[no_mangle]
