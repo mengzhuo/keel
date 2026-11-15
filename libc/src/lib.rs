@@ -3549,7 +3549,7 @@ pub unsafe extern "C" fn pthread_mutexattr_gettype(attr: *const pthread_mutexatt
 #[no_mangle]
 pub unsafe extern "C" fn pthread_mutexattr_setpshared(attr: *mut pthread_mutexattr_t, p: c_int) -> c_int {
     if (p as c_uint) > 1 { return EINVAL; }
-    (*attr).__attr = ((*attr).__attr & !128) | ((p as c_uint) << 7); 0
+    (*attr).__attr = ((*attr).__attr & !(MUTEX_PSHARED as c_uint)) | ((p as c_uint) << 7); 0
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_mutexattr_getpshared(attr: *const pthread_mutexattr_t, p: *mut c_int) -> c_int {
@@ -3596,13 +3596,13 @@ pub unsafe extern "C" fn pthread_mutexattr_getrobust(attr: *const pthread_mutexa
 #[no_mangle]
 pub unsafe extern "C" fn pthread_mutex_consistent(m: *mut pthread_mutex_t) -> c_int {
     let old = a_load(&raw const (*m).__i[1]);
-    let own = old & 0x3fffffff;
-    if ((*m).__i[0] & MUTEX_ROBUST) == 0 || own == 0 || (old & 0x40000000) == 0 {
+    let own = old & MUTEX_OWNER_MASK;
+    if ((*m).__i[0] & MUTEX_ROBUST) == 0 || own == 0 || (old & MUTEX_ROBUST_PENDING) == 0 {
         return EINVAL;
     }
     let self_tid = sys_gettid() as c_int;
     if own != self_tid { return EPERM; }
-    a_and(&raw mut (*m).__i[1], !(0x40000000i32));
+    a_and(&raw mut (*m).__i[1], !(MUTEX_ROBUST_PENDING));
     0
 }
 
@@ -3616,6 +3616,9 @@ const MUTEX_TYPE_MASK: c_int = 3;
 const MUTEX_ROBUST: c_int = 4;
 const MUTEX_PI: c_int = 8;
 const MUTEX_PSHARED: c_int = 128;
+const MUTEX_OWNER_MASK: c_int = 0x3fff_ffff;
+const MUTEX_ROBUST_PENDING: c_int = 0x4000_0000;
+const FUTEX_WAITER_BIT: c_int = 1i32 << 31;
 
 unsafe fn ensure_robust_list(slot: &mut Thread) {
     if slot.robust_list.futex_offset == 0 {
@@ -3638,7 +3641,7 @@ unsafe fn mutex_trylock(m: *mut pthread_mutex_t) -> c_int {
     let base_type = type_ & MUTEX_TYPE_MASK;
     let self_tid = sys_gettid() as c_int;
     let old = a_load(&raw const (*m).__i[1]);
-    let own = old & 0x3fffffff;
+    let own = old & MUTEX_OWNER_MASK;
     if own == self_tid {
         if (type_ & MUTEX_PI) != 0 && (*m).__i[5] < 0 {
             (*m).__i[5] = 0;
@@ -3652,12 +3655,12 @@ unsafe fn mutex_trylock(m: *mut pthread_mutex_t) -> c_int {
         if base_type == PTHREAD_MUTEX_ERRORCHECK { return EDEADLK; }
         return EBUSY;
     }
-    if own == 0x3fffffff { return ENOTRECOVERABLE; }
+    if own == MUTEX_OWNER_MASK { return ENOTRECOVERABLE; }
     if own != 0 || (old != 0 && (type_ & MUTEX_ROBUST) == 0) { return EBUSY; }
     let mut newtid = self_tid;
     if (type_ & MUTEX_ROBUST) != 0 {
-        if (*m).__i[2] != 0 { newtid |= 1i32 << 31; }
-        newtid |= old & 0x40000000;
+        if (*m).__i[2] != 0 { newtid |= FUTEX_WAITER_BIT; }
+        newtid |= old & MUTEX_ROBUST_PENDING;
     }
     if a_cas(&raw mut (*m).__i[1], old, newtid) == old {
         (*m).__i[5] = 0;
@@ -3688,12 +3691,12 @@ unsafe fn mutex_lock_internal(m: *mut pthread_mutex_t, abs_timeout: *const times
             let e = futex_lock_pi(&raw mut (*m).__i[1], timeout_ptr);
             match e {
                 0 => {
-                    if (type_ & MUTEX_ROBUST) != 0 && (((*m).__i[1] & 0x40000000) != 0 || (*m).__i[2] != 0) {
+                    if (type_ & MUTEX_ROBUST) != 0 && (((*m).__i[1] & MUTEX_ROBUST_PENDING) != 0 || (*m).__i[2] != 0) {
                         (*m).__i[5] = -1;
                         let _ = mutex_trylock(m);
                         return EOWNERDEAD;
                     }
-                    if (type_ & MUTEX_ROBUST) == 0 && (((*m).__i[1] & 0x40000000) != 0 || (*m).__i[2] != 0) {
+                    if (type_ & MUTEX_ROBUST) == 0 && (((*m).__i[1] & MUTEX_ROBUST_PENDING) != 0 || (*m).__i[2] != 0) {
                         (*m).__i[2] = -1;
                         futex_unlock_pi(&raw mut (*m).__i[1]);
                         return EBUSY;
@@ -3729,7 +3732,7 @@ unsafe fn mutex_lock_internal(m: *mut pthread_mutex_t, abs_timeout: *const times
         if r != EBUSY { return r; }
         if (type_ & MUTEX_TYPE_MASK) == PTHREAD_MUTEX_ERRORCHECK {
             let self_tid = sys_gettid() as c_int;
-            if (a_load(&raw const (*m).__i[1]) & 0x3fffffff) == self_tid { return EDEADLK; }
+            if (a_load(&raw const (*m).__i[1]) & MUTEX_OWNER_MASK) == self_tid { return EDEADLK; }
         }
         a_fetch_add(&raw mut (*m).__i[2], 1);
         let val = a_load(&raw const (*m).__i[1]);
@@ -3740,8 +3743,8 @@ unsafe fn mutex_lock_internal(m: *mut pthread_mutex_t, abs_timeout: *const times
             a_fetch_sub(&raw mut (*m).__i[2], 1);
             continue;
         }
-        a_cas(&raw mut (*m).__i[1], val, val | (1i32 << 31));
-        let e = futex_timedwait(&raw mut (*m).__i[1], val | (1i32 << 31), abs_timeout);
+        a_cas(&raw mut (*m).__i[1], val, val | FUTEX_WAITER_BIT);
+        let e = futex_timedwait(&raw mut (*m).__i[1], val | FUTEX_WAITER_BIT, abs_timeout);
         a_fetch_sub(&raw mut (*m).__i[2], 1);
         if e != 0 && e != EINTR { return e; }
     }
@@ -3774,14 +3777,14 @@ pub unsafe extern "C" fn pthread_mutex_unlock(mutex: *mut pthread_mutex_t) -> c_
     let old = a_load(&raw const (*mutex).__i[1]);
     if base_type != PTHREAD_MUTEX_NORMAL {
         let self_tid = sys_gettid() as c_int;
-        if (old & 0x3fffffff) != self_tid { return EPERM; }
+        if (old & MUTEX_OWNER_MASK) != self_tid { return EPERM; }
         if base_type == PTHREAD_MUTEX_RECURSIVE && (*mutex).__i[5] > 0 {
             (*mutex).__i[5] -= 1;
             return 0;
         }
     }
     let mut new = 0;
-    if (type_ & MUTEX_ROBUST) != 0 && (old & 0x40000000) != 0 {
+    if (type_ & MUTEX_ROBUST) != 0 && (old & MUTEX_ROBUST_PENDING) != 0 {
         new = 0x7fffffff;
     }
     if (type_ & MUTEX_PI) != 0 {
@@ -3915,8 +3918,8 @@ unsafe fn rwlock_timedrdlock(rw: *mut pthread_rwlock_t, abs_timeout: *const time
         let val = a_load(&raw const (*rw).__i[0]);
         if val & 0x7fffffff != 0x7fffffff { continue; }
         a_fetch_add(&raw mut (*rw).__i[1], 1);
-        a_cas(&raw mut (*rw).__i[0], val, val | (1i32 << 31));
-        let e = futex_timedwait(&raw mut (*rw).__i[0], val | (1i32 << 31), abs_timeout);
+        a_cas(&raw mut (*rw).__i[0], val, val | FUTEX_WAITER_BIT);
+        let e = futex_timedwait(&raw mut (*rw).__i[0], val | FUTEX_WAITER_BIT, abs_timeout);
         a_fetch_sub(&raw mut (*rw).__i[1], 1);
         if e != 0 && e != EINTR { return e; }
     }
@@ -3932,8 +3935,8 @@ unsafe fn rwlock_timedwrlock(rw: *mut pthread_rwlock_t, abs_timeout: *const time
         let val = a_load(&raw const (*rw).__i[0]);
         if val == 0 { continue; }
         a_fetch_add(&raw mut (*rw).__i[1], 1);
-        a_cas(&raw mut (*rw).__i[0], val, val | (1i32 << 31));
-        let e = futex_timedwait(&raw mut (*rw).__i[0], val | (1i32 << 31), abs_timeout);
+        a_cas(&raw mut (*rw).__i[0], val, val | FUTEX_WAITER_BIT);
+        let e = futex_timedwait(&raw mut (*rw).__i[0], val | FUTEX_WAITER_BIT, abs_timeout);
         a_fetch_sub(&raw mut (*rw).__i[1], 1);
         if e != 0 && e != EINTR { return e; }
     }
@@ -4072,9 +4075,9 @@ pub unsafe extern "C" fn sem_wait(sem: *mut sem_t) -> c_int {
         if sem_trywait_internal(sem) == 0 { return 0; }
         let val = a_load(&raw const (*sem).__val[0]);
         if val & SEM_VALUE_MAX != 0 { continue; }
-        a_cas(&raw mut (*sem).__val[0], val, val | (1i32 << 31));
+        a_cas(&raw mut (*sem).__val[0], val, val | FUTEX_WAITER_BIT);
         a_fetch_add(&raw mut (*sem).__val[1], 1);
-        futex_wait(&raw mut (*sem).__val[0], 1i32 << 31);
+        futex_wait(&raw mut (*sem).__val[0], FUTEX_WAITER_BIT);
         a_fetch_sub(&raw mut (*sem).__val[1], 1);
     }
 }
@@ -4089,9 +4092,9 @@ pub unsafe extern "C" fn sem_timedwait(sem: *mut sem_t, abs_timeout: *const time
         if sem_trywait_internal(sem) == 0 { return 0; }
         let val = a_load(&raw const (*sem).__val[0]);
         if val & SEM_VALUE_MAX != 0 { continue; }
-        a_cas(&raw mut (*sem).__val[0], val, val | (1i32 << 31));
+        a_cas(&raw mut (*sem).__val[0], val, val | FUTEX_WAITER_BIT);
         a_fetch_add(&raw mut (*sem).__val[1], 1);
-        let e = futex_timedwait(&raw mut (*sem).__val[0], 1i32 << 31, abs_timeout);
+        let e = futex_timedwait(&raw mut (*sem).__val[0], FUTEX_WAITER_BIT, abs_timeout);
         a_fetch_sub(&raw mut (*sem).__val[1], 1);
         if e != 0 && e != EINTR { ERRNO!() = e; return -1; }
     }
@@ -4103,7 +4106,7 @@ pub unsafe extern "C" fn sem_post(sem: *mut sem_t) -> c_int {
         if (val & SEM_VALUE_MAX) == SEM_VALUE_MAX { ERRNO!() = EOVERFLOW; return -1; }
         let mut new = val + 1;
         let waiters = a_load(&raw const (*sem).__val[1]);
-        if waiters <= 1 { new &= !(1i32 << 31); }
+        if waiters <= 1 { new &= !FUTEX_WAITER_BIT; }
         if a_cas(&raw mut (*sem).__val[0], val, new) == val {
             if val < 0 || waiters > 0 {
                 futex_wake(&raw mut (*sem).__val[0], if waiters > 1 { 1 } else { -1 });
@@ -15147,6 +15150,16 @@ static mut STATIC_TLS_IMAGE: *const u8 = core::ptr::null();
 static mut STATIC_TLS_FILESZ: usize = 0;
 static mut STATIC_TLS_CANARY: u64 = 0;
 
+// Word indices in the 256-byte TCB. Keep in sync with libc/src/ldso/mod.rs.
+const TCB_GENERATION: usize = 1;
+const TCB_TLS_SIZE: usize = 2;
+const TCB_MODULE_COUNT: usize = 3;
+const TCB_TLSDESC: usize = 4;
+const TCB_CANARY: usize = 5;
+const TCB_ERRNO: usize = 6;
+const TCB_GETRANDOM: usize = 7;
+const TCB_THREAD: usize = 8;
+
 unsafe fn static_tls_init_block(block: *mut u8) -> *mut u8 {
     if block.is_null() || STATIC_TLS_BLOCK_SIZE == 0 {
         return core::ptr::null_mut();
@@ -15165,14 +15178,14 @@ unsafe fn static_tls_init_block(block: *mut u8) -> *mut u8 {
         block as usize
     };
     core::ptr::write_unaligned(tcb as *mut u64, tcb as u64);
-    core::ptr::write_unaligned((tcb as *mut u64).add(1), 1);
-    core::ptr::write_unaligned((tcb as *mut u64).add(2), STATIC_TLS_TLS_SIZE as u64);
-    core::ptr::write_unaligned((tcb as *mut u64).add(3), 1);
-    core::ptr::write_unaligned((tcb as *mut u64).add(4), 0); // reserved
-    core::ptr::write_unaligned((tcb as *mut u64).add(5), STATIC_TLS_CANARY); // 0x28
-    core::ptr::write_unaligned((tcb as *mut u64).add(6), 0); // errno at 0x30
-    core::ptr::write_unaligned((tcb as *mut u64).add(7), 0); // vDSO getrandom state at 0x38
-    core::ptr::write_unaligned((tcb as *mut u64).add(8), 0); // Thread record at 0x40
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_GENERATION), 1);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_TLS_SIZE), STATIC_TLS_TLS_SIZE as u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_MODULE_COUNT), 1);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_TLSDESC), 0);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_CANARY), STATIC_TLS_CANARY);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_ERRNO), 0);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_GETRANDOM), 0);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_THREAD), 0);
     tp
 }
 
@@ -19217,29 +19230,29 @@ unsafe fn parse_group(line: *const c_char, ent: *mut Group, buf: *mut c_char, bu
     true
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn getpwnam(name: *const c_char) -> *mut Passwd {
-    if name.is_null() { return core::ptr::null_mut(); }
+unsafe fn scan_passwd(mut matches: impl FnMut(*const Passwd) -> bool) -> *mut Passwd {
     setpwent();
     loop {
         let p = getpwent();
         if p.is_null() { break; }
-        if crate::strcmp((*p).pw_name as *const u8, name as *const u8) == 0 { endpwent(); return p; }
+        if matches(p) {
+            endpwent();
+            return p;
+        }
     }
     endpwent();
     core::ptr::null_mut()
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn getpwnam(name: *const c_char) -> *mut Passwd {
+    if name.is_null() { return core::ptr::null_mut(); }
+    scan_passwd(|p| crate::strcmp((*p).pw_name as *const u8, name as *const u8) == 0)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn getpwuid(uid: u32) -> *mut Passwd {
-    setpwent();
-    loop {
-        let p = getpwent();
-        if p.is_null() { break; }
-        if (*p).pw_uid == uid { endpwent(); return p; }
-    }
-    endpwent();
-    core::ptr::null_mut()
+    scan_passwd(|p| (*p).pw_uid == uid)
 }
 
 #[no_mangle]
@@ -19355,29 +19368,29 @@ pub unsafe extern "C" fn putpwent(f: *mut FILE, p: *const Passwd) -> c_int {
         (*p).pw_gecos, (*p).pw_dir, (*p).pw_shell)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn getgrnam(name: *const c_char) -> *mut Group {
-    if name.is_null() { return core::ptr::null_mut(); }
+unsafe fn scan_group(mut matches: impl FnMut(*const Group) -> bool) -> *mut Group {
     setgrent();
     loop {
         let g = getgrent();
         if g.is_null() { break; }
-        if crate::strcmp((*g).gr_name as *const u8, name as *const u8) == 0 { endgrent(); return g; }
+        if matches(g) {
+            endgrent();
+            return g;
+        }
     }
     endgrent();
     core::ptr::null_mut()
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn getgrnam(name: *const c_char) -> *mut Group {
+    if name.is_null() { return core::ptr::null_mut(); }
+    scan_group(|g| crate::strcmp((*g).gr_name as *const u8, name as *const u8) == 0)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn getgrgid(gid: u32) -> *mut Group {
-    setgrent();
-    loop {
-        let g = getgrent();
-        if g.is_null() { break; }
-        if (*g).gr_gid == gid { endgrent(); return g; }
-    }
-    endgrent();
-    core::ptr::null_mut()
+    scan_group(|g| (*g).gr_gid == gid)
 }
 
 #[no_mangle]

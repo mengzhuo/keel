@@ -122,6 +122,14 @@ const PH_ALIGN: usize = 48;
 const SYMTAB_ENT_SIZE: usize = 24;
 const NO_IDX: usize = usize::MAX;
 const TCB_SIZE: usize = 256;
+
+// Word indices in the TCB. Keep in sync with libc/src/lib.rs.
+const TCB_GENERATION: usize = 1;
+const TCB_TLS_SIZE: usize = 2;
+const TCB_MODULE_COUNT: usize = 3;
+const TCB_TLSDESC: usize = 4;
+const TCB_GETRANDOM: usize = 7;
+const TCB_THREAD: usize = 8;
 const DSO_BASE_START: u64 = 0x200000000;
 const DSO_BASE_STRIDE: u64 = 0x100000000;
 
@@ -2540,16 +2548,16 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
     }
     let tcb = block.add(tls_tcb_offset_from_block());
     core::ptr::write_unaligned(tcb as *mut u64, tcb as u64);
-    core::ptr::write_unaligned((tcb as *mut u64).add(1), TLS_GENERATION);
-    core::ptr::write_unaligned((tcb as *mut u64).add(2), TLS_TOTAL_SIZE as u64);
-    core::ptr::write_unaligned((tcb as *mut u64).add(3), TLS_MODULE_COUNT as u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_GENERATION), TLS_GENERATION);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_TLS_SIZE), TLS_TOTAL_SIZE as u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_MODULE_COUNT), TLS_MODULE_COUNT as u64);
     // 0x38 is libc's per-thread vDSO getrandom state pointer.  Keep the
     // state this thread already allocated when growing its block; dropping
     // it would leak the page and force a fresh kernel reseed.  0x40 is the
     // pointer to the thread's Thread record and moves with the block.
-    core::ptr::write_unaligned((tcb as *mut u64).add(4), old_tlsdesc);
-    core::ptr::write_unaligned((tcb as *mut u64).add(7), old_getrandom);
-    core::ptr::write_unaligned((tcb as *mut u64).add(8), old_thread);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_TLSDESC), old_tlsdesc);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_GETRANDOM), old_getrandom);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_THREAD), old_thread);
     write_tp(block.add(tls_tp_offset_from_block()) as usize);
 }
 
@@ -3262,16 +3270,16 @@ unsafe fn init_tls_block(block: *mut u8) -> *mut u8 {
     }
     let tcb = block.add(tls_tcb_offset_from_block());
     core::ptr::write_unaligned(tcb as *mut u64, tcb as u64);
-    core::ptr::write_unaligned((tcb as *mut u64).add(1), TLS_GENERATION);
-    core::ptr::write_unaligned((tcb as *mut u64).add(2), TLS_TOTAL_SIZE as u64);
-    core::ptr::write_unaligned((tcb as *mut u64).add(3), TLS_MODULE_COUNT as u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_GENERATION), TLS_GENERATION);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_TLS_SIZE), TLS_TOTAL_SIZE as u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_MODULE_COUNT), TLS_MODULE_COUNT as u64);
     // 0x20 is the per-thread dynamic TLSDESC list.  0x38 is libc's per-thread
     // vDSO getrandom state pointer; 0x40 is the Thread record pointer.  A
     // block carved out of an application stack is not zero-filled, so clear
     // all three.
-    core::ptr::write_unaligned((tcb as *mut u64).add(4), 0u64);
-    core::ptr::write_unaligned((tcb as *mut u64).add(7), 0u64);
-    core::ptr::write_unaligned((tcb as *mut u64).add(8), 0u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_TLSDESC), 0u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_GETRANDOM), 0u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_THREAD), 0u64);
     block.add(tls_tp_offset_from_block())
 }
 
