@@ -9482,7 +9482,7 @@ pub unsafe extern "C" fn mbrtowc(
 
     if unsafe { !LOCALE_CTYPE_UTF8 } {
         let b = *s;
-        *wc = b as c_int;
+        *wc = c_locale_codeunit(b) as c_int;
         return if b == 0 { 0 } else { 1 };
     }
 
@@ -9533,12 +9533,16 @@ pub unsafe extern "C" fn wcrtomb(
     if s.is_null() { return 1; }
     let wc_u = wc as u32;
     if unsafe { !LOCALE_CTYPE_UTF8 } {
-        if wc_u > 0xFF {
-            ERRNO!() = EILSEQ;
-            return !0usize;
+        if wc_u < 0x80 {
+            *s = wc as c_char;
+            return 1;
         }
-        *s = wc as c_char;
-        return 1;
+        if c_locale_is_codeunit(wc_u) {
+            *s = (wc_u & 0xFF) as c_char;
+            return 1;
+        }
+        ERRNO!() = EILSEQ;
+        return !0usize;
     }
     if wc_u < 0x80 {
         *s = wc as c_char;
@@ -9736,6 +9740,18 @@ pub unsafe extern "C" fn wcstombs(
 // wchar: btowc / wctob / mbsinit / mbrlen
 // ============================================================
 
+// musl's C locale represents bytes >= 0x80 as the single-byte "code units"
+// 0xDF80..0xDFFF so they are distinct from Unicode code points.
+#[inline]
+fn c_locale_codeunit(b: u8) -> u32 {
+    0xdfff & (b as i8 as i32) as u32
+}
+
+#[inline]
+fn c_locale_is_codeunit(c: u32) -> bool {
+    c.wrapping_sub(0xDF80) < 0x80
+}
+
 #[no_mangle]
 pub extern "C" fn btowc(c: c_int) -> wint_t {
     if c == -1 { return WEOF; }
@@ -9743,7 +9759,7 @@ pub extern "C" fn btowc(c: c_int) -> wint_t {
         if LOCALE_CTYPE_UTF8 {
             if (c as u32) < 128 { c as wint_t } else { WEOF }
         } else {
-            (c as u8) as wint_t
+            c_locale_codeunit(c as u8) as wint_t
         }
     }
 }
@@ -9753,8 +9769,12 @@ pub extern "C" fn wctob(c: wint_t) -> c_int {
     unsafe {
         if LOCALE_CTYPE_UTF8 {
             if c < 128 { c as c_int } else { -1 }
+        } else if c < 128 {
+            c as c_int
+        } else if c_locale_is_codeunit(c) {
+            (c & 0xFF) as c_int
         } else {
-            if c <= 0xFF { c as c_int } else { -1 }
+            -1
         }
     }
 }
@@ -10094,65 +10114,111 @@ const WC_GRAPH: c_int = WC_ALNUM | WC_PUNCT;
 const WC_PRINT: c_int = WC_GRAPH | WC_BLANK;
 const WC_XDIGIT: c_int = 256;
 
-fn wc_flags(c: wint_t) -> c_int {
-    if c < 128 {
-        let f = CT_TABLE[c as usize];
-        let mut r = 0;
-        if f & (CT_UPPER | CT_LOWER) != 0 { r |= WC_ALPHA; }
-        if f & CT_DIGIT != 0 { r |= WC_DIGIT; }
-        if f & CT_SPACE != 0 { r |= WC_SPACE; }
-        if f & CT_UPPER != 0 { r |= WC_UPPER; }
-        if f & CT_LOWER != 0 { r |= WC_LOWER; }
-        if f & CT_BLANK != 0 { r |= WC_BLANK; }
-        if f & CT_CNTRL != 0 { r |= WC_CNTRL; }
-        if f & CT_PUNCT != 0 { r |= WC_PUNCT; }
-        if f & CT_XDIGIT != 0 { r |= WC_XDIGIT; }
-        r
-    } else if c == 0xFFFFFFFF {
-        // WEOF must not classify as printable/alphabetic.
-        0
-    } else if c < 0x100 {
-        // The C locale classifies only ASCII; Latin-1 bytes are not images.
-        0
+#[inline]
+fn wctable_bit(table: &[u8], wc: wint_t) -> bool {
+    let wc = wc as u32;
+    let page = table[(wc >> 8) as usize] as usize;
+    (table[page * 32 + ((wc & 255) >> 3) as usize] >> (wc & 7)) & 1 != 0
+}
+
+/// Port of musl's iswalpha: table lookup below U+20000, then a broad
+/// alphabetic range up to U+2FFFD.
+#[no_mangle]
+pub extern "C" fn iswalpha(c: wint_t) -> c_int {
+    let wc = c as u32;
+    if wc < 0x20000 {
+        return wctable_bit(&WCTYPE_ALPHA_TABLE, c) as c_int;
+    }
+    if wc < 0x2fffe { 1 } else { 0 }
+}
+
+/// Port of musl's iswpunct.
+#[no_mangle]
+pub extern "C" fn iswpunct(c: wint_t) -> c_int {
+    let wc = c as u32;
+    if wc < 0x20000 {
+        wctable_bit(&WCTYPE_PUNCT_TABLE, c) as c_int
     } else {
-        WC_PRINT | WC_ALPHA | WC_GRAPH
+        0
     }
 }
 
-#[no_mangle]
-pub extern "C" fn iswalnum(c: wint_t) -> c_int { (wc_flags(c) & WC_ALNUM != 0) as c_int }
-#[no_mangle]
-pub extern "C" fn iswalpha(c: wint_t) -> c_int { (wc_flags(c) & WC_ALPHA != 0) as c_int }
-#[no_mangle]
-pub extern "C" fn iswblank(c: wint_t) -> c_int { (wc_flags(c) & WC_BLANK != 0) as c_int }
-#[no_mangle]
-pub extern "C" fn iswcntrl(c: wint_t) -> c_int { (wc_flags(c) & WC_CNTRL != 0) as c_int }
-#[no_mangle]
-pub extern "C" fn iswdigit(c: wint_t) -> c_int { ((c >= b'0' as wint_t) && (c <= b'9' as wint_t)) as c_int }
-#[no_mangle]
-pub extern "C" fn iswgraph(c: wint_t) -> c_int { (wc_flags(c) & WC_GRAPH != 0) as c_int }
-#[no_mangle]
-pub extern "C" fn iswlower(c: wint_t) -> c_int { (wc_flags(c) & WC_LOWER != 0) as c_int }
+/// Port of musl's iswprint.
 #[no_mangle]
 pub extern "C" fn iswprint(c: wint_t) -> c_int {
-    (wc_flags(c) & WC_PRINT != 0) as c_int
+    let wc = c as u32;
+    if wc < 0xff {
+        return (((wc + 1) & 0x7f) >= 0x21) as c_int;
+    }
+    if wc < 0x2028
+        || wc.wrapping_sub(0x202a) < 0xd800 - 0x202a
+        || wc.wrapping_sub(0xe000) < 0xfff9 - 0xe000
+    {
+        return 1;
+    }
+    if wc.wrapping_sub(0xfffc) > 0x10ffff - 0xfffc || (wc & 0xfffe) == 0xfffe {
+        return 0;
+    }
+    1
 }
-#[no_mangle]
-pub extern "C" fn iswpunct(c: wint_t) -> c_int { (wc_flags(c) & WC_PUNCT != 0) as c_int }
+
+/// Port of musl's iswspace: Unicode White_Space minus U+00A0/U+2007/U+202F,
+/// plus U+1680 and U+180E are excluded (they have non-blank glyphs).
 #[no_mangle]
 pub extern "C" fn iswspace(c: wint_t) -> c_int {
-    if c < 128 { (wc_flags(c) & WC_SPACE != 0) as c_int }
-    else {
-        match c {
-            0x1680 | 0x2000..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000 => 1,
-            _ => 0,
-        }
-    }
+    matches!(
+        c as u32,
+        0x20 | 0x09 | 0x0a | 0x0d | 0x0b | 0x0c | 0x85
+            | 0x2000..=0x2006 | 0x2008..=0x200a
+            | 0x2028 | 0x2029 | 0x205f | 0x3000
+    ) as c_int
 }
+
+/// Port of musl's iswcntrl.
 #[no_mangle]
-pub extern "C" fn iswupper(c: wint_t) -> c_int { (wc_flags(c) & WC_UPPER != 0) as c_int }
+pub extern "C" fn iswcntrl(c: wint_t) -> c_int {
+    let wc = c as u32;
+    ((wc < 32)
+        || wc.wrapping_sub(0x7f) < 33
+        || wc.wrapping_sub(0x2028) < 2
+        || wc.wrapping_sub(0xfff9) < 3) as c_int
+}
+
 #[no_mangle]
-pub extern "C" fn iswxdigit(c: wint_t) -> c_int { (wc_flags(c) & WC_XDIGIT != 0) as c_int }
+pub extern "C" fn iswdigit(c: wint_t) -> c_int {
+    ((c as u32).wrapping_sub(b'0' as u32) < 10) as c_int
+}
+
+#[no_mangle]
+pub extern "C" fn iswxdigit(c: wint_t) -> c_int {
+    let wc = c as u32;
+    ((wc.wrapping_sub(b'0' as u32) < 10) || ((wc | 32).wrapping_sub(b'a' as u32) < 6)) as c_int
+}
+
+#[no_mangle]
+pub extern "C" fn iswalnum(c: wint_t) -> c_int {
+    (iswdigit(c) != 0 || iswalpha(c) != 0) as c_int
+}
+
+#[no_mangle]
+pub extern "C" fn iswblank(c: wint_t) -> c_int {
+    (c == b' ' as wint_t || c == b'\t' as wint_t) as c_int
+}
+
+#[no_mangle]
+pub extern "C" fn iswgraph(c: wint_t) -> c_int {
+    (iswspace(c) == 0 && iswprint(c) != 0) as c_int
+}
+
+#[no_mangle]
+pub extern "C" fn iswlower(c: wint_t) -> c_int {
+    if c < 128 { islower(c as c_int) } else { 0 }
+}
+
+#[no_mangle]
+pub extern "C" fn iswupper(c: wint_t) -> c_int {
+    if c < 128 { isupper(c as c_int) } else { 0 }
+}
 
 static WCTYPE_ALNUM: c_int = WC_ALNUM;
 static WCTYPE_ALPHA: c_int = WC_ALPHA;
@@ -10189,7 +10255,19 @@ pub unsafe extern "C" fn wctype(name: *const c_char) -> wctype_t {
 #[no_mangle]
 pub unsafe extern "C" fn iswctype(c: wint_t, desc: wctype_t) -> c_int {
     if desc.is_null() { return 0; }
-    (wc_flags(c) & *desc != 0) as c_int
+    if desc == core::ptr::addr_of!(WCTYPE_ALNUM) { return iswalnum(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_ALPHA) { return iswalpha(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_BLANK) { return iswblank(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_CNTRL) { return iswcntrl(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_DIGIT) { return iswdigit(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_GRAPH) { return iswgraph(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_LOWER) { return iswlower(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_PRINT) { return iswprint(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_PUNCT) { return iswpunct(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_SPACE) { return iswspace(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_UPPER) { return iswupper(c); }
+    if desc == core::ptr::addr_of!(WCTYPE_XDIGIT) { return iswxdigit(c); }
+    0
 }
 
 static WCTRANS_LOWER: c_int = 1;
@@ -15556,6 +15634,7 @@ include!("fenv.rs");
 include!("locale_ctype.rs");
 include!("regression_stubs.rs");
 include!("ctype_tables.rs");
+include!("wctype_tables.rs");
 include!("netdb_extra.rs");
 include!("compat_extra.rs");
 include!("stdio_extra.rs");

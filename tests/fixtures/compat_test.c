@@ -186,8 +186,10 @@ int main(void) {
     CHECK(strstr(strerror(-1), "18446744073709551615") == NULL, "strerror negative");
     CHECK(iswalpha(WEOF) == 0, "iswalpha WEOF");
     CHECK(iswprint(WEOF) == 0, "iswprint WEOF");
-    CHECK(iswalpha(0xE9) == 0, "iswalpha latin-1 (C locale)");
-    CHECK(iswprint(0xE9) == 0, "iswprint latin-1 (C locale)");
+    CHECK(iswalpha(0xE9) != 0, "iswalpha latin-1");
+    CHECK(iswprint(0xE9) != 0, "iswprint latin-1");
+    CHECK(iswpunct(0xA6) != 0, "iswpunct broken bar");
+    CHECK(iswspace(0x2028) != 0 && iswspace(0x3000) != 0, "iswspace unicode");
 
     /* vfwprintf must not fail when the output exceeds 4096 wide chars. */
     {

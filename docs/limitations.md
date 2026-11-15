@@ -38,9 +38,6 @@ regressions.  It is not an exhaustive security review.
 - **No Unicode width tables.**  `wcwidth` returns one column for every
   printable character and `wcswidth` counts every non-NUL character as one
   column.  Combining marks and double-width characters are therefore wrong.
-- **Wide-character classification is approximate above U+00FF.**  `iswalpha`
-  and `iswprint` treat most code points >= 0x100 as printable letters instead
-  of consulting full Unicode tables; ASCII and Latin-1 are exact.
 - **`iconv` supports a fixed encoding set.**  UTF-8/16/32, ASCII, the
   ISO-8859 family, Windows-1251/1252, KOI8-R, GBK/GB2312, Big5, EUC-JP and
   Shift-JIS are implemented; other musl charmaps are not available.
