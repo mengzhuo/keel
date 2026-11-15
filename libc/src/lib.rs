@@ -60,14 +60,21 @@ const EILSEQ: c_int = 84;
 const EINVAL: c_int = 22;
 const EFAULT: c_int = 14;
 const E2BIG: c_int = 7;
-const ENOENT: c_int = 2;
 const EIO: c_int = 5;
 const ENXIO: c_int = 6;
 const EBADF: c_int = 9;
 const ERANGE: c_int = 34;
 const ENOSYS: c_int = 38;
+const ENOENT: c_int = 2;
+const EEXIST: c_int = 17;
 const ENOTDIR: c_int = 20;
+const EMFILE: c_int = 24;
+const ENOSPC: c_int = 28;
+const ENAMETOOLONG: c_int = 36;
 const ELOOP: c_int = 40;
+const EIDRM: c_int = 43;
+const ENOTSUP: c_int = 95;
+const EAFNOSUPPORT: c_int = 97;
 
 const LC_CTYPE: c_int = 0;
 const LC_NUMERIC: c_int = 1;
@@ -3579,7 +3586,6 @@ pub unsafe extern "C" fn pthread_mutexattr_getprotocol(attr: *const pthread_mute
     *protocol = (((*attr).__attr >> 3) & 3) as c_int; 0
 }
 
-const ENOTSUP: c_int = 95;
 
 #[no_mangle]
 pub unsafe extern "C" fn pthread_mutexattr_setrobust(attr: *mut pthread_mutexattr_t, robust: c_int) -> c_int {
@@ -13076,8 +13082,6 @@ pub unsafe extern "C" fn basename(s: *mut c_char) -> *mut c_char {
 
 const AF_INET_VAL: c_int = 2;
 const AF_INET6_VAL: c_int = 10;
-const EAFNOSUPPORT: c_int = 97;
-const ENOSPC_VAL2: c_int = 28;
 
 unsafe fn inet_pton_v4(s: *const u8, a: *mut u8) -> c_int {
     let mut p = s;
@@ -13197,7 +13201,7 @@ pub unsafe extern "C" fn inet_ntop(af: c_int, a: *const c_void, s: *mut c_char, 
     if af == AF_INET_VAL {
         let b = a as *const u8;
         let needed = 16; // "255.255.255.255\0"
-        if size < needed as u32 { ERRNO!() = ENOSPC_VAL2; return core::ptr::null_mut(); }
+        if size < needed as u32 { ERRNO!() = ENOSPC; return core::ptr::null_mut(); }
         let mut pos = 0;
         for i in 0..4 {
             if i > 0 { *s.add(pos) = b'.' as c_char; pos += 1; }
@@ -13209,7 +13213,7 @@ pub unsafe extern "C" fn inet_ntop(af: c_int, a: *const c_void, s: *mut c_char, 
     } else if af == AF_INET6_VAL {
         let b = a as *const u8;
         let needed = 46; // max IPv6
-        if size < needed as u32 { ERRNO!() = ENOSPC_VAL2; return core::ptr::null_mut(); }
+        if size < needed as u32 { ERRNO!() = ENOSPC; return core::ptr::null_mut(); }
         let mut words = [0u16; 8];
         for i in 0..8 {
             words[i] = ((*b.add(i * 2) as u16) << 8) | (*b.add(i * 2 + 1) as u16);
@@ -15131,10 +15135,6 @@ pub unsafe extern "C" fn hasmntopt(mnt: *const MntEnt, opt: *const c_char) -> *m
 //   shmget=29, shmat=30, shmctl=31, shmdt=67
 // ============================================================
 
-const EEXIST: c_int = 17;
-const ENAMETOOLONG: c_int = 36;
-const EMFILE: c_int = 24;
-const EIDRM: c_int = 43;
 
 #[inline]
 unsafe fn sys_msgget(key: c_int, msgflg: c_int) -> i64 {
