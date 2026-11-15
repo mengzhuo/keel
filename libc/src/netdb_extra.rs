@@ -40,6 +40,7 @@ const EAI_SOCKTYPE_V: c_int = -7;
 const EAI_SERVICE_V: c_int = -8;
 const EAI_MEMORY_V: c_int = -10;
 const EAI_SYSTEM_V: c_int = -11;
+const EAI_NODATA_V: c_int = -5;
 const EAI_OVERFLOW_V: c_int = -12;
 
 const AI_PASSIVE_V: c_int = 0x01;
@@ -786,21 +787,21 @@ unsafe fn getnameinfo_locked(
     flags: c_int,
 ) -> c_int {
     if sa.is_null() { return EAI_FAIL_V; }
-    let family = *(sa as *const u16) as c_int;
+    let family = core::ptr::read_unaligned(sa as *const u16) as c_int;
     let mut addr = [0u8; 16];
     let mut scope: u32 = 0;
     let port: u16;
     match family {
         AF_INET => {
             if salen < 16 { return EAI_FAMILY_V; }
-            port = u16::from_be(*((sa as *const u8).add(2) as *const u16));
+            port = u16::from_be(core::ptr::read_unaligned((sa as *const u8).add(2) as *const u16));
             core::ptr::copy_nonoverlapping((sa as *const u8).add(4), addr.as_mut_ptr(), 4);
         }
         AF_INET6 => {
             if salen < 28 { return EAI_FAMILY_V; }
-            port = u16::from_be(*((sa as *const u8).add(2) as *const u16));
+            port = u16::from_be(core::ptr::read_unaligned((sa as *const u8).add(2) as *const u16));
             core::ptr::copy_nonoverlapping((sa as *const u8).add(8), addr.as_mut_ptr(), 16);
-            scope = *((sa as *const u8).add(24) as *const u32);
+            scope = core::ptr::read_unaligned((sa as *const u8).add(24) as *const u32);
         }
         _ => return EAI_FAMILY_V,
     }
@@ -1053,6 +1054,62 @@ unsafe fn getaddrinfo_locked(
     }
     if family != 0 && family != AF_INET && family != AF_INET6 { return EAI_FAMILY_V; }
     if socktype != 0 && socktype != SOCK_STREAM && socktype != SOCK_DGRAM { return EAI_SOCKTYPE_V; }
+
+    // musl's AI_ADDRCONFIG: a family counts as configured when a UDP socket
+    // can connect to its loopback address. Unsupported/unreachable families
+    // are dropped (or turn into EAI_NODATA when explicitly requested).
+    if flags & AI_ADDRCONFIG_V != 0 {
+        #[repr(C)]
+        struct Lo6 {
+            family: u16,
+            port: u16,
+            flowinfo: u32,
+            addr: [u8; 16],
+            scope_id: u32,
+        }
+        let lo4 = SockAddrIn {
+            sin_family: AF_INET as u16,
+            sin_port: 65535u16.to_be(),
+            sin_addr: 0x7f000001,
+            sin_zero: [0; 8],
+        };
+        let mut v6addr = [0u8; 16];
+        v6addr[15] = 1;
+        let lo6 = Lo6 {
+            family: AF_INET6 as u16,
+            port: 65535u16.to_be(),
+            flowinfo: 0,
+            addr: v6addr,
+            scope_id: 0,
+        };
+        let tf = [AF_INET, AF_INET6];
+        let tas: [*const c_void; 2] = [
+            &lo4 as *const SockAddrIn as *const c_void,
+            &lo6 as *const Lo6 as *const c_void,
+        ];
+        let tls = [
+            core::mem::size_of::<SockAddrIn>() as u32,
+            core::mem::size_of::<Lo6>() as u32,
+        ];
+        let mut no_family = false;
+        for i in 0..2 {
+            if family == tf[1 - i] { continue; }
+            let s = crate::socket(tf[i], SOCK_DGRAM, 0);
+            if s >= 0 {
+                let r = crate::connect(s, tas[i] as *const crate::sockaddr, tls[i]);
+                let e = ERRNO!();
+                crate::close(s);
+                if r == 0 { continue; }
+                match e {
+                    99 | 97 | 113 | 100 | 101 => {} // EADDRNOTAVAIL/AF/UNREACH/NETDOWN/NETUNREACH
+                    _ => return EAI_SYSTEM_V,
+                }
+            }
+            if family == tf[i] { no_family = true; }
+            family = tf[1 - i];
+        }
+        if no_family { return EAI_NODATA_V; }
+    }
     if flags & AI_NUMERICSERV_V != 0 && !service.is_null() {
         let mut end: *mut c_char = core::ptr::null_mut();
         let _ = crate::strtoul(service, &mut end, 10);

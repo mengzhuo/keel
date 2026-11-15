@@ -4431,9 +4431,18 @@ const SEMTAB_LEN: usize = SEM_NSEMS_MAX;
 
 #[no_mangle]
 pub unsafe extern "C" fn sem_close(sem: *mut sem_t) -> c_int {
+    if sem.is_null() {
+        ERRNO!() = EINVAL;
+        return -1;
+    }
     semtab_lock();
     for i in 0..SEMTAB_LEN {
         if SEMTAB[i].sem == sem {
+            if SEMTAB[i].refcnt == 0 {
+                semtab_unlock();
+                ERRNO!() = EINVAL;
+                return -1;
+            }
             SEMTAB[i].refcnt -= 1;
             if SEMTAB[i].refcnt == 0 {
                 SEMTAB[i].sem = core::ptr::null_mut();
@@ -4447,7 +4456,8 @@ pub unsafe extern "C" fn sem_close(sem: *mut sem_t) -> c_int {
         }
     }
     semtab_unlock();
-    0
+    ERRNO!() = EINVAL;
+    -1
 }
 
 #[no_mangle]
@@ -4491,12 +4501,15 @@ pub unsafe extern "C" fn pthread_key_create(key: *mut pthread_key_t, dtor: Optio
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_key_delete(key: pthread_key_t) -> c_int {
+    if key as usize >= PTHREAD_KEYS_MAX {
+        return EINVAL;
+    }
     KEY_DTORS[key as usize] = None;
     let count = thread_slot_count();
     let mut i = 0usize;
     while i < count {
         let slot = thread_slot_at(i);
-        if core::ptr::read_volatile(&raw const (*slot).tid) > 0 {
+        if !slot.is_null() && core::ptr::read_volatile(&raw const (*slot).tid) > 0 {
             (*slot).tsd[key as usize] = core::ptr::null_mut();
         }
         i += 1;
@@ -4505,10 +4518,17 @@ pub unsafe extern "C" fn pthread_key_delete(key: pthread_key_t) -> c_int {
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_getspecific(key: pthread_key_t) -> *mut c_void {
+    if key as usize >= PTHREAD_KEYS_MAX {
+        return core::ptr::null_mut();
+    }
     if let Some(slot) = find_thread() { slot.tsd[key as usize] } else { core::ptr::null_mut() }
 }
 #[no_mangle]
 pub unsafe extern "C" fn pthread_setspecific(key: pthread_key_t, value: *const c_void) -> c_int {
+    if key as usize >= PTHREAD_KEYS_MAX {
+        ERRNO!() = EINVAL;
+        return EINVAL;
+    }
     if let Some(slot) = find_thread() {
         slot.tsd[key as usize] = value as *mut c_void;
         0
@@ -5502,7 +5522,12 @@ pub unsafe extern "C" fn iconv(
         ERRNO!() = EINVAL;
         return !0usize;
     }
-    if inbuf.is_null() || outbuf.is_null() { return 0; }
+    // A null inbuf is the state-reset call; all converters are stateless.
+    if inbuf.is_null() { return 0; }
+    if inbytesleft.is_null() || outbuf.is_null() || outbytesleft.is_null() {
+        ERRNO!() = EINVAL;
+        return !0usize;
+    }
     let from = extract_from(cd);
     let to = extract_to(cd);
     let mut src = *inbuf as *const u8;
@@ -5755,6 +5780,34 @@ pub static mut stdout: *mut FILE = &raw mut STDOUT_FILE as *mut FILE;
 #[no_mangle]
 pub static mut stderr: *mut FILE = &raw mut STDERR_FILE as *mut FILE;
 
+// All open streams, so fflush(NULL) can flush everything and fclose can
+// unlink/free dynamically allocated FILEs.
+static mut OFL_HEAD: *mut FILE = core::ptr::null_mut();
+
+unsafe fn ofl_add(f: *mut FILE) {
+    (*f).prev = core::ptr::null_mut();
+    (*f).next = OFL_HEAD;
+    if !OFL_HEAD.is_null() {
+        (*OFL_HEAD).prev = f;
+    }
+    OFL_HEAD = f;
+}
+
+unsafe fn ofl_remove(f: *mut FILE) {
+    let prev = (*f).prev;
+    let next = (*f).next;
+    if prev.is_null() {
+        OFL_HEAD = next;
+    } else {
+        (*prev).next = next;
+    }
+    if !next.is_null() {
+        (*next).prev = prev;
+    }
+    (*f).prev = core::ptr::null_mut();
+    (*f).next = core::ptr::null_mut();
+}
+
 // ============================================================
 // FILE helpers
 // ============================================================
@@ -5776,6 +5829,15 @@ unsafe fn __stdio_init() {
     STDERR_FILE.read_fn = Some(__stdio_read);
     STDERR_FILE.write_fn = Some(__stdio_write);
     STDERR_FILE.seek_fn = Some(__stdio_seek);
+    STDIN_FILE.flags |= F_PERM;
+    STDOUT_FILE.flags |= F_PERM;
+    STDERR_FILE.flags |= F_PERM;
+    STDIN_FILE.close = Some(__stdio_close);
+    STDOUT_FILE.close = Some(__stdio_close);
+    STDERR_FILE.close = Some(__stdio_close);
+    ofl_add(&raw mut STDIN_FILE as *mut FILE);
+    ofl_add(&raw mut STDOUT_FILE as *mut FILE);
+    ofl_add(&raw mut STDERR_FILE as *mut FILE);
 }
 
 unsafe fn buf_ptr(f: *mut FILE) -> *mut u8 {
@@ -5855,6 +5917,7 @@ unsafe fn init_file(
     } else if !has_plus {
         (*f).flags = F_NOWR;
     }
+    ofl_add(f);
 }
 
 unsafe extern "C" fn __stdio_close(f: *mut FILE) -> c_int {
@@ -5913,7 +5976,11 @@ pub unsafe extern "C" fn fopen(filename: *const c_char, mode: *const c_char) -> 
     let flags = fmodeflags(mode);
     let fd = sys_open(filename as *const u8, flags as i64, 0o666);
     if fd < 0 { ERRNO!() = (-fd) as c_int; return core::ptr::null_mut(); }
-    fdopen(fd as c_int, mode)
+    let f = fdopen(fd as c_int, mode);
+    if f.is_null() {
+        sys_close(fd);
+    }
+    f
 }
 
 #[no_mangle]
@@ -5980,6 +6047,7 @@ pub unsafe extern "C" fn freopen(
     (*f).wend = core::ptr::null_mut();
     (*f).lbf = (*new_f).lbf;
     (*f).pipe_pid = 0;
+    ofl_remove(new_f);
     free(new_f as *mut c_void);
     f
 }
@@ -5992,6 +6060,15 @@ pub unsafe extern "C" fn fclose(f: *mut FILE) -> c_int {
     }
     let r = fflush(f);
     let close_r = if let Some(close_fn) = (*f).close { close_fn(f) } else { 0 };
+    let permanent = (*f).flags & F_PERM != 0;
+    let allocated_buf = if (*f).flags & F_SVB != 0 { (*f).buf } else { core::ptr::null_mut() };
+    let getln = (*f).getln_buf;
+    ofl_remove(f);
+    if !permanent {
+        if !allocated_buf.is_null() { free(allocated_buf as *mut c_void); }
+        if !getln.is_null() { free(getln as *mut c_void); }
+        free(f as *mut c_void);
+    }
     if r != 0 || close_r != 0 { -1 } else { 0 }
 }
 
@@ -6001,7 +6078,10 @@ pub unsafe extern "C" fn fclose(f: *mut FILE) -> c_int {
 
 #[no_mangle]
 pub unsafe extern "C" fn setvbuf(f: *mut FILE, buf: *mut c_char, mode: c_int, size: usize) -> c_int {
-    if mode != _IOFBF && mode != _IOLBF && mode != _IONBF { return -1; }
+    if f.is_null() || (mode != _IOFBF && mode != _IOLBF && mode != _IONBF) {
+        ERRNO!() = EINVAL;
+        return -1;
+    }
     fflush(f);
     (*f).rpos = core::ptr::null_mut();
     (*f).rend = core::ptr::null_mut();
@@ -6009,10 +6089,24 @@ pub unsafe extern "C" fn setvbuf(f: *mut FILE, buf: *mut c_char, mode: c_int, si
     (*f).wbase = core::ptr::null_mut();
     (*f).wend = core::ptr::null_mut();
     if mode == _IONBF {
+        (*f).buf = core::ptr::null_mut();
         (*f).buf_size = 0;
-    } else if !buf.is_null() && size > 0 {
-        (*f).buf = buf as *mut u8;
-        (*f).buf_size = size;
+    } else {
+        let wanted = if size == 0 { BUFSIZ } else { size };
+        let actual = if buf.is_null() {
+            let p = malloc(wanted) as *mut c_char;
+            if p.is_null() {
+                ERRNO!() = ENOMEM;
+                return -1;
+            }
+            (*f).flags |= F_SVB;
+            p
+        } else {
+            (*f).flags &= !F_SVB;
+            buf
+        };
+        (*f).buf = actual as *mut u8;
+        (*f).buf_size = wanted;
     }
     (*f).lbf = if mode == _IOLBF { b'\n' as c_int } else { -1 };
     0
@@ -6034,11 +6128,13 @@ pub unsafe extern "C" fn setbuffer(f: *mut FILE, buf: *mut c_char, size: usize) 
 pub unsafe extern "C" fn fflush(f: *mut FILE) -> c_int {
     if f.is_null() {
         let mut r = 0;
-        if !stdout.is_null() && !(*stdout).wpos.is_null() && (*stdout).wpos != (*stdout).wbase {
-            if flush_buf(stdout) != 0 { r = -1; }
-        }
-        if !stderr.is_null() && !(*stderr).wpos.is_null() && (*stderr).wpos != (*stderr).wbase {
-            if flush_buf(stderr) != 0 { r = -1; }
+        let mut cur = OFL_HEAD;
+        while !cur.is_null() {
+            let next = (*cur).next;
+            if !(*cur).wpos.is_null() && (*cur).wpos != (*cur).wbase {
+                if flush_buf(cur) != 0 { r = -1; }
+            }
+            cur = next;
         }
         return r;
     }
@@ -6294,7 +6390,10 @@ pub unsafe extern "C" fn fread(
     ptr: *mut c_void, size: SizeT, nmemb: SizeT, stream: *mut FILE,
 ) -> SizeT {
     if size == 0 || nmemb == 0 { return 0; }
-    let total = size * nmemb;
+    let total = match size.checked_mul(nmemb) {
+        Some(v) => v,
+        None => { ERRNO!() = EINVAL; return 0; }
+    };
     let mut rd = 0usize;
     while rd < total {
         let c = fgetc(stream);
@@ -6380,13 +6479,19 @@ pub unsafe extern "C" fn fwrite(
     ptr: *const c_void, size: SizeT, nmemb: SizeT, stream: *mut FILE,
 ) -> SizeT {
     if size == 0 || nmemb == 0 { return 0; }
-    let total = size * nmemb;
+    let total = match size.checked_mul(nmemb) {
+        Some(v) => v,
+        None => { ERRNO!() = EINVAL; return 0; }
+    };
     let f = &mut *stream;
     if f.buf_size == 0 {
         if let Some(wfunc) = f.write_fn {
             let ret = wfunc(stream, ptr as *const u8, total);
+            if ret < total { f._err = 1; f.flags |= F_ERR; }
             return ret / size;
         }
+        f._err = 1;
+        f.flags |= F_ERR;
         return 0;
     }
     if f.wpos.is_null() {
@@ -8344,7 +8449,10 @@ unsafe fn scan_float_val(
             if *pos<max && *buf.add(*pos)==b'-' { eneg=true; *pos+=1; }
             else if *pos<max && *buf.add(*pos)==b'+' { *pos+=1; }
             let mut ev: i32 = 0; let mut ef = false;
-            while *pos<max && *buf.add(*pos)>=b'0' && *buf.add(*pos)<=b'9' { ev = ev*10+(*buf.add(*pos)-b'0') as i32; *pos+=1; ef=true; }
+            while *pos<max && *buf.add(*pos)>=b'0' && *buf.add(*pos)<=b'9' {
+                ev = ev.saturating_mul(10).saturating_add((*buf.add(*pos)-b'0') as i32).min(1_000_000);
+                *pos+=1; ef=true;
+            }
             if !ef { return (0.0, false); }
             if eneg { ev = -ev; }
             val *= libm::pow(2.0, ev as f64);
@@ -8717,6 +8825,26 @@ pub unsafe extern "C" fn vsscanf(buf: *const c_char, fmt: *const c_char, mut arg
     vsscanf_inner(buf as *const u8, fmt, &mut args)
 }
 
+unsafe fn scan_buf_grow(buf: &mut *mut u8, cap: &mut usize, need: usize) -> bool {
+    if need <= *cap {
+        return true;
+    }
+    let mut next = core::cmp::max(*cap, 256);
+    while next < need {
+        next = match next.checked_mul(2) {
+            Some(v) => v,
+            None => return false,
+        };
+    }
+    let grown = crate::realloc(*buf as *mut c_void, next) as *mut u8;
+    if grown.is_null() {
+        return false;
+    }
+    *buf = grown;
+    *cap = next;
+    true
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn vfscanf(stream: *mut FILE, fmt: *const c_char, mut args: VaList) -> c_int {
     let f = &mut *stream;
@@ -8726,31 +8854,51 @@ pub unsafe extern "C" fn vfscanf(stream: *mut FILE, fmt: *const c_char, mut args
     // Logical position, not the raw fd offset: fgetc may have read ahead.
     let start_pos = if sfunc.is_some() { ftello(stream) } else { -1 };
 
-    let mut line = [0u8; 4096];
+    let mut cap = 4096usize;
+    let mut line = crate::malloc(cap) as *mut u8;
+    if line.is_null() {
+        ERRNO!() = ENOMEM;
+        return -1;
+    }
     let mut pos = 0usize;
 
     if start_pos >= 0 {
-        // Seekable: read via fgetc until \n or EOF (existing behavior)
-        while pos < line.len() - 1 {
+        // Seekable: read via fgetc until newline or EOF.
+        loop {
+            if !scan_buf_grow(&mut line, &mut cap, pos + 1) {
+                crate::free(line as *mut c_void);
+                ERRNO!() = ENOMEM;
+                return -1;
+            }
             let c = fgetc(stream);
             if c == -1 { break; }
-            line[pos] = c as u8;
+            *line.add(pos) = c as u8;
             pos += 1;
             if c == b'\n' as c_int { break; }
         }
     } else {
         // Non-seekable (pipe/socket): drain pushback, then read all available
-        // data non-blocking so we don't stop at \n boundaries.
+        // data non-blocking so we don't stop at newline boundaries.
 
         // 1. Drain ungotten bytes (LIFO order)
-        while f.ungotten_count > 0 && pos < line.len() - 1 {
+        while f.ungotten_count > 0 {
+            if !scan_buf_grow(&mut line, &mut cap, pos + 1) {
+                crate::free(line as *mut c_void);
+                ERRNO!() = ENOMEM;
+                return -1;
+            }
             f.ungotten_count -= 1;
-            line[pos] = f.ungotten[f.ungotten_count as usize] as u8;
+            *line.add(pos) = f.ungotten[f.ungotten_count as usize] as u8;
             pos += 1;
         }
         // 2. Drain rpos/rend pushback buffer
-        while !f.rpos.is_null() && f.rpos < f.rend && pos < line.len() - 1 {
-            line[pos] = *f.rpos;
+        while !f.rpos.is_null() && f.rpos < f.rend {
+            if !scan_buf_grow(&mut line, &mut cap, pos + 1) {
+                crate::free(line as *mut c_void);
+                ERRNO!() = ENOMEM;
+                return -1;
+            }
+            *line.add(pos) = *f.rpos;
             f.rpos = f.rpos.add(1);
             pos += 1;
         }
@@ -8759,15 +8907,21 @@ pub unsafe extern "C" fn vfscanf(stream: *mut FILE, fmt: *const c_char, mut args
         // a producer such as popen() that has not written yet.
         let fd = f.fd;
         if pos == 0 {
-            let n = sys_read(fd as i64, line.as_mut_ptr(), 1);
+            let n = sys_read(fd as i64, line, 1);
             if n == 1 { pos = 1; }
         }
         let old_flags = sys_fcntl(fd, F_GETFL, 0);
         if old_flags >= 0 {
             let _ = sys_fcntl(fd, F_SETFL, old_flags | O_NONBLOCK as i64);
         }
-        while pos < line.len() - 1 {
-            let n = sys_read(fd as i64, line.as_mut_ptr().add(pos), line.len() - 1 - pos);
+        loop {
+            if pos + 1 >= cap && !scan_buf_grow(&mut line, &mut cap, pos + 2) {
+                if old_flags >= 0 { let _ = sys_fcntl(fd, F_SETFL, old_flags); }
+                crate::free(line as *mut c_void);
+                ERRNO!() = ENOMEM;
+                return -1;
+            }
+            let n = sys_read(fd as i64, line.add(pos), cap - 1 - pos);
             if n <= 0 { break; }
             pos += n as usize;
         }
@@ -8780,11 +8934,14 @@ pub unsafe extern "C" fn vfscanf(stream: *mut FILE, fmt: *const c_char, mut args
         f.flags &= !(F_EOF | F_ERR);
     }
 
-    line[pos] = 0;
-    if pos == 0 { return 0; }
+    *line.add(pos) = 0;
+    if pos == 0 {
+        crate::free(line as *mut c_void);
+        return 0;
+    }
 
     let mut consumed = 0usize;
-    let assigned = do_vsscanf(line.as_ptr(), pos, fmt, &mut args, &mut consumed);
+    let assigned = do_vsscanf(line, pos, fmt, &mut args, &mut consumed);
 
     if start_pos >= 0 {
         // Seek back to the logical position just past the consumed bytes and
@@ -8810,7 +8967,7 @@ pub unsafe extern "C" fn vfscanf(stream: *mut FILE, fmt: *const c_char, mut args
         if unconsumed > 0 && !f.buf.is_null() {
             let copy_count = core::cmp::min(unconsumed, f.buf_size);
             core::ptr::copy(
-                line.as_ptr().add(consumed),
+                line.add(consumed),
                 f.buf,
                 copy_count,
             );
@@ -8821,6 +8978,7 @@ pub unsafe extern "C" fn vfscanf(stream: *mut FILE, fmt: *const c_char, mut args
         f._eof = 0;
         f.flags &= !F_EOF;
     }
+    crate::free(line as *mut c_void);
     assigned
 }
 
@@ -11119,7 +11277,17 @@ unsafe fn wcsfmt_to_mbs(dst: *mut u8, dst_len: usize, src: *const wchar_t) {
 
 #[no_mangle]
 pub unsafe extern "C" fn vswscanf(s: *const wchar_t, fmt: *const wchar_t, mut args: VaList) -> c_int {
-    let mut mbs_buf = [0u8; 4096];
+    if s.is_null() || fmt.is_null() {
+        ERRNO!() = EINVAL;
+        return -1;
+    }
+    let wlen = wcslen(s);
+    let mut cap = wlen.saturating_mul(4).saturating_add(1);
+    let mut mbs_buf = crate::malloc(cap) as *mut u8;
+    if mbs_buf.is_null() {
+        ERRNO!() = ENOMEM;
+        return -1;
+    }
     let mut i = 0usize;
     let mut mb_pos = 0usize;
     loop {
@@ -11128,16 +11296,34 @@ pub unsafe extern "C" fn vswscanf(s: *const wchar_t, fmt: *const wchar_t, mut ar
         let mut mb = [0u8; 4];
         let n = wcrtomb(mb.as_mut_ptr() as *mut c_char, wc, core::ptr::null_mut());
         if n == !0usize || n == 0 { break; }
-        if mb_pos + n >= mbs_buf.len() { break; }
-        let mut k = 0usize;
-        while k < n { mbs_buf[mb_pos + k] = mb[k]; k += 1; }
+        if mb_pos + n >= cap {
+            let next = match cap.checked_mul(2) {
+                Some(v) => v,
+                None => { crate::free(mbs_buf as *mut c_void); ERRNO!() = ENOMEM; return -1; }
+            };
+            let grown = crate::realloc(mbs_buf as *mut c_void, next) as *mut u8;
+            if grown.is_null() { crate::free(mbs_buf as *mut c_void); ERRNO!() = ENOMEM; return -1; }
+            mbs_buf = grown;
+            cap = next;
+        }
+        core::ptr::copy_nonoverlapping(mb.as_ptr(), mbs_buf.add(mb_pos), n);
         mb_pos += n;
         i += 1;
     }
-    mbs_buf[mb_pos] = 0;
-    let mut mbs_fmt = [0u8; 4096];
-    wcsfmt_to_mbs(mbs_fmt.as_mut_ptr(), mbs_fmt.len(), fmt);
-    do_vsscanf(mbs_buf.as_ptr(), mb_pos, mbs_fmt.as_ptr() as *const c_char, &mut args, core::ptr::null_mut())
+    *mbs_buf.add(mb_pos) = 0;
+    let flen = wcslen(fmt);
+    let fcap = flen.saturating_add(1);
+    let mbs_fmt = crate::malloc(fcap) as *mut u8;
+    if mbs_fmt.is_null() {
+        crate::free(mbs_buf as *mut c_void);
+        ERRNO!() = ENOMEM;
+        return -1;
+    }
+    wcsfmt_to_mbs(mbs_fmt, fcap, fmt);
+    let r = do_vsscanf(mbs_buf, mb_pos, mbs_fmt as *const c_char, &mut args, core::ptr::null_mut());
+    crate::free(mbs_fmt as *mut c_void);
+    crate::free(mbs_buf as *mut c_void);
+    r
 }
 
 #[no_mangle]
@@ -11147,23 +11333,47 @@ pub unsafe extern "C" fn swscanf(s: *const wchar_t, fmt: *const wchar_t, args: .
 
 #[no_mangle]
 pub unsafe extern "C" fn vfwscanf(f: *mut FILE, fmt: *const wchar_t, mut args: VaList) -> c_int {
+    if f.is_null() || fmt.is_null() {
+        ERRNO!() = EINVAL;
+        return -1;
+    }
     let start_pos = ftello(f);
     if start_pos < 0 { return -1; }
-    let mut buf = [0u8; 4096];
+    let mut cap = 4096usize;
+    let mut buf = crate::malloc(cap) as *mut u8;
+    if buf.is_null() { ERRNO!() = ENOMEM; return -1; }
     let mut n = 0usize;
     loop {
-        if n >= buf.len() - 1 { break; }
+        if n + 1 >= cap {
+            let next = match cap.checked_mul(2) {
+                Some(v) => v,
+                None => { crate::free(buf as *mut c_void); ERRNO!() = ENOMEM; return -1; }
+            };
+            let grown = crate::realloc(buf as *mut c_void, next) as *mut u8;
+            if grown.is_null() { crate::free(buf as *mut c_void); ERRNO!() = ENOMEM; return -1; }
+            buf = grown;
+            cap = next;
+        }
         let c = fgetc(f);
         if c == -1 { break; }
-        buf[n] = c as u8;
+        *buf.add(n) = c as u8;
         n += 1;
     }
-    buf[n] = 0;
-    let mut mbs_fmt = [0u8; 4096];
-    wcsfmt_to_mbs(mbs_fmt.as_mut_ptr(), mbs_fmt.len(), fmt);
+    *buf.add(n) = 0;
+    let flen = wcslen(fmt);
+    let fcap = flen.saturating_add(1);
+    let mbs_fmt = crate::malloc(fcap) as *mut u8;
+    if mbs_fmt.is_null() {
+        crate::free(buf as *mut c_void);
+        ERRNO!() = ENOMEM;
+        return -1;
+    }
+    wcsfmt_to_mbs(mbs_fmt, fcap, fmt);
     let mut consumed = 0usize;
     let hit_eof = (*f)._eof != 0;
-    let result = do_vsscanf(buf.as_ptr(), n, mbs_fmt.as_ptr() as *const c_char, &mut args, &mut consumed);
+    let result = do_vsscanf(buf, n, mbs_fmt as *const c_char, &mut args, &mut consumed);
+    crate::free(mbs_fmt as *mut c_void);
+    crate::free(buf as *mut c_void);
     let _ = fseeko(f, start_pos + consumed as i64, SEEK_SET);
     if hit_eof && consumed == n {
         (*f)._eof = 1;
@@ -18484,35 +18694,36 @@ pub unsafe extern "C" fn confstr(name: i32, buf: *mut core::ffi::c_char, len: us
 
 #[no_mangle]
 pub unsafe extern "C" fn pathconf(_path: *const core::ffi::c_char, name: i32) -> i64 {
-    // Return default values
-    match name {
-        0 => 4096, // _PC_LINK_MAX
-        1 => 255,  // _PC_MAX_CANON
-        2 => 255,  // _PC_MAX_INPUT
-        3 => 255,  // _PC_NAME_MAX
-        4 => 4096, // _PC_PATH_MAX
-        5 => 4096, // _PC_PIPE_BUF
-        6 => 1,    // _PC_CHOWN_RESTRICTED
-        7 => 0,    // _PC_NO_TRUNC
-        8 => 0,    // _PC_VDISABLE
-        _ => -1,
-    }
+    fpathconf(-1, name)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn fpathconf(_fd: i32, name: i32) -> i64 {
-    // Return default values
+    // Same policy as musl's conf/fpathconf.c: the values are filesystem
+    // independent defaults, so the path/fd argument is not consulted.
     match name {
-        0 => 4096, // _PC_LINK_MAX
-        1 => 255,  // _PC_MAX_CANON
-        2 => 255,  // _PC_MAX_INPUT
-        3 => 255,  // _PC_NAME_MAX
-        4 => 4096, // _PC_PATH_MAX
-        5 => 4096, // _PC_PIPE_BUF
-        6 => 1,    // _PC_CHOWN_RESTRICTED
-        7 => 0,    // _PC_NO_TRUNC
-        8 => 0,    // _PC_VDISABLE
-        _ => -1,
+        0 => 8,       // _PC_LINK_MAX (_POSIX_LINK_MAX)
+        1 => 255,     // _PC_MAX_CANON
+        2 => 255,     // _PC_MAX_INPUT
+        3 => 255,     // _PC_NAME_MAX
+        4 => 4096,    // _PC_PATH_MAX
+        5 => 4096,    // _PC_PIPE_BUF
+        6 => 1,       // _PC_CHOWN_RESTRICTED
+        7 => 1,       // _PC_NO_TRUNC
+        8 => 0,       // _PC_VDISABLE
+        9 => 1,       // _PC_SYNC_IO
+        10 => -1,     // _PC_ASYNC_IO
+        11 => -1,     // _PC_PRIO_IO
+        12 => -1,     // _PC_SOCK_MAXBUF
+        13 => 64,     // _PC_FILESIZEBITS
+        14..=17 => 4096, // _PC_REC_*_XFER_SIZE/_ALIGN
+        18 => 4096,   // _PC_ALLOC_SIZE_MIN
+        19 => -1,     // _PC_SYMLINK_MAX
+        20 => 1,      // _PC_2_SYMLINKS
+        _ => {
+            ERRNO!() = EINVAL;
+            -1
+        }
     }
 }
 
@@ -23124,7 +23335,7 @@ pub unsafe extern "C" fn res_mkquery(
     while q[i] != 0 {
         let mut j = i;
         while q[j] != 0 && q[j] != b'.' { j += 1; }
-        if j - i - 1 > 62 { return -1; }
+        if j - i > 63 { return -1; }
         q[i - 1] = (j - i) as u8;
         i = j + 1;
     }

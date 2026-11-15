@@ -35,6 +35,9 @@
 #include <poll.h>
 #include <regex.h>
 #include <nl_types.h>
+#include <semaphore.h>
+#include <fenv.h>
+#include <math.h>
 
 struct memcookie { char data[64]; size_t len, pos; };
 static ssize_t mc_read(void *c, char *b, size_t n) {
@@ -503,6 +506,60 @@ int main(void) {
 
     /* membarrier may be restricted by the kernel; just exercise the ABI. */
     membarrier(0, 0, 0);
+
+    /* Out-of-range pthread keys must be rejected, not index the TSD array. */
+    CHECK(pthread_key_delete((pthread_key_t)999) == EINVAL, "pthread_key_delete range");
+    CHECK(pthread_setspecific((pthread_key_t)999, (void *)1) == EINVAL, "pthread_setspecific range");
+    CHECK(pthread_getspecific((pthread_key_t)999) == NULL, "pthread_getspecific range");
+
+    /* sem_close on a pointer that is not an open semaphore fails. */
+    {
+        long dummy[8] = {0};
+        errno = 0;
+        CHECK(sem_close((sem_t *)dummy) == -1 && errno == EINVAL, "sem_close invalid");
+    }
+
+    /* lrint overflow must raise FE_INVALID. */
+    {
+        feclearexcept(FE_ALL_EXCEPT);
+        (void)lrint(INFINITY);
+        CHECK(fetestexcept(FE_INVALID) != 0, "lrint overflow FE_INVALID");
+        feclearexcept(FE_ALL_EXCEPT);
+        (void)llrintf(-INFINITY);
+        CHECK(fetestexcept(FE_INVALID) != 0, "llrintf overflow FE_INVALID");
+    }
+
+    /* fflush(NULL) must flush every open stream, not only stdio. */
+    {
+        FILE *a = tmpfile();
+        FILE *b = tmpfile();
+        CHECK(a && b, "fflush NULL tmpfile");
+        if (a && b) {
+            CHECK(fputs("alpha", a) >= 0, "fflush NULL write a");
+            CHECK(fputs("beta", b) >= 0, "fflush NULL write b");
+            CHECK(fflush(NULL) == 0, "fflush NULL");
+            char buf[16];
+            rewind(a); rewind(b);
+            CHECK(fgets(buf, sizeof buf, a) && strcmp(buf, "alpha") == 0, "fflush NULL read a");
+            CHECK(fgets(buf, sizeof buf, b) && strcmp(buf, "beta") == 0, "fflush NULL read b");
+            fclose(a); fclose(b);
+        }
+    }
+
+    /* setvbuf allocates a buffer when passed NULL. */
+    {
+        FILE *f = tmpfile();
+        CHECK(f != NULL, "setvbuf tmpfile");
+        if (f) {
+            CHECK(setvbuf(f, NULL, _IOFBF, 0) == 0, "setvbuf alloc");
+            CHECK(fputs("buffered", f) >= 0, "setvbuf write");
+            CHECK(fclose(f) == 0, "setvbuf close");
+        }
+    }
+
+    /* pathconf names outside the supported table set EINVAL. */
+    errno = 0;
+    CHECK(pathconf("/", 9999) == -1 && errno == EINVAL, "pathconf bad name");
 
     if (failures == 0) puts("compat ok");
     return failures != 0;

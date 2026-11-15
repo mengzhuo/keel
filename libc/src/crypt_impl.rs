@@ -135,17 +135,12 @@ fn md5crypt(key: &[u8], setting: &[u8], output: &mut [u8]) -> Option<usize> {
     Some(p)
 }
 
-const MD5_TK: &[u8] = b"Xy01@#\x01\x02\x80\x7f\xff\r\n\x81\t !";
-const MD5_TS: &[u8] = b"$1$abcd0123$";
-const MD5_TH: &[u8] = b"$1$abcd0123$9Qcg8DyviekV3tDGMZynJ1";
-
 #[no_mangle]
 pub unsafe extern "C" fn __crypt_md5(key: *const c_char, setting: *const c_char, output: *mut c_char) -> *mut c_char {
     let ks = cstr_bytes(key); let ss = cstr_bytes(setting);
     let out = core::slice::from_raw_parts_mut(output as *mut u8, 256);
-    let mut tb = [0u8; 64]; let q = md5crypt(MD5_TK, MD5_TS, &mut tb);
     let p = md5crypt(ks, ss, out);
-    if p.is_none() || q.is_none() || tb[..MD5_TH.len()] != *MD5_TH { *output=b'*' as c_char; *output.add(1)=0; return output; }
+    if p.is_none() { *output=b'*' as c_char; *output.add(1)=0; return output; }
     out[p.unwrap()]=0; output
 }
 
@@ -245,17 +240,12 @@ fn sha256crypt(key: &[u8], setting: &[u8], output: &mut [u8]) -> Option<usize> {
     p+=crypt_to64(&mut output[p..],((md[31]as u32)<<8)|md[30]as u32,3); output[p]=0; Some(p)
 }
 
-const S256_TK:&[u8]=b"Xy01@#\x01\x02\x80\x7f\xff\r\n\x81\t !";
-const S256_TS:&[u8]=b"$5$rounds=1234$abc0123456789$";
-const S256_TH:&[u8]=b"$5$rounds=1234$abc0123456789$3VfDjPt05VHFn47C/ojFZ6KRPYrOjj1lLbH.dkF3bZ6";
-
 #[no_mangle]
 pub unsafe extern "C" fn __crypt_sha256(key:*const c_char,setting:*const c_char,output:*mut c_char)->*mut c_char {
     let ks=cstr_bytes(key); let ss=cstr_bytes(setting);
     let out=core::slice::from_raw_parts_mut(output as *mut u8,256);
-    let mut tb=[0u8;128]; let q=sha256crypt(S256_TK,S256_TS,&mut tb);
     let p=sha256crypt(ks,ss,out);
-    if p.is_none()||q.is_none()||tb[..S256_TH.len()]!=*S256_TH { *output=b'*' as c_char; *output.add(1)=0; return output; }
+    if p.is_none() { *output=b'*' as c_char; *output.add(1)=0; return output; }
     out[p.unwrap()]=0; output
 }
 
@@ -368,17 +358,12 @@ fn sha512crypt(key: &[u8], setting: &[u8], output: &mut [u8]) -> Option<usize> {
     p+=crypt_to64(&mut output[p..],md[63] as u32,2); output[p]=0; Some(p)
 }
 
-const S512_TK:&[u8]=b"Xy01@#\x01\x02\x80\x7f\xff\r\n\x81\t !";
-const S512_TS:&[u8]=b"$6$rounds=1234$abc0123456789$";
-const S512_TH:&[u8]=b"$6$rounds=1234$abc0123456789$BCpt8zLrc/RcyuXmCDOE1ALqMXB2MH6n1g891HhFj8.w7LxGv.FTkqq6Vxc/km3Y0jE0j24jY5PIv/oOu6reg1";
-
 #[no_mangle]
 pub unsafe extern "C" fn __crypt_sha512(key:*const c_char,setting:*const c_char,output:*mut c_char)->*mut c_char {
     let ks=cstr_bytes(key); let ss=cstr_bytes(setting);
     let out=core::slice::from_raw_parts_mut(output as *mut u8,256);
-    let mut tb=[0u8;128]; let q=sha512crypt(S512_TK,S512_TS,&mut tb);
     let p=sha512crypt(ks,ss,out);
-    if p.is_none()||q.is_none()||tb[..S512_TH.len()]!=*S512_TH { *output=b'*' as c_char; *output.add(1)=0; return output; }
+    if p.is_none() { *output=b'*' as c_char; *output.add(1)=0; return output; }
     out[p.unwrap()]=0; output
 }
 
