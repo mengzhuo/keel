@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-#![allow(dead_code)]
-
 // ELF parsing, segment mapping and relocation for the standalone loader.
 // Architecture and raw syscall details live in arch.rs.
 
@@ -41,14 +39,12 @@ pub struct Phdr {
 }
 
 pub const ET_DYN: u16 = 3;
-pub const ET_EXEC: u16 = 2;
 pub const EM_X86_64: u16 = 62;
 pub const EM_AARCH64: u16 = 183;
 pub const EM_RISCV: u16 = 243;
 
 pub const PT_LOAD: u32 = 1;
 pub const PT_DYNAMIC: u32 = 2;
-pub const PT_INTERP: u32 = 3;
 pub const PT_PHDR: u32 = 6;
 
 pub const PF_R: u32 = 4;
@@ -59,11 +55,12 @@ pub const DT_NULL: u64 = 0;
 pub const DT_RELA: u64 = 7;
 pub const DT_RELAENT: u64 = 9;
 pub const DT_RELASZ: u64 = 8;
-pub const DT_JMPREL: u64 = 23;
-pub const DT_PLTRELSZ: u64 = 2;
 
+#[allow(dead_code)] // selected only on x86_64
 pub const R_X86_64_RELATIVE: u64 = 8;
+#[allow(dead_code)] // selected only on aarch64
 pub const R_AARCH64_RELATIVE: u64 = 1027;
+#[allow(dead_code)] // selected only on riscv64
 pub const R_RISCV_RELATIVE: u64 = 3;
 
 #[cfg(target_arch = "x86_64")]
@@ -79,7 +76,6 @@ pub const AT_PHENT: u64 = 4;
 pub const AT_PHNUM: u64 = 5;
 pub const AT_PAGESZ: u64 = 6;
 pub const AT_ENTRY: u64 = 9;
-pub const AT_BASE: u64 = 7;
 pub const AT_SYSINFO_EHDR: u64 = 33;
 
 pub const PROT_READ: i32 = 1;
@@ -365,48 +361,6 @@ pub fn apply_relocations_from_dynamic(
 
 // Self-relocate: read DT_RELA/DT_RELASZ from in-memory PT_DYNAMIC, apply RELATIVE entries.
 // Only stack-local variables and raw pointer writes before this returns.
-pub unsafe fn self_relocate(base: usize, phdrs: &[Phdr]) {
-    for ph in phdrs.iter().filter(|p| p.p_type == PT_DYNAMIC) {
-        let dyn_start = base + ph.p_vaddr as usize;
-        let dyn_end = dyn_start + ph.p_memsz as usize;
-        let mut pos = dyn_start;
-
-        let mut rela_ptr: *const u8 = core::ptr::null();
-        let mut rela_sz: usize = 0;
-
-        while pos + 16 <= dyn_end {
-            let d_tag = u64::from_le_bytes(unsafe { *(pos as *const [u8; 8]) });
-            let d_val = u64::from_le_bytes(unsafe { *((pos + 8) as *const [u8; 8]) });
-            if d_tag == DT_NULL {
-                break;
-            }
-            match d_tag {
-                DT_RELA => rela_ptr = (base + d_val as usize) as *const u8,
-                DT_RELASZ => rela_sz = d_val as usize,
-                _ => {}
-            }
-            pos += 16;
-        }
-
-        if rela_ptr.is_null() || rela_sz == 0 {
-            continue;
-        }
-
-        let count = rela_sz / 24;
-        for i in 0..count {
-            let entry = unsafe { rela_ptr.add(i * 24) };
-            let r_offset = u64::from_le_bytes(unsafe { *(entry as *const [u8; 8]) });
-            let r_info = u64::from_le_bytes(unsafe { *((entry.add(8)) as *const [u8; 8]) });
-            let r_addend = i64::from_le_bytes(unsafe { *((entry.add(16)) as *const [u8; 8]) });
-
-            if r_info & 0xffffffff == R_RELATIVE {
-                let ptr = (base as u64 + r_offset) as *mut u64;
-                let val = (base as i64 + r_addend) as u64;
-                unsafe { *ptr = val };
-            }
-        }
-    }
-}
 
 pub fn prot_from_flags(flags: u32) -> i32 {
     let mut prot = 0;

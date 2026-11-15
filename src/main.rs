@@ -15,6 +15,7 @@ use loader_core::*;
 use std::env;
 use std::ffi::CString;
 use std::fs;
+use std::io::Read;
 use std::os::unix::io::AsRawFd;
 use std::process;
 
@@ -52,8 +53,12 @@ fn read_sysinfo_ehdr() -> u64 {
 }
 
 fn load_and_run(path: &str, argv: &[String]) -> Result<(), String> {
-    let file = fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
-    let data = fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+    // Read through the same descriptor used for mmap: reopening by path can
+    // observe a different file after a rename.
+    let mut file = fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data)
+        .map_err(|e| format!("read {path}: {e}"))?;
 
     let ehdr = parse_ehdr(&data).map_err(|e| e.to_string())?;
     let phdrs = parse_phdrs(&data, &ehdr).map_err(|e| e.to_string())?;
@@ -70,7 +75,7 @@ fn load_and_run(path: &str, argv: &[String]) -> Result<(), String> {
         phdr_runtime_addr(&ehdr, phdrs, load_bias),
         phdrs.len(),
         read_sysinfo_ehdr(),
-    );
+    )
 }
 
 /// Translate e_phoff (a file offset) to its runtime address.  For ET_EXEC,
@@ -90,11 +95,11 @@ fn phdr_runtime_addr(ehdr: &Ehdr, phdrs: &[Phdr], load_bias: u64) -> u64 {
     load_bias + ehdr.e_phoff
 }
 
-fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize, sysinfo_ehdr: u64) -> ! {
+fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize, sysinfo_ehdr: u64) -> Result<(), String> {
     let c_argv: Vec<CString> = argv
         .iter()
-        .map(|a| CString::new(a.as_str()).unwrap())
-        .collect();
+        .map(|a| CString::new(a.as_str()).map_err(|_| "argument contains a NUL byte".to_string()))
+        .collect::<Result<_, _>>()?;
 
     let stack_size = 64 * 1024;
     let stack_base = unsafe {
@@ -108,7 +113,7 @@ fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize, sysinfo_e
         )
     };
     if stack_base == MAP_FAILED {
-        panic!("mmap stack failed");
+        return Err("mmap stack failed".to_string());
     }
 
     let mut sp = stack_base as usize + stack_size;
@@ -213,4 +218,6 @@ fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize, sysinfo_e
             options(noreturn)
         );
     }
+    #[allow(unreachable_code)]
+    Ok(())
 }
