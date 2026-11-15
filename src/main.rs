@@ -151,6 +151,9 @@ fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize, sysinfo_e
         unsafe { *auxv_ptr.add(i) = (tag, val) };
     }
 
+    // argv NULL terminator, then envp NULL: the standalone mapper does not
+    // forward the host environment, so the target sees an empty envp
+    // (documented in docs/limitations.md).
     sp -= 8;
     unsafe { *(sp as *mut u64) = 0 };
     sp -= 8;

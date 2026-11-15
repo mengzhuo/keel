@@ -105,22 +105,36 @@ pub fn parse_ehdr(data: &[u8]) -> Result<Ehdr, &'static str> {
     if data[4] != 2 {
         return Err("not ELFCLASS64");
     }
-    let ehdr = unsafe { &*(data.as_ptr() as *const Ehdr) };
+    let ehdr = unsafe { core::ptr::read_unaligned(data.as_ptr() as *const Ehdr) };
     if ehdr.e_machine != EM_X86_64 && ehdr.e_machine != EM_AARCH64 && ehdr.e_machine != EM_RISCV {
         return Err("not a supported EM machine");
     }
-    Ok(*ehdr)
+    Ok(ehdr)
 }
 
 pub fn parse_phdrs<'a>(data: &'a [u8], ehdr: &Ehdr) -> Result<&'a [Phdr], &'static str> {
+    if ehdr.e_phentsize as usize != core::mem::size_of::<Phdr>() {
+        return Err("unsupported e_phentsize");
+    }
+    let count = ehdr.e_phnum as usize;
+    let bytes = count
+        .checked_mul(ehdr.e_phentsize as usize)
+        .ok_or("phdr table overflow")?;
     let end = (ehdr.e_phoff as usize)
-        .checked_add(ehdr.e_phnum as usize * ehdr.e_phentsize as usize)
+        .checked_add(bytes)
         .ok_or("phdr table overflow")?;
     if end > data.len() {
         return Err("phdr table extends past EOF");
     }
-    let base = unsafe { data.as_ptr().add(ehdr.e_phoff as usize) as *const Phdr };
-    Ok(unsafe { core::slice::from_raw_parts(base, ehdr.e_phnum as usize) })
+    let off = ehdr.e_phoff as usize;
+    if off % core::mem::align_of::<Phdr>() != 0 {
+        return Err("unaligned phdr table");
+    }
+    let base = unsafe { data.as_ptr().add(off) as *const Phdr };
+    if (base as usize) % core::mem::align_of::<Phdr>() != 0 {
+        return Err("unaligned phdr table");
+    }
+    Ok(unsafe { core::slice::from_raw_parts(base, count) })
 }
 
 pub fn map_segments(phdrs: &[Phdr], fd: i32, e_type: u16) -> Result<u64, &'static str> {
@@ -130,7 +144,12 @@ pub fn map_segments(phdrs: &[Phdr], fd: i32, e_type: u16) -> Result<u64, &'stati
     let mut max = 0u64;
     for p in phdrs.iter().filter(|p| p.p_type == PT_LOAD) {
         let seg_start = p.p_vaddr & !(page - 1);
-        let seg_end = (p.p_vaddr + p.p_memsz + page - 1) & !(page - 1);
+        let seg_end = p
+            .p_vaddr
+            .checked_add(p.p_memsz)
+            .and_then(|v| v.checked_add(page - 1))
+            .ok_or("PT_LOAD range overflow")?
+            & !(page - 1);
         min = min.min(seg_start);
         max = max.max(seg_end);
     }
@@ -140,7 +159,7 @@ pub fn map_segments(phdrs: &[Phdr], fd: i32, e_type: u16) -> Result<u64, &'stati
 
     let mut load_bias = 0u64;
     if e_type == ET_DYN {
-        let span = max - min;
+        let span = max.checked_sub(min).ok_or("PT_LOAD span overflow")?;
         let reserve = unsafe {
             sys_mmap(
                 core::ptr::null_mut(),
@@ -154,18 +173,31 @@ pub fn map_segments(phdrs: &[Phdr], fd: i32, e_type: u16) -> Result<u64, &'stati
         if reserve == MAP_FAILED {
             return Err("mmap failed while reserving ET_DYN span");
         }
-        load_bias = reserve as u64 - min;
+        load_bias = (reserve as u64).checked_sub(min).ok_or("load bias overflow")?;
     }
 
     for ph in phdrs.iter().filter(|p| p.p_type == PT_LOAD) {
         let adj = ph.p_vaddr & (page - 1);
-        let map_addr = load_bias + ph.p_vaddr - adj;
-        let map_off = ph.p_offset - adj;
+        let map_addr = load_bias
+            .checked_add(ph.p_vaddr)
+            .and_then(|v| v.checked_sub(adj))
+            .ok_or("PT_LOAD address overflow")?;
+        let map_off = ph.p_offset.checked_sub(adj).ok_or("PT_LOAD p_offset underflow")?;
         // Map the file-backed pages, not just p_filesz: the pages rounded up
         // to a page boundary may be needed before BSS starts.  Then extend
         // with anonymous pages so that BSS never lands outside the mapping.
-        let file_len = (ph.p_filesz + adj + page - 1) & !(page - 1);
-        let mem_len = (ph.p_memsz + adj + page - 1) & !(page - 1);
+        let file_len = ph
+            .p_filesz
+            .checked_add(adj)
+            .and_then(|v| v.checked_add(page - 1))
+            .ok_or("PT_LOAD file size overflow")?
+            & !(page - 1);
+        let mem_len = ph
+            .p_memsz
+            .checked_add(adj)
+            .and_then(|v| v.checked_add(page - 1))
+            .ok_or("PT_LOAD memory size overflow")?
+            & !(page - 1);
 
         let prot = prot_from_flags(ph.p_flags);
         if file_len > 0 {
@@ -184,9 +216,10 @@ pub fn map_segments(phdrs: &[Phdr], fd: i32, e_type: u16) -> Result<u64, &'stati
             }
         }
         if mem_len > file_len {
+            let bss_map = map_addr.checked_add(file_len).ok_or("PT_LOAD BSS address overflow")?;
             let ptr = unsafe {
                 sys_mmap(
-                    (map_addr + file_len) as *mut u8,
+                    bss_map as *mut u8,
                     (mem_len - file_len) as usize,
                     prot,
                     MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS,
@@ -200,9 +233,13 @@ pub fn map_segments(phdrs: &[Phdr], fd: i32, e_type: u16) -> Result<u64, &'stati
         }
 
         if ph.p_memsz > ph.p_filesz {
-            let bss_start = (load_bias + ph.p_vaddr + ph.p_filesz) as *mut u8;
+            let bss_addr = ph
+                .p_vaddr
+                .checked_add(ph.p_filesz)
+                .and_then(|v| load_bias.checked_add(v))
+                .ok_or("PT_LOAD BSS address overflow")?;
             let bss_len = (ph.p_memsz - ph.p_filesz) as usize;
-            unsafe { core::ptr::write_bytes(bss_start, 0, bss_len) };
+            unsafe { core::ptr::write_bytes(bss_addr as *mut u8, 0, bss_len) };
         }
     }
 
@@ -220,6 +257,7 @@ pub fn apply_relocations(data: &[u8], phdrs: &[Phdr], base_addr: u64) -> Result<
         dyn_ph.p_offset as usize,
         dyn_ph.p_filesz as usize,
         base_addr,
+        phdrs,
     )
 }
 
@@ -228,8 +266,11 @@ pub fn apply_relocations_from_dynamic(
     dyn_off: usize,
     dyn_filesz: usize,
     base_addr: u64,
+    phdrs: &[Phdr],
 ) -> Result<(), &'static str> {
-    let dyn_end = dyn_off + dyn_filesz;
+    let dyn_end = dyn_off
+        .checked_add(dyn_filesz)
+        .ok_or("PT_DYNAMIC size overflow")?;
     if dyn_end > data.len() {
         return Err("PT_DYNAMIC extends past EOF");
     }
@@ -240,7 +281,11 @@ pub fn apply_relocations_from_dynamic(
 
     let mut pos = dyn_off;
     loop {
-        if pos + 16 > data.len() {
+        let next = match pos.checked_add(16) {
+            Some(next) => next,
+            None => break,
+        };
+        if next > data.len() {
             break;
         }
         let d_tag = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
@@ -254,17 +299,40 @@ pub fn apply_relocations_from_dynamic(
             DT_RELAENT => rela_ent = d_val,
             _ => {}
         }
-        pos += 16;
+        pos = next;
     }
 
     if rela_sz == 0 {
         return Ok(());
     }
+    if rela_ent == 0 {
+        return Err("DT_RELAENT is zero");
+    }
+    let rela_off = match usize::try_from(rela_off) {
+        Ok(v) => v,
+        Err(_) => return Err("DT_RELA offset overflow"),
+    };
+    let rela_end = match rela_off.checked_add(rela_sz as usize) {
+        Some(v) => v,
+        None => return Err("DT_RELA range overflow"),
+    };
+    if rela_end > data.len() {
+        return Err("DT_RELA extends past EOF");
+    }
 
     let count = rela_sz / rela_ent;
     for i in 0..count {
-        let off = (rela_off as usize) + (i as usize * rela_ent as usize);
-        let end = off + 24;
+        let off = match (i as usize)
+            .checked_mul(rela_ent as usize)
+            .and_then(|v| rela_off.checked_add(v))
+        {
+            Some(v) => v,
+            None => return Err("relocation offset overflow"),
+        };
+        let end = match off.checked_add(24) {
+            Some(v) => v,
+            None => return Err("relocation entry overflow"),
+        };
         if end > data.len() {
             return Err("relocation entry extends past EOF");
         }
@@ -273,8 +341,21 @@ pub fn apply_relocations_from_dynamic(
         let r_addend = i64::from_le_bytes(data[off + 16..off + 24].try_into().unwrap());
 
         if r_info & 0xffffffff == R_RELATIVE {
-            let ptr = (base_addr + r_offset) as *mut u64;
-            let val = (base_addr as i64 + r_addend) as u64;
+            let writable = phdrs.iter().any(|p| {
+                p.p_type == PT_LOAD
+                    && (p.p_flags & PF_W) != 0
+                    && r_offset >= p.p_vaddr
+                    && r_offset < p.p_vaddr.saturating_add(p.p_memsz)
+            });
+            if !writable {
+                return Err("RELATIVE relocation outside writable segment");
+            }
+            let addr = match base_addr.checked_add(r_offset) {
+                Some(v) => v,
+                None => return Err("RELATIVE relocation address overflow"),
+            };
+            let ptr = addr as *mut u64;
+            let val = (base_addr as i64).wrapping_add(r_addend) as u64;
             unsafe { *ptr = val };
         }
     }
