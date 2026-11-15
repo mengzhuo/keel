@@ -1,5 +1,13 @@
 # keel
 
+[![CI](https://github.com/mengzhuo/keel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mengzhuo/keel/actions/workflows/ci.yml)
+[![keel-libc](https://img.shields.io/crates/v/keel-libc.svg?label=keel-libc)](https://crates.io/crates/keel-libc)
+[![docs.rs](https://img.shields.io/docsrs/keel-libc?label=docs.rs)](https://docs.rs/keel-libc)
+[![downloads](https://img.shields.io/crates/d/keel-libc.svg?label=downloads)](https://crates.io/crates/keel-libc)
+[![license](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+[![rust](https://img.shields.io/badge/rust-nightly-orange.svg)](rust-toolchain.toml)
+[![platforms](https://img.shields.io/badge/platforms-x86__64%20%7C%20aarch64%20%7C%20riscv64-blue.svg)](docs/comparison.md)
+
 keel is a Rust implementation of the musl C library ABI and dynamic linker
 for Linux. It runs unmodified musl-linked binaries on x86\_64, aarch64 and
 riscv64, and provides `libc.a` for static linking.
