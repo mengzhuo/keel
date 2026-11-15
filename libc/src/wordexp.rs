@@ -143,6 +143,16 @@ unsafe fn wb_push_str(w: *mut WordBuf, s: *const u8, len: usize, quoted: bool) -
     0
 }
 
+// Reserve room for, and write, the trailing NUL.  Without the extra
+// reservation a word whose length exactly equals cap writes one byte past
+// the inline array or heap allocation.
+unsafe fn wb_terminate(w: *mut WordBuf) -> bool {
+    if !wb_reserve(w, 1) { return false; }
+    debug_assert!((*w).len < (*w).cap);
+    *wb_data(w).add((*w).len) = 0;
+    true
+}
+
 
 /// Expand `$name` or `${name}`; returns the new index or an error code.
 unsafe fn expand_var(
@@ -449,7 +459,9 @@ pub unsafe extern "C" fn wordexp(s: *const c_char, p: *mut WordexpT, flags: c_in
             }
         }
         if w.len == 0 && !w.quoted { continue; }
-        *wb_data(&mut w).add(w.len) = 0;
+        if !wb_terminate(&mut w) {
+            return we_fail(&mut list, &mut w, WRDE_NOSPACE_V);
+        }
         if w.has_glob && !w.quoted {
             let mut g: GlobT = core::mem::zeroed();
             let r = crate::glob(wb_data(&mut w) as *const c_char, 0x10 | 0x04, None, &mut g); // NOCHECK|NOSORT

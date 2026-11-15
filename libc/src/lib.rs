@@ -15472,6 +15472,7 @@ pub unsafe extern "C" fn dlerror() -> *const c_char {
 include!("crypt_impl.rs");
 include!("statvfs.rs");
 include!("daemon.rs");
+include!("safety.rs");
 include!("dn_expand.rs");
 include!("lrand48.rs");
 include!("strverscmp.rs");
@@ -22596,71 +22597,60 @@ static mut HOST_ALIASES: [*mut c_char; 8] = [core::ptr::null_mut(); 8];
 static mut HOST_ADDR: [u8; 16] = [0; 16];
 static mut HOST_ADDR_PTRS: [*mut c_char; 2] = [core::ptr::null_mut(); 2];
 
-unsafe fn dns_skip_name(p: *const u8, end: *const u8) -> *const u8 {
-    let mut q = p;
-    while q < end {
-        let c = *q;
-        if c == 0 { return q.add(1); }
-        if c & 0xc0 == 0xc0 { return q.add(2); }
-        q = q.add(1 + c as usize);
-    }
-    end
-}
-
-unsafe fn dns_read_u16(p: *const u8) -> u16 {
-    ((*p as u16) << 8) | *p.add(1) as u16
-}
-
-unsafe fn dns_expand_name(p: *const u8, msg: *const u8, out: *mut c_char, outlen: usize) -> bool {
-    let mut q = p;
-    let mut o = 0usize;
-    let mut jumps = 0;
-    loop {
-        let c = *q;
-        if c == 0 {
-            if o < outlen { *out.add(o) = 0; }
-            return true;
-        }
-        if c & 0xc0 == 0xc0 {
-            let off = (((c & 0x3f) as usize) << 8) | *q.add(1) as usize;
-            q = msg.add(off);
-            jumps += 1;
-            if jumps > 16 { return false; }
-            continue;
-        }
-        let l = c as usize;
-        if l > 63 { return false; }
-        if o + l + 1 >= outlen { return false; }
-        core::ptr::copy_nonoverlapping(q.add(1), out.add(o) as *mut u8, l);
-        o += l;
-        *out.add(o) = b'.' as c_char;
-        o += 1;
-        q = q.add(1 + l);
-    }
-}
-
 unsafe fn host_from_answer(answer: *const u8, len: c_int, af: c_int) -> *mut HostEnt {
     if len < 12 { return core::ptr::null_mut(); }
-    let end = answer.add(len as usize);
-    let qd = dns_read_u16(answer.add(4)) as usize;
-    let an = dns_read_u16(answer.add(6)) as usize;
-    let mut p = answer.add(12);
+    let msg = match InBuf::new(answer, len as usize) {
+        Some(msg) => msg,
+        None => return core::ptr::null_mut(),
+    };
+    let qd = match msg.peek_u16_be(4) {
+        Some(v) => v as usize,
+        None => return core::ptr::null_mut(),
+    };
+    let an = match msg.peek_u16_be(6) {
+        Some(v) => v as usize,
+        None => return core::ptr::null_mut(),
+    };
+    let mut p = 12usize;
     for _ in 0..qd {
-        p = dns_skip_name(p, end);
-        p = p.add(4);
+        p = match dns_skip_name(&msg, p) {
+            Some(v) => v,
+            None => return core::ptr::null_mut(),
+        };
+        p = match p.checked_add(4) {
+            Some(v) if v <= msg.len() => v,
+            _ => return core::ptr::null_mut(),
+        };
     }
     let want_type: u16 = if af == AF_INET6 { 28 } else { 1 };
     let want_len = if af == AF_INET6 { 16 } else { 4 };
     for _ in 0..an {
-        p = dns_skip_name(p, end);
-        if p.add(10) > end { break; }
-        let typ = dns_read_u16(p);
-        let class = dns_read_u16(p.add(2));
-        let rdlen = dns_read_u16(p.add(8)) as usize;
-        let rdata = p.add(10);
-        if rdata.add(rdlen) > end { break; }
-        if typ == want_type && class == 1 && rdlen == want_len {
-            core::ptr::copy_nonoverlapping(rdata, HOST_ADDR.as_mut_ptr(), want_len);
+        p = match dns_skip_name(&msg, p) {
+            Some(v) => v,
+            None => break,
+        };
+        let typ = match msg.peek_u16_be(p) {
+            Some(v) => v,
+            None => break,
+        };
+        let class = match msg.peek_u16_be(p + 2) {
+            Some(v) => v,
+            None => break,
+        };
+        let rdlen = match msg.peek_u16_be(p + 8) {
+            Some(v) => v as usize,
+            None => break,
+        };
+        let rdata_off = match p.checked_add(10) {
+            Some(v) => v,
+            None => break,
+        };
+        let rdata = match msg.slice_at(rdata_off, rdlen) {
+            Some(v) => v,
+            None => break,
+        };
+        if typ == want_type && class == 1 && rdata.len() == want_len {
+            core::ptr::copy_nonoverlapping(rdata.as_ptr(), HOST_ADDR.as_mut_ptr(), want_len);
             HOST_ENT.h_addrtype = af;
             HOST_ENT.h_length = want_len as c_int;
             HOST_ADDR_PTRS[0] = HOST_ADDR.as_mut_ptr() as *mut c_char;
@@ -22671,7 +22661,10 @@ unsafe fn host_from_answer(answer: *const u8, len: c_int, af: c_int) -> *mut Hos
             h_errno = 0;
             return &raw mut HOST_ENT;
         }
-        p = rdata.add(rdlen);
+        p = match rdata_off.checked_add(rdlen) {
+            Some(v) => v,
+            None => break,
+        };
     }
     core::ptr::null_mut()
 }
@@ -23027,8 +23020,18 @@ pub unsafe extern "C" fn open_by_handle_at(mount_fd: c_int, handle: *mut c_void,
 
 #[no_mangle]
 pub unsafe extern "C" fn dn_skipname(comp: *const u8, eom: *const u8) -> c_int {
-    let p = dns_skip_name(comp, eom);
-    if p <= eom { (p as isize - comp as isize) as c_int } else { -1 }
+    let len = match (eom as usize).checked_sub(comp as usize) {
+        Some(n) => n,
+        None => return -1,
+    };
+    let msg = match InBuf::new(comp, len) {
+        Some(msg) => msg,
+        None => return -1,
+    };
+    match dns_skip_name(&msg, 0) {
+        Some(n) if n <= c_int::MAX as usize => n as c_int,
+        _ => -1,
+    }
 }
 
 #[no_mangle]

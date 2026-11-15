@@ -52,31 +52,63 @@ pub static _ns_flagdata: [[c_int; 2]; 16] = [
     [0x0000, 0],
 ];
 
-unsafe fn ns_skiprr_inner(ptr: *const u8, eom: *const u8, section: c_int, mut count: c_int) -> c_int {
-    let mut p = ptr;
+fn ns_offset(base: *const u8, len: usize, p: *const u8) -> Option<usize> {
+    let off = (p as usize).checked_sub(base as usize)?;
+    if off <= len { Some(off) } else { None }
+}
+
+// Skips `count` resource records starting at `start`, returning the number
+// of bytes advanced.  All reads go through InBuf, so a truncated message
+// turns into None instead of an out-of-bounds access.
+fn ns_skiprr_inner(msg: &InBuf, start: usize, section: c_int, mut count: c_int) -> Option<usize> {
+    let mut p = start;
     while count > 0 {
         count -= 1;
-        let r = dn_skipname(p, eom);
-        if r < 0 { return -1; }
-        if r as usize + 2 * NS_INT16SZ_V > eom as usize - p as usize { return -1; }
-        p = p.add(r as usize + 2 * NS_INT16SZ_V);
+        p = dns_skip_name(msg, p)?;
+        // type + class
+        if msg.len() - p < 2 * NS_INT16SZ_V {
+            return None;
+        }
+        p += 2 * NS_INT16SZ_V;
         if section != 0 {
-            if NS_INT32SZ_V + NS_INT16SZ_V > eom as usize - p as usize { return -1; }
-            p = p.add(NS_INT32SZ_V);
-            let rdlen = ns_get16(p) as usize;
-            p = p.add(NS_INT16SZ_V);
-            if rdlen > eom as usize - p as usize { return -1; }
-            p = p.add(rdlen);
+            // ttl + rdlength
+            if msg.len() - p < NS_INT32SZ_V + NS_INT16SZ_V {
+                return None;
+            }
+            let rdlen = msg.peek_u16_be(p + NS_INT32SZ_V)? as usize;
+            p += NS_INT32SZ_V + NS_INT16SZ_V;
+            if rdlen > msg.len() - p {
+                return None;
+            }
+            p += rdlen;
         }
     }
-    (p as usize - ptr as usize) as c_int
+    p.checked_sub(start)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn ns_skiprr(ptr: *const u8, eom: *const u8, section: c_int, count: c_int) -> c_int {
-    let r = ns_skiprr_inner(ptr, eom, section, count);
-    if r < 0 { ERRNO!() = 90; } // EMSGSIZE
-    r
+    let len = match (eom as usize).checked_sub(ptr as usize) {
+        Some(len) => len,
+        None => {
+            ERRNO!() = 90; // EMSGSIZE
+            return -1;
+        }
+    };
+    let msg = match InBuf::new(ptr, len) {
+        Some(msg) => msg,
+        None => {
+            ERRNO!() = 90;
+            return -1;
+        }
+    };
+    match ns_skiprr_inner(&msg, 0, section, count) {
+        Some(r) if r <= c_int::MAX as usize => r as c_int,
+        _ => {
+            ERRNO!() = 90;
+            -1
+        }
+    }
 }
 
 #[no_mangle]
@@ -85,35 +117,67 @@ pub unsafe extern "C" fn ns_initparse(msg: *const u8, msglen: c_int, handle: *mu
         ERRNO!() = 90;
         return -1;
     }
+    let len = msglen as usize;
+    let view = match InBuf::new(msg, len) {
+        Some(view) => view,
+        None => {
+            ERRNO!() = 90;
+            return -1;
+        }
+    };
     (*handle)._msg = msg;
-    (*handle)._eom = msg.add(msglen as usize);
-    if (msglen as usize) < (2 + NS_S_MAX_V) * NS_INT16SZ_V {
+    (*handle)._eom = msg.add(len);
+    if len < (2 + NS_S_MAX_V) * NS_INT16SZ_V {
         ERRNO!() = 90;
         return -1;
     }
-    let mut p = msg;
-    (*handle)._id = ns_get16(p) as u16;
-    p = p.add(2);
-    (*handle)._flags = ns_get16(p) as u16;
-    p = p.add(2);
+    (*handle)._id = match view.peek_u16_be(0) {
+        Some(v) => v,
+        None => {
+            ERRNO!() = 90;
+            return -1;
+        }
+    };
+    (*handle)._flags = match view.peek_u16_be(2) {
+        Some(v) => v,
+        None => {
+            ERRNO!() = 90;
+            return -1;
+        }
+    };
     for i in 0..NS_S_MAX_V {
-        (*handle)._counts[i] = ns_get16(p) as u16;
-        p = p.add(2);
-    }
-    for i in 0..NS_S_MAX_V {
-        if (*handle)._counts[i] != 0 {
-            (*handle)._sections[i] = p;
-            let r = ns_skiprr_inner(p, (*handle)._eom, i as c_int, (*handle)._counts[i] as c_int);
-            if r < 0 {
+        (*handle)._counts[i] = match view.peek_u16_be(4 + 2 * i) {
+            Some(v) => v,
+            None => {
                 ERRNO!() = 90;
                 return -1;
             }
-            p = p.add(r as usize);
+        };
+    }
+    let mut p = (2 + NS_S_MAX_V) * NS_INT16SZ_V;
+    for i in 0..NS_S_MAX_V {
+        let count = (*handle)._counts[i] as c_int;
+        if count != 0 {
+            (*handle)._sections[i] = msg.add(p);
+            let r = match ns_skiprr_inner(&view, p, i as c_int, count) {
+                Some(r) => r,
+                None => {
+                    ERRNO!() = 90;
+                    return -1;
+                }
+            };
+            p = match p.checked_add(r) {
+                Some(p) => p,
+                None => {
+                    ERRNO!() = 90;
+                    return -1;
+                }
+            };
         } else {
             (*handle)._sections[i] = core::ptr::null();
         }
     }
-    if p != (*handle)._eom {
+    if p != len {
         ERRNO!() = 90;
         return -1;
     }
@@ -142,6 +206,21 @@ pub unsafe extern "C" fn ns_parserr(handle: *mut NsMsg, section: c_int, rrnum_in
         ERRNO!() = 19; // ENODEV
         return -1;
     }
+    let base = (*handle)._msg;
+    let len = match ((*handle)._eom as usize).checked_sub(base as usize) {
+        Some(len) => len,
+        None => {
+            ERRNO!() = 19;
+            return -1;
+        }
+    };
+    let view = match InBuf::new(base, len) {
+        Some(view) => view,
+        None => {
+            ERRNO!() = 19;
+            return -1;
+        }
+    };
     let sec = section as usize;
     if section != (*handle)._sect {
         (*handle)._sect = section;
@@ -159,17 +238,28 @@ pub unsafe extern "C" fn ns_parserr(handle: *mut NsMsg, section: c_int, rrnum_in
         (*handle)._msg_ptr = (*handle)._sections[sec];
     }
     if rrnum > (*handle)._rrnum {
-        let r = ns_skiprr_inner(
-            (*handle)._msg_ptr,
-            (*handle)._eom,
-            section,
-            rrnum - (*handle)._rrnum,
-        );
-        if r < 0 {
-            ERRNO!() = 90;
-            return -1;
-        }
-        (*handle)._msg_ptr = (*handle)._msg_ptr.add(r as usize);
+        let off = match ns_offset(base, len, (*handle)._msg_ptr) {
+            Some(off) => off,
+            None => {
+                ERRNO!() = 19;
+                return -1;
+            }
+        };
+        let skip = match ns_skiprr_inner(&view, off, section, rrnum - (*handle)._rrnum) {
+            Some(skip) => skip,
+            None => {
+                ERRNO!() = 90;
+                return -1;
+            }
+        };
+        let next = match off.checked_add(skip) {
+            Some(next) if next <= len => next,
+            _ => {
+                ERRNO!() = 90;
+                return -1;
+            }
+        };
+        (*handle)._msg_ptr = base.add(next);
         (*handle)._rrnum = rrnum;
     }
     let r = ns_name_uncompress(
@@ -180,35 +270,72 @@ pub unsafe extern "C" fn ns_parserr(handle: *mut NsMsg, section: c_int, rrnum_in
         NS_MAXDNAME_V,
     );
     if r < 0 { return -1; }
-    (*handle)._msg_ptr = (*handle)._msg_ptr.add(r as usize);
-    if 2 * NS_INT16SZ_V > (*handle)._eom as usize - (*handle)._msg_ptr as usize {
+    let mut off = match ns_offset(base, len, (*handle)._msg_ptr) {
+        Some(off) => off,
+        None => {
+            ERRNO!() = 90;
+            return -1;
+        }
+    };
+    off = match off.checked_add(r as usize) {
+        Some(off) if off <= len => off,
+        _ => {
+            ERRNO!() = 90;
+            return -1;
+        }
+    };
+    (*handle)._msg_ptr = base.add(off);
+    if len - off < 2 * NS_INT16SZ_V {
         ERRNO!() = 90;
         return -1;
     }
-    (*rr).type_ = ns_get16((*handle)._msg_ptr) as u16;
-    (*handle)._msg_ptr = (*handle)._msg_ptr.add(2);
-    (*rr).rr_class = ns_get16((*handle)._msg_ptr) as u16;
-    (*handle)._msg_ptr = (*handle)._msg_ptr.add(2);
+    (*rr).type_ = match view.peek_u16_be(off) {
+        Some(v) => v,
+        None => {
+            ERRNO!() = 90;
+            return -1;
+        }
+    };
+    (*rr).rr_class = match view.peek_u16_be(off + NS_INT16SZ_V) {
+        Some(v) => v,
+        None => {
+            ERRNO!() = 90;
+            return -1;
+        }
+    };
+    off += 2 * NS_INT16SZ_V;
     if section != 0 {
-        if NS_INT32SZ_V + NS_INT16SZ_V > (*handle)._eom as usize - (*handle)._msg_ptr as usize {
+        if len - off < NS_INT32SZ_V + NS_INT16SZ_V {
             ERRNO!() = 90;
             return -1;
         }
-        (*rr).ttl = ns_get32((*handle)._msg_ptr) as u32;
-        (*handle)._msg_ptr = (*handle)._msg_ptr.add(4);
-        (*rr).rdlength = ns_get16((*handle)._msg_ptr) as u16;
-        (*handle)._msg_ptr = (*handle)._msg_ptr.add(2);
-        if (*rr).rdlength as usize > (*handle)._eom as usize - (*handle)._msg_ptr as usize {
+        (*rr).ttl = match view.peek_u32_be(off) {
+            Some(v) => v,
+            None => {
+                ERRNO!() = 90;
+                return -1;
+            }
+        };
+        (*rr).rdlength = match view.peek_u16_be(off + NS_INT32SZ_V) {
+            Some(v) => v,
+            None => {
+                ERRNO!() = 90;
+                return -1;
+            }
+        };
+        off += NS_INT32SZ_V + NS_INT16SZ_V;
+        if (*rr).rdlength as usize > len - off {
             ERRNO!() = 90;
             return -1;
         }
-        (*rr).rdata = (*handle)._msg_ptr;
-        (*handle)._msg_ptr = (*handle)._msg_ptr.add((*rr).rdlength as usize);
+        (*rr).rdata = base.add(off);
+        off += (*rr).rdlength as usize;
     } else {
         (*rr).ttl = 0;
         (*rr).rdlength = 0;
         (*rr).rdata = core::ptr::null();
     }
+    (*handle)._msg_ptr = base.add(off);
     (*handle)._rrnum += 1;
     if (*handle)._rrnum > (*handle)._counts[sec] as c_int {
         (*handle)._sect = section + 1;

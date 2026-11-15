@@ -36,6 +36,8 @@ Cargo.lock
 /tests/fixtures/strtol_test
 /tests/fixtures/daemon_test
 /tests/fixtures/dn_expand_test
+/tests/fixtures/ns_parse_test
+/tests/fixtures/wordexp_test
 /tests/fixtures/fenv_test
 /tests/fixtures/lrand48_test
 /tests/fixtures/pthread_atfork_test

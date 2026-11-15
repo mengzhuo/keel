@@ -689,6 +689,7 @@ unsafe fn hosts_lookup_addr(addr: *const u8, family: c_int) -> bool {
         }
         if !same { continue; }
         let nl = crate::strlen(toks[1]);
+        if nl >= HOST_NAME.len() { continue; }
         core::ptr::copy_nonoverlapping(toks[1], HOST_NAME.as_mut_ptr(), nl + 1);
         found = true;
         break;
@@ -816,25 +817,56 @@ pub unsafe extern "C" fn getnameinfo(
                     let mut answer = [0u8; 512];
                     let r = res_query(ptr.as_ptr() as *const c_char, 1, 12, answer.as_mut_ptr(), answer.len() as c_int);
                     if r >= 12 {
-                        let end = answer.as_ptr().add(r as usize);
-                        let qd = dns_read_u16(answer.as_ptr().add(4)) as usize;
-                        let an = dns_read_u16(answer.as_ptr().add(6)) as usize;
-                        let mut p = answer.as_ptr().add(12);
-                        for _ in 0..qd { p = dns_skip_name(p, end); p = p.add(4); }
-                        for _ in 0..an {
-                            p = dns_skip_name(p, end);
-                            if p.add(10) > end { break; }
-                            let typ = dns_read_u16(p);
-                            let rdlen = dns_read_u16(p.add(8)) as usize;
-                            let rdata = p.add(10);
-                            if typ == 12 && dns_expand_name(rdata, answer.as_ptr(), buf.as_mut_ptr(), buf.len()) {
-                                let mut l = crate::strlen(buf.as_ptr());
-                                if l > 0 && buf[l - 1] == b'.' as c_char { l -= 1; }
-                                buf[l] = 0;
-                                have = l > 0;
-                                break;
+                        let len = r as usize;
+                        if let Some(msg) = InBuf::new(answer.as_ptr(), len) {
+                            let qd = msg.peek_u16_be(4).unwrap_or(0) as usize;
+                            let an = msg.peek_u16_be(6).unwrap_or(0) as usize;
+                            let mut p = 12usize;
+                            for _ in 0..qd {
+                                p = match dns_skip_name(&msg, p) {
+                                    Some(v) => v,
+                                    None => { p = len; break; }
+                                };
+                                p = match p.checked_add(4) {
+                                    Some(v) if v <= len => v,
+                                    _ => { p = len; break; }
+                                };
                             }
-                            p = rdata.add(rdlen);
+                            for _ in 0..an {
+                                p = match dns_skip_name(&msg, p) {
+                                    Some(v) => v,
+                                    None => break,
+                                };
+                                let typ = match msg.peek_u16_be(p) {
+                                    Some(v) => v,
+                                    None => break,
+                                };
+                                let rdlen = match msg.peek_u16_be(p + 8) {
+                                    Some(v) => v as usize,
+                                    None => break,
+                                };
+                                let rdata_off = match p.checked_add(10) {
+                                    Some(v) => v,
+                                    None => break,
+                                };
+                                let rdata_end = match rdata_off.checked_add(rdlen) {
+                                    Some(v) if v <= len => v,
+                                    _ => break,
+                                };
+                                if typ == 12 {
+                                    let mut dst = match OutBuf::new(buf.as_mut_ptr() as *mut u8, buf.len()) {
+                                        Some(v) => v,
+                                        None => break,
+                                    };
+                                    let max_steps = len / 2 + 1;
+                                    if dns_expand_name_at(&msg, rdata_off, &mut dst, max_steps, 16).is_some() {
+                                        let l = crate::strlen(buf.as_ptr());
+                                        have = l > 0;
+                                        break;
+                                    }
+                                }
+                                p = rdata_end;
+                            }
                         }
                     }
                 }

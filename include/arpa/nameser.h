@@ -327,6 +327,17 @@ typedef enum __ns_type {
 	ns_t_max = 65536
 } ns_type;
 
+typedef enum __ns_class {
+    ns_c_invalid = 0,
+    ns_c_in = 1,
+    ns_c_2 = 2,
+    ns_c_chaos = 3,
+    ns_c_hs = 4,
+    ns_c_none = 254,
+    ns_c_any = 255,
+    ns_c_max = 65536
+} ns_class;
+
 typedef enum __ns_sect {
     ns_s_qd = 0,
     ns_s_zn = 0,

@@ -10,49 +10,33 @@ pub unsafe extern "C" fn dn_expand(
     dest: *mut c_char,
     space: c_int,
 ) -> c_int {
-    let mut p = src;
-    let dbegin = dest as *mut u8;
-    let mut d = dbegin;
-    let dend = d.add(if space > 254 { 254 } else { space as usize });
-    let mut len: c_int = -1;
-    let blen = (end as usize).wrapping_sub(base as usize);
-    let mut i: usize = 0;
-    while i < blen {
-        if *p & 0xc0 != 0 {
-            if p.add(1) == end {
-                return -1;
-            }
-            let j = (((*p & 0x3f) as usize) << 8) | (*p.add(1) as usize);
-            if len < 0 {
-                len = ((p.add(2) as usize).wrapping_sub(src as usize)) as c_int;
-            }
-            if j >= blen {
-                return -1;
-            }
-            p = base.add(j);
-        } else if *p != 0 {
-            if d != dbegin {
-                *d = b'.';
-                d = d.add(1);
-            }
-            let j = *p as usize;
-            p = p.add(1);
-            if j > (end as usize).wrapping_sub(p as usize)
-                || j > (dend as usize).wrapping_sub(d as usize)
-            {
-                return -1;
-            }
-            core::ptr::copy_nonoverlapping(p, d, j);
-            d = d.add(j);
-            p = p.add(j);
-        } else {
-            *d = 0;
-            if len < 0 {
-                len = ((p.add(1) as usize).wrapping_sub(src as usize)) as c_int;
-            }
-            return len;
-        }
-        i += 2;
+    // `space` includes the terminating NUL.  musl rejects non-positive
+    // sizes and caps the output at 254 bytes; negative values must not be
+    // cast to usize.
+    if space <= 0 {
+        return -1;
     }
-    -1
+    let blen = match (end as usize).checked_sub(base as usize) {
+        Some(n) => n,
+        None => return -1,
+    };
+    let msg = match InBuf::new(base, blen) {
+        Some(msg) => msg,
+        None => return -1,
+    };
+    // `src == end` has no byte to parse; `src > end` is invalid too.
+    let src_off = match (src as usize).checked_sub(base as usize) {
+        Some(off) if off < blen => off,
+        _ => return -1,
+    };
+    let cap = if space > 254 { 254 } else { space as usize };
+    let mut out = match OutBuf::new(dest as *mut u8, cap) {
+        Some(out) => out,
+        None => return -1,
+    };
+    let max_steps = blen / 2 + 1;
+    match dns_expand_name_at(&msg, src_off, &mut out, max_steps, usize::MAX) {
+        Some(consumed) if consumed <= c_int::MAX as usize => consumed as c_int,
+        _ => -1,
+    }
 }
