@@ -3163,19 +3163,25 @@ unsafe fn compute_tls_layout() {
         let block_size = ((obj.tls_memsz as usize + align - 1) / align) * align;
         total += block_size;
     }
+    // Keep at least one page and double the sum: each module is aligned
+    // independently, so the plain sum understates the laid-out variable area
+    // once TCB and alignment padding are included.
     if total < 4096 {
         total = 4096;
     }
     total += total;
     TLS_TOTAL_SIZE = (total + 4095) & !4095;
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     {
-        // AArch64 uses the TLS_ABOVE_TP layout: the variable area is at positive
-        // offsets from TP, with a fixed gap at the start. The linker expects
-        // module offsets to maintain the same alignment congruence as the image
-        // address in the file so that each TLS symbol is correctly aligned.
+        // Both use the TLS_ABOVE_TP layout: the variable area is at positive
+        // offsets from TP. AArch64 reserves a 16-byte gap above TP; RISC-V
+        // does not. Module offsets keep the same alignment congruence as the
+        // image address so every TLS symbol stays aligned.
+        #[cfg(target_arch = "aarch64")]
         const GAP_ABOVE_TP: usize = 16;
+        #[cfg(target_arch = "riscv64")]
+        const GAP_ABOVE_TP: usize = 0;
         let mut offset = GAP_ABOVE_TP;
         for i in 0..LOADED_COUNT {
             let obj = &(**LOADED.add(i));
@@ -3231,40 +3237,6 @@ unsafe fn compute_tls_layout() {
             *TLS_FILESZ.add(i) = obj.tls_filesz;
             *TLS_MEMSZ.add(i) = obj.tls_memsz;
             *TLS_IMAGE.add(i) = obj.tls_image;
-        }
-    }
-
-    #[cfg(target_arch = "riscv64")]
-    {
-        // RISC-V uses TLS_ABOVE_TP like aarch64 but with GAP_ABOVE_TP=0.
-        let mut offset: usize = 0;
-        for i in 0..LOADED_COUNT {
-            let obj = &(**LOADED.add(i));
-            if obj.tls_memsz == 0 {
-                *TLS_LAYOUT_OFFSET.add(i) = 0;
-                *TLS_FILESZ.add(i) = 0;
-                *TLS_MEMSZ.add(i) = 0;
-                *TLS_IMAGE.add(i) = core::ptr::null();
-                continue;
-            }
-            let align = if obj.tls_align > 0 { obj.tls_align as usize } else { 1 };
-            let image = obj.tls_image as usize;
-            let var_base_mod = TCB_SIZE % align;
-            let desired = image.wrapping_sub(var_base_mod).wrapping_sub(offset) & (align - 1);
-            offset += desired;
-            *TLS_LAYOUT_OFFSET.add(i) = offset;
-            if cfg!(debug_assertions) {
-                write_stderr(b"ldso: TLS module ");
-                write_hex_stderr(i);
-                write_stderr(b" offset=");
-                write_hex_stderr(offset);
-                write_stderr(b"\n");
-            }
-            *TLS_FILESZ.add(i) = obj.tls_filesz;
-            *TLS_MEMSZ.add(i) = obj.tls_memsz;
-            *TLS_IMAGE.add(i) = obj.tls_image;
-            let block_size = ((obj.tls_memsz as usize + align - 1) / align) * align;
-            offset += block_size;
         }
     }
 

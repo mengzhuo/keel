@@ -23257,51 +23257,64 @@ static mut HOST_ALIASES: [*mut c_char; 8] = [core::ptr::null_mut(); 8];
 static mut HOST_ADDR: [u8; 16] = [0; 16];
 static mut HOST_ADDR_PTRS: [*mut c_char; 2] = [core::ptr::null_mut(); 2];
 
+// DNS wire-format offsets used by host_from_answer and friends.
+const DNS_HDR_LEN: usize = 12;
+const DNS_QDCOUNT_OFF: usize = 4;
+const DNS_ANCOUNT_OFF: usize = 6;
+const DNS_QUESTION_LEN: usize = 4;
+const DNS_RR_TYPE_OFF: usize = 0;
+const DNS_RR_CLASS_OFF: usize = 2;
+const DNS_RR_RDLEN_OFF: usize = 8;
+const DNS_RR_RDATA_OFF: usize = 10;
+const DNS_CLASS_IN: u16 = 1;
+const DNS_TYPE_A: u16 = 1;
+const DNS_TYPE_AAAA: u16 = 28;
+
 unsafe fn host_from_answer(answer: *const u8, len: c_int, af: c_int) -> *mut HostEnt {
-    if len < 12 { return core::ptr::null_mut(); }
+    if (len as usize) < DNS_HDR_LEN { return core::ptr::null_mut(); }
     let msg = match InBuf::new(answer, len as usize) {
         Some(msg) => msg,
         None => return core::ptr::null_mut(),
     };
-    let qd = match msg.peek_u16_be(4) {
+    let qd = match msg.peek_u16_be(DNS_QDCOUNT_OFF) {
         Some(v) => v as usize,
         None => return core::ptr::null_mut(),
     };
-    let an = match msg.peek_u16_be(6) {
+    let an = match msg.peek_u16_be(DNS_ANCOUNT_OFF) {
         Some(v) => v as usize,
         None => return core::ptr::null_mut(),
     };
-    let mut p = 12usize;
+    let mut p = DNS_HDR_LEN;
     for _ in 0..qd {
         p = match dns_skip_name(&msg, p) {
             Some(v) => v,
             None => return core::ptr::null_mut(),
         };
-        p = match p.checked_add(4) {
+        p = match p.checked_add(DNS_QUESTION_LEN) {
             Some(v) if v <= msg.len() => v,
             _ => return core::ptr::null_mut(),
         };
     }
-    let want_type: u16 = if af == AF_INET6 { 28 } else { 1 };
+    let want_type: u16 = if af == AF_INET6 { DNS_TYPE_AAAA } else { DNS_TYPE_A };
     let want_len = if af == AF_INET6 { 16 } else { 4 };
     for _ in 0..an {
         p = match dns_skip_name(&msg, p) {
             Some(v) => v,
             None => break,
         };
-        let typ = match msg.peek_u16_be(p) {
+        let typ = match msg.peek_u16_be(p + DNS_RR_TYPE_OFF) {
             Some(v) => v,
             None => break,
         };
-        let class = match msg.peek_u16_be(p + 2) {
+        let class = match msg.peek_u16_be(p + DNS_RR_CLASS_OFF) {
             Some(v) => v,
             None => break,
         };
-        let rdlen = match msg.peek_u16_be(p + 8) {
+        let rdlen = match msg.peek_u16_be(p + DNS_RR_RDLEN_OFF) {
             Some(v) => v as usize,
             None => break,
         };
-        let rdata_off = match p.checked_add(10) {
+        let rdata_off = match p.checked_add(DNS_RR_RDATA_OFF) {
             Some(v) => v,
             None => break,
         };
@@ -23309,7 +23322,7 @@ unsafe fn host_from_answer(answer: *const u8, len: c_int, af: c_int) -> *mut Hos
             Some(v) => v,
             None => break,
         };
-        if typ == want_type && class == 1 && rdata.len() == want_len {
+        if typ == want_type && class == DNS_CLASS_IN && rdata.len() == want_len {
             core::ptr::copy_nonoverlapping(rdata.as_ptr(), HOST_ADDR.as_mut_ptr(), want_len);
             HOST_ENT.h_addrtype = af;
             HOST_ENT.h_length = want_len as c_int;

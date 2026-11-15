@@ -344,7 +344,6 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
         let mut fill = b' ' as c_char;
         let mut nogrp = true; // C locale has no digit grouping
         let mut negpar = false;
-        let mut nosym = false;
         let mut left = false;
         let mut plus = false;
         loop {
@@ -358,7 +357,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
                 b'^' => { nogrp = true; f = f.add(1); }
                 b'(' => { negpar = true; f = f.add(1); }
                 b'+' => { plus = true; f = f.add(1); }
-                b'!' => { nosym = true; f = f.add(1); }
+                b'!' => { f = f.add(1); }
                 b'-' => { left = true; f = f.add(1); }
                 _ => break,
             }
@@ -393,7 +392,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
                 f = f.add(1);
             }
         }
-        let _intl = *f as u8 == b'i';
+        // Consume the conversion character ('i' or 'n').
         if *f != 0 { f = f.add(1); }
         let x = ap.next_arg::<f64>();
         let neg = x < 0.0;
@@ -408,14 +407,14 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
             rp as c_int,
             ax,
         );
-        let mut nlen = core::cmp::min(rn.max(0) as usize, num.len() - 1);
+        let nlen = core::cmp::min(rn.max(0) as usize, num.len() - 1);
 
         // Split integer/fraction parts.
         let mut dot = nlen;
         for i in 0..nlen {
             if num[i] as u8 == b'.' { dot = i; break; }
         }
-        let mut int_digits = dot;
+        let int_digits = dot;
         // Minimum integer digits requested with '#<n>'.
         let zero_pad = if int_digits < lp { lp - int_digits } else { 0 };
 
@@ -432,8 +431,6 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
         } else {
             for i in 0..int_digits { grouped[glen] = num[i]; glen += 1; }
         }
-        let _ = &mut int_digits;
-        let _ = &mut nlen;
 
         // Compose sign/parens + zeros + grouped integer + fraction.
         let mut core = [0 as c_char; 1024];
@@ -470,7 +467,6 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
                 *s = core[i]; s = s.add(1); cap -= 1;
             }
         }
-        let _ = nosym;
     }
     if n > 0 { *s = 0; }
     (s as usize - start as usize) as isize
