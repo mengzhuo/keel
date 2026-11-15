@@ -66,6 +66,8 @@ const ENXIO: c_int = 6;
 const EBADF: c_int = 9;
 const ERANGE: c_int = 34;
 const ENOSYS: c_int = 38;
+const ENOTDIR: c_int = 20;
+const ELOOP: c_int = 40;
 
 const LC_CTYPE: c_int = 0;
 const LC_NUMERIC: c_int = 1;
@@ -5987,10 +5989,13 @@ pub unsafe extern "C" fn freopen(
 
 #[no_mangle]
 pub unsafe extern "C" fn fclose(f: *mut FILE) -> c_int {
-    if f.is_null() { return -1; }
+    if f.is_null() {
+        ERRNO!() = EINVAL;
+        return -1;
+    }
     let r = fflush(f);
-    if let Some(close_fn) = (*f).close { let _ = close_fn(f); }
-    if r != 0 { -1 } else { 0 }
+    let close_r = if let Some(close_fn) = (*f).close { close_fn(f) } else { 0 };
+    if r != 0 || close_r != 0 { -1 } else { 0 }
 }
 
 // ============================================================
@@ -13796,7 +13801,12 @@ unsafe extern "C" fn ms_write(f: *mut FILE, buf: *const u8, len: usize) -> usize
     len
 }
 
-unsafe extern "C" fn ms_close(_f: *mut FILE) -> c_int {
+unsafe extern "C" fn ms_close(f: *mut FILE) -> c_int {
+    // The byte buffer belongs to the caller; free only the cookie.
+    if !f.is_null() && !(*f).cookie.is_null() {
+        free((*f).cookie);
+        (*f).cookie = core::ptr::null_mut();
+    }
     0
 }
 

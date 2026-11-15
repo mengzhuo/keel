@@ -156,14 +156,24 @@ struct WmsCookie {
     need: u8,
     have: u8,
     cp: u32,
+    failed: bool,
 }
 
 unsafe fn wms_emit(c: *mut WmsCookie, wc: u32) {
+    if (*c).failed { return; }
     if (*c).pos >= (*c).space {
-        let len2 = ((*c).space * 2 + 1) | ((*c).pos + 1);
-        if len2 > (isize::MAX as usize) / 4 { return; }
+        let len2 = core::cmp::max((*c).space.saturating_mul(2), (*c).pos + 1);
+        if len2 > (isize::MAX as usize) / 4 {
+            (*c).failed = true;
+            ERRNO!() = ENOMEM;
+            return;
+        }
         let newbuf = crate::realloc((*c).buf as *mut c_void, len2 * 4) as *mut wchar_t;
-        if newbuf.is_null() { ERRNO!() = ENOMEM; return; }
+        if newbuf.is_null() {
+            (*c).failed = true;
+            ERRNO!() = ENOMEM;
+            return;
+        }
         core::ptr::write_bytes((newbuf as *mut u8).add((*c).space * 4), 0, (len2 - (*c).space) * 4);
         (*c).buf = newbuf;
         (*c).space = len2;
@@ -179,6 +189,10 @@ unsafe fn wms_emit(c: *mut WmsCookie, wc: u32) {
 unsafe extern "C" fn wms_write(f: *mut FILE, buf: *const u8, len: usize) -> usize {
     let c = (*f).cookie as *mut WmsCookie;
     if c.is_null() { return 0; }
+    if (*c).failed {
+        ERRNO!() = ENOMEM;
+        return 0;
+    }
     for i in 0..len {
         let b = *buf.add(i);
         if (*c).need == 0 {
@@ -231,6 +245,10 @@ unsafe extern "C" fn wms_write(f: *mut FILE, buf: *const u8, len: usize) -> usiz
             }
         }
     }
+    if (*c).failed {
+        ERRNO!() = ENOMEM;
+        return 0;
+    }
     len
 }
 
@@ -256,7 +274,12 @@ unsafe extern "C" fn wms_seek(f: *mut FILE, off: i64, whence: c_int) -> i64 {
     (*c).pos as i64
 }
 
-unsafe extern "C" fn wms_close(_f: *mut FILE) -> c_int {
+unsafe extern "C" fn wms_close(f: *mut FILE) -> c_int {
+    // The wide buffer belongs to the caller; only our cookie is freed here.
+    if !f.is_null() && !(*f).cookie.is_null() {
+        crate::free((*f).cookie);
+        (*f).cookie = core::ptr::null_mut();
+    }
     0
 }
 
@@ -509,20 +532,19 @@ pub unsafe extern "C" fn getdate(s: *const c_char) -> *mut crate::tm {
     let mut fmt = [0 as c_char; 128];
     let mut found = false;
     while !crate::fgets(fmt.as_mut_ptr(), fmt.len() as c_int, f).is_null() {
-        let mut end: *mut c_char = core::ptr::null_mut();
         let p = crate::strptime(s, fmt.as_ptr(), &raw mut GETDATE_TM);
         if !p.is_null() && *p == 0 {
             found = true;
             break;
         }
-        let _ = &mut end;
     }
-    if !found && crate::ferror(f) != 0 { getdate_err = 5; }
+    let read_error = !found && crate::ferror(f) != 0;
     crate::fclose(f);
     if found {
         getdate_err = 0;
         return &raw mut GETDATE_TM;
     }
-    if getdate_err == 0 { getdate_err = 7; }
+    // Do not let an error code from an earlier call survive this one.
+    getdate_err = if read_error { 5 } else { 7 };
     core::ptr::null_mut()
 }

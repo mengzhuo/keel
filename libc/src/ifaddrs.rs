@@ -305,18 +305,45 @@ unsafe fn netlink_enumerate(
     if sent < 0 { return -1; }
     let mut buf = [0u8; 8192];
     loop {
-        let n = crate::recv(fd, buf.as_mut_ptr() as *mut c_void, buf.len(), 0);
-        if n <= 0 { return -1; }
+        let n = loop {
+            let n = crate::recv(fd, buf.as_mut_ptr() as *mut c_void, buf.len(), 0);
+            if n < 0 && ERRNO!() == EINTR {
+                continue;
+            }
+            break n;
+        };
+        if n <= 0 {
+            if n == 0 {
+                ERRNO!() = EIO;
+            }
+            return -1;
+        }
         let mut off = 0usize;
         while off + 16 <= n as usize {
             let hdr = buf.as_ptr().add(off) as *const NlMsgHdr;
             let len = (*hdr).len as usize;
             if len < 16 || off + len > n as usize { break; }
+            let step = (len + 3) & !3usize;
+            if (*hdr).seq != seq {
+                off += step;
+                continue;
+            }
             if (*hdr).type_ == NLMSG_DONE { return 0; }
-            if (*hdr).type_ == NLMSG_ERROR { return -1; }
+            if (*hdr).type_ == NLMSG_ERROR {
+                // nlmsgerr starts with a negative errno.
+                if len >= 20 {
+                    let err = i32::from_ne_bytes(
+                        core::ptr::read_unaligned(buf.as_ptr().add(off + 16) as *const [u8; 4]),
+                    );
+                    ERRNO!() = if err < 0 { -err } else { EIO };
+                } else {
+                    ERRNO!() = EIO;
+                }
+                return -1;
+            }
             let r = cb(ctx, hdr);
             if r != 0 { return r; }
-            off += (len + 3) & !3usize;
+            off += step;
         }
     }
 }

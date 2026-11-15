@@ -11,12 +11,6 @@ const PATH_MAX_V: usize = 4096;
 
 static mut REALPATH_BUF: [c_char; PATH_MAX_V] = [0; PATH_MAX_V];
 
-unsafe fn rp_is_dir(path: *const c_char) -> bool {
-    let mut st: Stat = core::mem::zeroed();
-    if crate::lstat(path, &mut st as *mut Stat as *mut c_void) != 0 { return false; }
-    st.st_mode & 0o170000 == 0o040000
-}
-
 #[no_mangle]
 pub unsafe extern "C" fn realpath(
     filename: *const c_char,
@@ -24,8 +18,8 @@ pub unsafe extern "C" fn realpath(
 ) -> *mut c_char {
     if filename.is_null() { ERRNO!() = EINVAL; return core::ptr::null_mut(); }
     let flen = crate::strlen(filename);
-    if flen == 0 { ERRNO!() = 2; return core::ptr::null_mut(); }
-    if flen >= PATH_MAX_V { ERRNO!() = 36; return core::ptr::null_mut(); }
+    if flen == 0 { ERRNO!() = ENOENT; return core::ptr::null_mut(); }
+    if flen >= PATH_MAX_V { ERRNO!() = ENAMETOOLONG; return core::ptr::null_mut(); }
 
     let mut out = [0u8; PATH_MAX_V + 1];
     let mut olen;
@@ -59,7 +53,6 @@ pub unsafe extern "C" fn realpath(
         let needs_dir = !is_last || followed_by_slash;
 
         if comp_len == 1 && pend[start] == b'.' {
-            if needs_dir && is_last { /* "." is a dir */ }
             continue;
         }
         if comp_len == 2 && pend[start] == b'.' && pend[start + 1] == b'.' {
@@ -73,29 +66,28 @@ pub unsafe extern "C" fn realpath(
             olen = 1;
         }
         if olen > 0 && out[olen - 1] != b'/' {
-            if olen + 1 >= PATH_MAX_V { ERRNO!() = 36; return core::ptr::null_mut(); }
+            if olen + 1 >= PATH_MAX_V { ERRNO!() = ENAMETOOLONG; return core::ptr::null_mut(); }
             out[olen] = b'/';
             olen += 1;
         }
-        if olen + comp_len >= PATH_MAX_V { ERRNO!() = 36; return core::ptr::null_mut(); }
+        if olen + comp_len >= PATH_MAX_V { ERRNO!() = ENAMETOOLONG; return core::ptr::null_mut(); }
         core::ptr::copy_nonoverlapping(pend.as_ptr().add(start), out.as_mut_ptr().add(olen), comp_len);
         olen += comp_len;
         out[olen] = 0;
 
         let mut st: Stat = core::mem::zeroed();
         if crate::lstat(out.as_ptr() as *const c_char, &mut st as *mut Stat as *mut c_void) != 0 {
-            if ERRNO!() == 2 { ERRNO!() = 2; }
             return core::ptr::null_mut();
         }
         let mode = st.st_mode;
         if mode & 0o170000 == 0o120000 {
             symlinks += 1;
-            if symlinks > 40 { ERRNO!() = 40; return core::ptr::null_mut(); }
+            if symlinks > 40 { ERRNO!() = ELOOP; return core::ptr::null_mut(); }
             let mut link = [0u8; PATH_MAX_V + 1];
             let n = crate::readlink(out.as_ptr() as *const c_char, link.as_mut_ptr() as *mut c_char, PATH_MAX_V);
             if n < 0 { return core::ptr::null_mut(); }
             let n = n as usize;
-            if n == 0 { ERRNO!() = 2; return core::ptr::null_mut(); }
+            if n == 0 { ERRNO!() = ENOENT; return core::ptr::null_mut(); }
             link[n] = 0;
             // Remove the component we just appended.
             while olen > 0 && out[olen - 1] != b'/' { olen -= 1; }
@@ -111,18 +103,16 @@ pub unsafe extern "C" fn realpath(
                     next[nl] = b'/';
                     nl += 1;
                 }
-                if nl + rest_len >= next.len() { ERRNO!() = 36; return core::ptr::null_mut(); }
+                if nl + rest_len >= next.len() { ERRNO!() = ENAMETOOLONG; return core::ptr::null_mut(); }
                 core::ptr::copy_nonoverlapping(rest.as_ptr(), next.as_mut_ptr().add(nl), rest_len + 1);
-                nl += rest_len;
             }
             if link_abs { olen = 0; }
             pend = next;
             pi = 0;
-            let _ = nl;
             continue;
         }
         if mode & 0o170000 != 0o040000 && needs_dir {
-            ERRNO!() = 20; // ENOTDIR
+            ERRNO!() = ENOTDIR;
             return core::ptr::null_mut();
         }
     }

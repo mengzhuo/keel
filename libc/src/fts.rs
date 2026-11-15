@@ -104,21 +104,22 @@ unsafe fn fts_ent_alloc(
     ent
 }
 
-unsafe fn fts_push(fts: *mut Fts, ent: *mut FtsEnt) {
-    if ent.is_null() { return; }
+unsafe fn fts_push(fts: *mut Fts, ent: *mut FtsEnt) -> bool {
+    if ent.is_null() { return false; }
     if (*fts).nents == (*fts).ents_cap {
         let ncap = if (*fts).ents_cap == 0 { 64 } else { (*fts).ents_cap * 2 };
         let na = crate::realloc(
             (*fts).ents as *mut c_void,
             ncap * core::mem::size_of::<*mut FtsEnt>(),
         ) as *mut *mut FtsEnt;
-        if na.is_null() { return; }
+        if na.is_null() { ERRNO!() = ENOMEM; return false; }
         (*fts).ents = na;
         (*fts).ents_cap = ncap;
     }
     *(*fts).ents.add((*fts).nents) = ent;
     (*fts).nents += 1;
     (*ent).fts_link = core::ptr::null_mut();
+    true
 }
 
 unsafe fn fts_free_ent(ent: *mut FtsEnt) {
@@ -207,20 +208,26 @@ unsafe fn fts_free_names(arr: *mut *mut c_char, count: usize) {
     crate::free(arr as *mut c_void);
 }
 
+unsafe extern "C" fn fts_cmp_trampoline(
+    a: *const c_void,
+    b: *const c_void,
+    arg: *mut c_void,
+) -> c_int {
+    let cmp: unsafe extern "C" fn(*const *const FtsEnt, *const *const FtsEnt) -> c_int =
+        core::mem::transmute(arg);
+    cmp(a as *const *const FtsEnt, b as *const *const FtsEnt)
+}
+
 unsafe fn fts_sort_entries(fts: *mut Fts, arr: *mut *mut FtsEnt, count: usize) {
     let cmp = match (*fts).compar { Some(c) => c, None => return };
-    for i in 1..count {
-        let v = *arr.add(i);
-        let mut j = i;
-        while j > 0 {
-            let prev = *arr.add(j - 1);
-            let a = prev as *const FtsEnt;
-            let b = v as *const FtsEnt;
-            if cmp(&a, &b) <= 0 { break; }
-            *arr.add(j) = prev;
-            j -= 1;
-        }
-        *arr.add(j) = v;
+    if count > 1 {
+        crate::qsort_r(
+            arr as *mut c_void,
+            count,
+            core::mem::size_of::<*mut FtsEnt>(),
+            fts_cmp_trampoline,
+            cmp as *mut c_void,
+        );
     }
 }
 
@@ -234,7 +241,10 @@ unsafe fn fts_fill_info(ent: *mut FtsEnt, st: *mut Stat) -> u16 {
 }
 
 unsafe fn fts_walk(fts: *mut Fts, ent: *mut FtsEnt) {
-    fts_push(fts, ent);
+    if !fts_push(fts, ent) {
+        fts_free_ent(ent);
+        return;
+    }
     if (*ent).fts_level >= 64 || (*ent).fts_info != FTS_D_V { return; }
     let mut p = (*ent).fts_parent;
     while !p.is_null() {
@@ -293,7 +303,9 @@ unsafe fn fts_walk(fts: *mut Fts, ent: *mut FtsEnt) {
         (*dp).fts_info = FTS_DP_V;
         (*dp).fts_dev = (*ent).fts_dev;
         (*dp).fts_ino = (*ent).fts_ino;
-        fts_push(fts, dp);
+        if !fts_push(fts, dp) {
+            fts_free_ent(dp);
+        }
     }
 }
 
@@ -310,7 +322,9 @@ unsafe fn fts_build(fts: *mut Fts) {
         if rc != 0 {
             (*ent).fts_errno = ERRNO!();
             (*ent).fts_info = FTS_NS_V;
-            fts_push(fts, ent);
+            if !fts_push(fts, ent) {
+                fts_free_ent(ent);
+            }
             continue;
         }
         core::ptr::copy_nonoverlapping(&st as *const Stat as *const u8, (*ent).fts_statp as *mut u8, core::mem::size_of::<Stat>());
@@ -342,7 +356,15 @@ pub unsafe extern "C" fn fts_open(
         let s = *path_argv.add(i);
         let l = crate::strlen(s);
         let copy = crate::malloc(l + 1) as *mut c_char;
-        if copy.is_null() { ERRNO!() = ENOMEM; crate::free(roots as *mut c_void); crate::free(fts as *mut c_void); return core::ptr::null_mut(); }
+        if copy.is_null() {
+            for j in 0..i {
+                crate::free(*roots.add(j) as *mut c_void);
+            }
+            ERRNO!() = ENOMEM;
+            crate::free(roots as *mut c_void);
+            crate::free(fts as *mut c_void);
+            return core::ptr::null_mut();
+        }
         core::ptr::copy_nonoverlapping(s, copy, l + 1);
         *roots.add(i) = copy;
     }

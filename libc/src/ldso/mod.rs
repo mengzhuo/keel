@@ -1009,7 +1009,6 @@ unsafe fn ensure_origin() {
     if ORIGIN_READY {
         return;
     }
-    ORIGIN_READY = true;
     let proc_exe = b"/proc/self/exe\0";
     let mut cap = 256usize;
     let mut exe_path = map_zeroed(cap);
@@ -1066,6 +1065,9 @@ unsafe fn ensure_origin() {
         core::ptr::copy_nonoverlapping(exe_path, ORIGIN_DIR, slash);
     }
     sys_munmap(exe_path, cap);
+    // Only mark the result usable once every step succeeded, so a transient
+    // failure can be retried by a later lookup.
+    ORIGIN_READY = true;
 }
 
 unsafe fn try_open_expanded_origin(
@@ -2742,9 +2744,10 @@ pub unsafe extern "C" fn __ldso_dlinfo(handle: *mut u8, request: i32, info: *mut
             return -1;
         }
     };
+    const RTLD_DI_ORIGIN: i32 = 1;
+    const RTLD_DI_LINKMAP: i32 = 2;
     match request {
-        2 => {
-            // RTLD_DI_LINKMAP
+        RTLD_DI_LINKMAP => {
             if LINK_MAPS_CAP < LOADED_COUNT {
                 let bytes = LOADED_COUNT * core::mem::size_of::<LinkMap>();
                 let maps = map_zeroed(bytes) as *mut LinkMap;
@@ -2778,8 +2781,7 @@ pub unsafe extern "C" fn __ldso_dlinfo(handle: *mut u8, request: i32, info: *mut
             *(info as *mut *mut LinkMap) = LINK_MAPS.add(idx);
             0
         }
-        1 => {
-            // RTLD_DI_ORIGIN
+        RTLD_DI_ORIGIN => {
             let dst = info;
             let name = (**LOADED.add(idx)).name;
             if name.is_null() {
@@ -2794,6 +2796,10 @@ pub unsafe extern "C" fn __ldso_dlinfo(handle: *mut u8, request: i32, info: *mut
             }
             if slash == 0 {
                 *dst = b'.' as u8;
+                *dst.add(1) = 0;
+            } else if slash == 1 {
+                // A library directly under / has origin "/", not "".
+                *dst = b'/' as u8;
                 *dst.add(1) = 0;
             } else {
                 for i in 0..(slash - 1) {
@@ -4184,21 +4190,17 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
     }
 
     // musl's crt1 needs AT_RANDOM for the stack canary; preserve it on the new stack.
-    let mut random_bytes = [0u8; 16];
-    if !orig_auxv.at_random.is_null() {
-        core::ptr::copy_nonoverlapping(orig_auxv.at_random, random_bytes.as_mut_ptr(), 16);
-    } else {
-        for i in 0..16 {
-            random_bytes[i] = (i as u8).wrapping_add(1);
-        }
+    if orig_auxv.at_random.is_null() {
+        // Linux always supplies AT_RANDOM; a predictable canary is worse
+        // than refusing to start.
+        die(98, b"at_random", 0);
     }
+    let mut random_bytes = [0u8; 16];
+    core::ptr::copy_nonoverlapping(orig_auxv.at_random, random_bytes.as_mut_ptr(), 16);
     sp -= 16;
     sp &= !15usize;
     let random_ptr = sp;
     core::ptr::copy_nonoverlapping(random_bytes.as_ptr(), random_ptr as *mut u8, 16);
-
-    // 16-byte align before structured data so argc lands on a boundary
-    sp &= !15usize;
 
     // Pad before auxv so argc lands on a 16-byte boundary (no gap between
     // argv[] and argc).  envp/argv arrays plus argc are (envc+argc+3) words.
