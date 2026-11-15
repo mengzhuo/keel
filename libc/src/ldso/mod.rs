@@ -7,10 +7,8 @@
 // relocations, sets up TLS and transfers control to the program entry point.
 // The architecture/syscall layer is in arch.rs.
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::sync::atomic::{AtomicBool, Ordering};
-
-use crate::{memcpy, memmove, memset, strlen};
 
 include!("arch.rs");
 

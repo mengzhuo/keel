@@ -26,8 +26,10 @@
 #define INT_MAX    0x7fffffff
 #define UINT_MAX   0xffffffffU
 
+/* musl defines this in <bits/alltypes.h>; keep the spelling identical to the
+   per-header compatibility blocks so including both never redefines it. */
 #ifndef __LONG_MAX
-#define __LONG_MAX __LONG_MAX__
+#define __LONG_MAX 0x7fffffffffffffffL
 #endif
 
 #define LONG_MIN   (-LONG_MAX-1)

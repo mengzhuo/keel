@@ -216,12 +216,14 @@ int main(void) {
     }
 
     /* wcsftime and %ls */
-    wchar_t wbuf[64];
+    wchar_t wbuf[16];
     struct tm tmv;
     memset(&tmv, 0, sizeof(tmv));
     tmv.tm_year = 70; tmv.tm_mday = 1;
-    CHECK(wcsftime(wbuf, 64, L"%Y-%m-%d", &tmv) == 10 && wcscmp(wbuf, L"1970-01-01") == 0, "wcsftime");
-    char mbuf[256];
+    CHECK(wcsftime(wbuf, 16, L"%Y-%m-%d", &tmv) == 10 && wcscmp(wbuf, L"1970-01-01") == 0, "wcsftime");
+    /* GCC's -Wformat-truncation assumes up to 6 output bytes per byte of the
+       wide buffer (6 * sizeof wbuf); keep the destination above that bound. */
+    char mbuf[512];
     snprintf(mbuf, sizeof(mbuf), "%ls", wbuf);
     CHECK(strcmp(mbuf, "1970-01-01") == 0, "printf %ls");
 

@@ -112,7 +112,11 @@ static int test_sprintf_snprintf(void) {
     char buf[64];
     int n = sprintf(buf, "%d+%d=%d", 1, 2, 3);
     if (n != 5 || strcmp(buf, "1+2=3") != 0) return 1;
+    /* Truncation is the behaviour under test, not a bug. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
     n = snprintf(buf, 4, "%s", "hello");
+#pragma GCC diagnostic pop
     if (n != 5) return 2;
     if (strcmp(buf, "hel") != 0) return 3;
     n = snprintf(buf, sizeof buf, "%a", 0x1.092b2a541a68ep-19);
