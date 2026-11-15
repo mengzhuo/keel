@@ -52,7 +52,7 @@ mkdir -p "$FAKE_LIBS" "$BUILD_DIR" "$REPORT_DIR"
 
 if [ ! -f "$LIBC_SO" ]; then
     echo ">>> Building keel..."
-    (cd "$KEEL_DIR" && cargo build 2>&1) || { echo "FATAL: cargo build failed"; exit 1; }
+    (cd "$KEEL_DIR" && cargo build --workspace 2>&1) || { echo "FATAL: cargo build failed"; exit 1; }
 fi
 echo ">>> Using libc.so: $LIBC_SO"
 

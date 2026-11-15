@@ -193,7 +193,7 @@ cd libc-test-harness
 - Defaults to `LIBC_TEST_DIR=/home/root/libc-test`; override it for another checkout.
 - It symlinks `fake-libs/{libc,libpthread,libm,...}.so` to our `libc.so`, builds `runtest.exe`, and writes `reports/latest-summary.txt` / `latest-raw.txt`.
 - When a test exits 0, any non-empty stderr line not starting with `ldso:` or `JUMP ` is still treated as FAIL.
-- Its fallback build is bare `cargo build`, which will not build `libc.so`; run `cargo build --workspace` first.
+- Its fallback build is `cargo build --workspace` when `libc.so` is missing, so the harness can be run standalone.
 - It creates symlinks in `$LIBC_TEST_DIR/src/<subset>/`, so it mutates the external libc-test checkout.
 - Run one subset at a time. All subsets share `build/`, `fake-libs/`, and `reports/`; concurrent runs race and corrupt counts.
 - `math` intentionally SKIPs `acoshl`, `asinhl`, `lgammal`, and `tgammal`: upstream uses 80-bit long-double vectors while keel's x86_64 ABI is 64-bit. This is recorded in `SKIP_TESTS` in `run.sh`.

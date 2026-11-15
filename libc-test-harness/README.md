@@ -4,11 +4,11 @@ Builds and runs the [libc-test](https://git.musl-libc.org/cgit/libc-test) suite 
 
 ## How It Works
 
-1. Builds `keel/libc` into `target/debug/libc.so` (via `cargo build --workspace`).
+1. Builds `keel/libc` into `target/debug/libc.so`, running `cargo build --workspace` if it is missing (a bare `cargo build` would only build the loader).
 2. Creates a `fake-libs/` directory with symlinks so the linker resolves `-lc`, `-lpthread`, `-lm`, etc. against our libc.so instead of musl's.
-3. Builds libc-test's `runtest.exe` and `libtest.a` as host tools (linked against musl).
+3. Builds libc-test's `runtest.exe` (statically linked against musl) and `libtest.a` as host tools.
 4. Compiles and links each test binary with `musl-gcc -L fake-libs/`, then runs it via `LD_LIBRARY_PATH=fake-libs/`.
-5. Categorizes results: **PASS**, **FAIL**, **BUILDERROR** (compile/link failure), **TIMEOUT** (30s).
+5. Categorizes results: **PASS** (including compile-only `api` checks), **FAIL**, **BUILDERROR** (compile/link failure), **SKIP** (known long-double, TLS-alignment and root-only differences), **TIMEOUT** (30s).
 
 ## Usage
 
@@ -44,8 +44,4 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
 - **Static linking is not tested** — only dynamic-linked binaries are built.
 - **Only the functional subset runs by default** — use `./run.sh all` for everything.
 
-Current baseline (x86_64): `functional` 72/72, `regression` 67 PASS + 1 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. On aarch64, `functional/strtold` and `functional/tls_local_exec` are skipped for the known long-double/TLS-alignment gaps.
-
-## Initial Report
-
-See `initial-report.txt` for the first baseline run (functional tests): 13 PASS, 63 BUILDERROR, 0 FAIL, 0 TIMEOUT.
+Current baseline (x86_64): `functional` 72/72, `regression` 67 PASS + 1 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The regression skip is `pthread_atfork-errno-clobber`, which can only pass as an unprivileged user and also fails under musl when root. On aarch64, `functional/strtold` and `functional/tls_local_exec` are skipped for the known long-double/TLS-alignment gaps.
