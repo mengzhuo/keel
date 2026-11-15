@@ -56,6 +56,8 @@ jobs:
     timeout-minutes: ${{ matrix.arch == 'riscv64' && 10 || 360 }}
     env:
       LIBC_TEST_DIR: /tmp/libc-test
+      # Pin upstream libc-test so an unrelated commit cannot change results.
+      LIBC_TEST_SHA: b7ec467969a53756258778fa7d9b045f912d1c93
     steps:
       - uses: actions/checkout@v7
 
@@ -73,11 +75,7 @@ jobs:
 
       - name: Resolve libc-test revision
         id: libc_test
-        run: |
-          set -euo pipefail
-          sha="$(git ls-remote https://github.com/kraj/libc-test HEAD | cut -f1)"
-          test -n "$sha"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        run: echo "sha=$LIBC_TEST_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Cache libc-test sources
         uses: actions/cache@v6
