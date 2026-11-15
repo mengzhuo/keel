@@ -865,7 +865,8 @@ pub extern "C" fn log10(x: f64) -> f64 {
 
     if hx < 0x00100000 || (hx >> 31) != 0 {
         if asuint64(x) << 1 == 0 {
-            return -1.0 / (x * x);
+            unsafe { feraiseexcept(FE_DIVBYZERO); }
+            return f64::NEG_INFINITY;
         }
         if (hx >> 31) != 0 {
             return (x - x) / 0.0;
@@ -921,7 +922,8 @@ pub extern "C" fn log10f(x: f32) -> f32 {
 
     if ix < 0x00800000 || (ix >> 31) != 0 {
         if ix << 1 == 0 {
-            return -1.0 / (x * x);
+            unsafe { feraiseexcept(FE_DIVBYZERO); }
+            return f32::NEG_INFINITY;
         }
         if (ix >> 31) != 0 {
             return (x - x) / 0.0f32;
