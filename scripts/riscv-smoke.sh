@@ -38,11 +38,11 @@ GCCINC="$("$CC_BIN" -print-file-name=include)"
 TMP="$(mktemp -d /tmp/keel-riscv-smoke.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-if [ ! -f "$T/libc.so" ] || [ ! -x "$T/keel" ]; then
-    echo ">>> cross-building keel for $TARGET_NAME"
-    (cd "$ROOT" && CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$CC_BIN" \
-        cargo build --workspace --target "$TARGET_NAME") || exit 1
-fi
+# Always run cargo: it is a no-op when fresh and prevents testing a stale
+# libc.so after a source change.
+echo ">>> cross-building keel for $TARGET_NAME"
+(cd "$ROOT" && CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$CC_BIN" \
+    cargo build --workspace --target "$TARGET_NAME") || exit 1
 
 LIBS="$TMP/libs"
 mkdir -p "$LIBS"

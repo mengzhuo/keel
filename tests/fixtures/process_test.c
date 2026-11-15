@@ -52,7 +52,12 @@ int main(void) {
         }
         close(p[1]);
         char buf[3] = {0, 0, 0};
-        ssize_t n = read(p[0], buf, 2);
+        ssize_t n = 0;
+        while (n < 2) {
+            ssize_t r = read(p[0], buf + n, 2 - n);
+            if (r <= 0) break;
+            n += r;
+        }
         close(p[0]);
         w = waitpid(pid, &status, 0);
         if (n != 2 || buf[0] != 'B' || buf[1] != 'A') return 14;
