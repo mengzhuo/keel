@@ -238,16 +238,23 @@ Results and methodology are in `docs/performance.md`. Use `BENCH_CPU=0` to pin
 the measurement and `ROUNDS=5` (the default) for a median of interleaved
 rounds.
 
+## Known Limitations
+
+`docs/limitations.md` records the current behavioural gaps (stdio locking,
+locale/width data, page size, standalone-loader environment, and so on).
+Update it when a gap is fixed or a new one is knowingly left in place, rather
+than hiding the caveat in a source comment.
+
 ## Current Baseline
 
-Baseline (2026-11-10 full run; container `cargo test --workspace` and header
-count rechecked 2026-11-13):
+Baseline (2026-11-10 full container run; harness counts and the header count
+rechecked on 2026-11-15 against the current `libc-test` checkout):
 
 ```text
 cargo test --workspace          # green in clean Ubuntu and Alpine containers
 scripts/alpine-ci.sh            # Alpine 3.23.3, cargo test green
 ./run.sh api                    # 79/79
-./run.sh functional             # 72/72
+./run.sh functional             # 73/73
 ./run.sh regression             # 67 PASS, 1 SKIP, 0 FAIL (as root)
 ./run.sh math                   # 195 PASS, 4 SKIP, 0 FAIL
 scripts/parity-check.sh all     # 0 unexpected diffs vs musl 1.2.6

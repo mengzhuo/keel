@@ -219,8 +219,9 @@ comm -13 <(awk '{print $1}' alpine-root/tmp/ltp-alpine-root.fail | sort -u) \
 
 ## Caveats
 
-- LTP mutates the external checkout (it symlinks test sources into
-  `src/<subset>/`), so do not share one checkout between concurrent runs.
+- The LTP build/install tree is shared by both chroots, and `runltp` writes
+  logs and temporary files into it.  Do not run two suites concurrently;
+  copy the installed tree if you need parallel runs.
 - The `runltp` driver is deprecated in 20250930 and removed in 20260930; the
   warnings printed at the end of each run are expected.
 - The numbers above are a single snapshot on one host. Re-run the suite

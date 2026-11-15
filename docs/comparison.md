@@ -32,7 +32,7 @@ Last checked: 2026-11-09.
 
 | Project | Status | Scope | Notes |
 |---|---|---|---|
-| **keel** | active, `0.1.x` | musl 1.2.6; x86\_64, aarch64, riscv64; combined `libc.so` | 9/9 Alpine workloads, shared LTP suites have identical failure lists, libc-test 414 PASS + 5 SKIP, full public macro surface checked |
+| **keel** | active, `0.1.x` | musl 1.2.6; x86\_64, aarch64, riscv64; combined `libc.so` | 9/9 Alpine workloads, shared LTP suites have identical failure lists, libc-test 414 PASS + 5 SKIP as root, full public macro surface checked |
 | [anp/rusl](https://github.com/anp/rusl) | inactive (2018) | x86\_64; partial musl port | historical, proof-of-concept port |
 | [SrDicov/zlibc](https://github.com/SrDicov/zlibc) | pre-alpha (2026-10) | x86\_64; musl ABI | phase 1 skeleton; does not link or run yet; no ldso |
 | [starkross/mytilus](https://github.com/starkross/mytilus) | pre-alpha (2026-05) | aarch64 only; musl 1.2.6 | empty crate scaffolds; no working libc; no ldso |
@@ -122,9 +122,9 @@ architectures, and published real-workload and LTP validation.
 ### Is keel production-ready?
 
 No. keel is `0.1.x` and experimental. See the [workload matrix](workloads.md)
-and [LTP report](ltp.md) for the validated scope, and read
-[Status and scope](../README.md#status-and-scope) before using it outside a
-test environment.
+and [LTP report](ltp.md) for the validated scope, the [known
+limitations](limitations.md) for current gaps, and [Status](../README.md#status)
+before using it outside a test environment.
 
 ### Is keel memory-safe?
 
@@ -149,7 +149,7 @@ a different ABI implementation.
 |---|---|
 | Nine real Alpine workloads pass | [workloads.md](workloads.md) |
 | LTP failure lists match musl | [ltp.md](ltp.md) |
-| libc-test: 414 PASS / 5 SKIP / 0 FAIL | `libc-test-harness/reports/` |
+| libc-test: 414 PASS / 5 SKIP / 0 FAIL as root; 415 PASS / 4 SKIP as unprivileged CI (current `libc-test` checkout, 2026-11-15) | `libc-test-harness/reports/` |
 | 0 unexpected parity diffs vs musl 1.2.6 | `scripts/parity-check.sh` |
 | Full musl 1.2.6 symbol surface in `libc.so` | `scripts/parity-check.sh symbols` |
 | x86\_64, aarch64, riscv64 | CI and `scripts/riscv-smoke.sh` |

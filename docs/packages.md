@@ -5,9 +5,9 @@ split:
 
 | Package | Contents | Installed size |
 |---|---|---|
-| `keel` | `libc.so` (loader + libc), `keel-loader` | about 1.9 MiB |
-| `keel-dev` | headers, `libc.a`, Rust-built CRT objects, linker stubs | about 10 MiB |
-| `keel-utils` | `getconf`, `getent`, `iconv`, `ldd`, `ldconfig` | about 1.9 MiB |
+| `keel` | `libc.so` (loader + libc), `keel-loader` | about 2.3 MiB |
+| `keel-dev` | headers, `libc.a`, Rust-built CRT objects, linker stubs | about 11 MiB |
+| `keel-utils` | `getconf`, `getent`, `iconv`, `ldd`, `ldconfig` | about 0.7 MiB |
 
 All three are built for `x86_64`, `aarch64` and `riscv64`.
 
@@ -97,10 +97,10 @@ symlinks matching `musl-utils`:
 ```
 
 The binary is statically linked, so the tools do not depend on a dynamic
-loader, libc or `libgcc_s`.  All three architectures use the self-contained
-musl sysroot (riscv64 goes through `rust-lld` because the target has no
-`crt-static-default`).  `ldd` still inspects keel and musl binaries by
-parsing their ELF files.
+loader, libc or `libgcc_s`.  All three targets link against Rust's
+self-contained musl sysroot; riscv64 goes through `rust-lld` because that
+target has no `crt-static-default`.  `ldd` still inspects keel and musl
+binaries by parsing their ELF files.
 
 `ldd` parses ELF files directly because keel's loader is not a command-line
 interpreter; it prints dependency paths but not load addresses.  `ldconfig`

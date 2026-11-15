@@ -2,8 +2,8 @@
 
 [`docs/workloads.md`](workloads.md) answers whether a handful of real programs
 start and perform their basic task.  This page goes one step further: it runs
-the programs' **own test suites** against two identical Alpine chroots, one
-with stock musl 1.2.6 and one with keel's `libc.so`.
+the programs' **own test suites** on x86\_64 against two identical Alpine
+chroots, one with stock musl 1.2.6 and one with keel's `libc.so`.
 
 The suites are deliberately kept separate from the release gate.  They take
 several minutes, need Docker/chroot, and some upstream tests are sensitive to
@@ -14,7 +14,7 @@ the host kernel and network sandbox.  Run them manually or from the scheduled
 
 | Suite | Source | Scope | Result (2026-11-12) |
 |---|---|---|---|
-| CPython | Alpine `python3-tests` 3.12.16 | 40 modules, 13,737 tests | 62 modules OK; only an SSL timing test differs |
+| CPython | Alpine `python3-tests` 3.12.16 | 40 named modules (62 test files after CPython expands package tests), 13,737 tests | 62 test files OK; only an SSL timing test differs |
 | Git | `git/t` 2.52.1, installed `git` 2.52.0 | 7 foundational t/ scripts, 599 tests | 6 scripts pass under both; one racy test in t0000 |
 | nginx | `nginx/nginx-tests` `bb4d348` | 8 HTTP tests | 8/8 under both |
 
@@ -44,6 +44,9 @@ Useful environment variables:
 
 - `ALPINE_MIRROR` — default `https://dl-cdn.alpinelinux.org`; for a slow
   mirror use e.g. `https://mirrors.aliyun.com`.
+- `ALPINE_VERSION` — Alpine release (default `3.23`).
+- `TARGET` — Rust target whose release `libc.so` is installed (default
+  `x86_64-unknown-linux-gnu`).
 - `SUITE_DIR` — work/report directory (default `workload-suites/`).
 - `GIT_VERSION` — Git source version (default `2.52.1`).
 - `NGINX_TESTS_REF` — pinned nginx-tests commit.
@@ -54,13 +57,14 @@ Useful environment variables:
 
 ## Results
 
-The latest run used keel 0.1.0.
+The latest recorded run used keel 0.1.0 (2026-11-12); the current release is
+0.1.1.
 
 ### CPython
 
 ```text
-musl:  62 modules OK, 6 failed, 13,737 tests run
-keel: 62 modules OK, 6 failed, 13,737 tests run
+musl:  62 test files OK, 6 failed, 13,737 tests run
+keel: 62 test files OK, 6 failed, 13,737 tests run
 ```
 
 The baseline failures are environment-related and occur with stock musl too:
@@ -136,5 +140,5 @@ the code path.
   upstream suites.  The latter need a source build and are candidates for a
   follow-up.
 - Release gating: these suites are intentionally not a `needs:` dependency
-  of `publish`.  The release gate remains `test` + `macro-parity`; workload
-  suites run on demand and weekly.
+  of `publish`.  The release gate remains `header-consistency`, `test` and
+  `macro-parity`; workload suites run on demand and weekly.

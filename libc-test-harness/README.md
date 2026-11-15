@@ -41,7 +41,14 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
   never unloads a module or runs `DT_FINI`/`DT_FINI_ARRAY` destructors;
   `RTLD_DEEPBIND` is not part of musl's API and is not defined. `RTLD_LAZY`
   is accepted but relocations are resolved eagerly.
-- **Static linking is not tested** — only dynamic-linked binaries are built.
+- **Static linking is not tested by this harness** — only dynamic-linked
+  binaries are built here; the root integration tests cover `libc.a`.
 - **Only the functional subset runs by default** — use `./run.sh all` for everything.
 
-Current baseline (x86_64): `functional` 72/72, `regression` 67 PASS + 1 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The regression skip is `pthread_atfork-errno-clobber`, which can only pass as an unprivileged user and also fails under musl when root. On aarch64, `functional/strtold` and `functional/tls_local_exec` are skipped for the known long-double/TLS-alignment gaps.
+Current baseline (x86_64, current `libc-test` checkout): `functional` 73/73,
+`regression` 67 PASS + 1 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The
+regression skip is `pthread_atfork-errno-clobber`, which can only pass as an
+unprivileged user and also fails under musl when root. On aarch64,
+`functional/strtold` and `functional/tls_local_exec` are skipped for the
+known long-double/TLS-alignment gaps. Counts move when the external
+`libc-test` checkout changes.

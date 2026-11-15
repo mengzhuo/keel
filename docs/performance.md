@@ -9,8 +9,9 @@ and the reproduction scripts rather than the absolute values.
 - Host (x86\_64): AMD EPYC 7532, Linux 6.12, 64 available CPUs.
 - `keel` release artifacts use the size-oriented release profile:
   `opt-level = "s"`, `strip = "symbols"`, `panic = "abort"`, and no unwind
-  tables. This costs a few percent on stdio/math versus `-O3` and shrinks
-  `libc.so` by about 30%.
+  tables. This costs a few percent on stdio/math versus `-O3`; it cut the
+  standalone `libc.so` from 1.52 MB to 680 KB before the loader was folded
+  into the same object.
 - Baseline: musl 1.2.6 built from the pristine release tarball, used as the
   ELF interpreter/libc.
 - The same C source is compiled twice against musl. The two binaries differ
@@ -98,9 +99,10 @@ runtime footprint is one file; keel now also uses one combined `libc.so`.
 | musl `libc.so` | 666 KB | — | — |
 | Alpine `.apk` | not measured | not measured | not measured |
 
-For comparison, the historical 0.4.2 packages were 1.40 MB / 1.41 MB / 1.32 MB.
+For comparison, the pre-rename (`crabc`) 0.4.2 packages were 1.40 MB /
+1.41 MB / 1.32 MB.
 
-Static links use `libc.a` (9.7 MB as a Rust archive). Link with
+Static links use `libc.a` (about 10 MB as a Rust archive). Link with
 `-Wl,--gc-sections`: a static hello is 26.5 KB versus musl's 17.8 KB, but
 without `--gc-sections` it grows to 1.23 MB.
 
@@ -121,8 +123,11 @@ without `--gc-sections` it grows to 1.23 MB.
   buffered bytes.  This makes 32-byte `getrandom` about 5x faster than the
   syscall.  Both vDSO symbol naming schemes (`__vdso_*` and `__kernel_*`) are
   handled, and the loader preserves `AT_SYSINFO_EHDR` for static targets.
-- **Packed relative relocations.** `libc.so` is linked with
-  `-z pack-relative-relocs`; the loader applies both `DT_RELA` and `DT_RELR`.
+- **Packed relative relocations.** The loader applies both `DT_RELA` and
+  `DT_RELR`, so binaries from distro toolchains that default to packed
+  relocations load correctly.  keel's own `libc.so` still uses RELA:
+  `_start` self-relocates that table, and `-z pack-relative-relocs` must
+  stay off until it handles RELR entries too.
 - **Dynamic linker.** Symbol lookup uses each object's GNU/SysV hash table
   instead of a linear walk. The loader uses the kernel's existing `AT_PHDR`
   executable mapping instead of re-reading `/proc/self/exe` and remapping
@@ -136,8 +141,8 @@ without `--gc-sections` it grows to 1.23 MB.
   keeping the common paths compact.
 - **Release profile.** `opt-level = "s"` with `strip` and no unwind tables
   trades a few percent of stdio/math throughput for a much smaller package;
-  the previous `-O3` build was about 2.3x musl's size, the current one is
-  1.06x.
+  the previous `-O3` build was about 2.3x musl's package size, which is why
+  the size-oriented profile is retained for release artifacts.
 
 ## vDSO coverage
 

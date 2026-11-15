@@ -18,10 +18,12 @@ Output is in `target/debug/libc.so` and `target/debug/libc.a`.
 
 ## Features
 
-- Implements ~350+ C library functions (stdio, stdlib, string, math, pthread, etc.)
+- Implements the musl 1.2.6 public C API (stdio, stdlib, string, math,
+  pthread, and more)
 - `no_std` — no Rust standard library dependency
 - Targets the musl ABI for x86_64, aarch64 and riscv64
-- Supports `f128` long double on aarch64 and riscv64
+- Uses `f128` signatures for `long double` on aarch64 and riscv64; the
+  long-double math paths currently compute through `f64`
 - Architecture selection and syscall numbers live in `src/arch.rs`
 
 ## License

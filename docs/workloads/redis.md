@@ -67,7 +67,8 @@ REDIS_OK
 
 The `vm.overcommit_memory` warning comes from the stock configuration and is
 also printed by the musl baseline. The process id and timestamp in the warning
-vary per run.
+vary per run.  The literal `build=%llx` field is part of this Alpine package's
+version banner, not a keel formatting error; the musl baseline prints it too.
 
 ## Baseline comparison
 
