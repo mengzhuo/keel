@@ -3244,6 +3244,38 @@ pub unsafe extern "C" fn pthread_equal(t1: PthreadT, t2: PthreadT) -> c_int {
     (t1 == t2) as c_int
 }
 
+unsafe fn dynamic_tls_init(block: *mut u8) -> *mut u8 {
+    __keel_init_thread_tls_at(block)
+}
+
+unsafe fn dynamic_tls_create() -> *mut u8 {
+    __keel_create_thread_tls()
+}
+
+/// Prefer carving TLS out of the top of an application-provided stack; a
+/// separate mapping can land below a MAP_GROWSDOWN stack and block growth.
+unsafe fn carve_thread_tls(
+    init_at: unsafe fn(*mut u8) -> *mut u8,
+    create: unsafe fn() -> *mut u8,
+    user_top: *mut c_void,
+    stack_size: usize,
+    tls_total: usize,
+    stack_owned: bool,
+    stack_top: &mut *mut u8,
+    tls_owned: &mut bool,
+) -> *mut u8 {
+    if !stack_owned && tls_total > 0 && stack_size > tls_total + 4096 {
+        let block = ((user_top as usize - tls_total) & !63usize) as *mut u8;
+        let fs = init_at(block);
+        if !fs.is_null() {
+            *stack_top = block;
+            *tls_owned = false;
+            return fs;
+        }
+    }
+    create()
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn pthread_create(
     thread: *mut PthreadT,
@@ -3280,34 +3312,27 @@ pub unsafe extern "C" fn pthread_create(
     let mut stack_top = stack.add(stack_size);
     let mut tls_owned = true;
     let fs_base = if static_mode {
-        if !stack_owned && tls_total > 0 && stack_size > tls_total + 4096 {
-            let block = ((user_top as usize - tls_total) & !63usize) as *mut u8;
-            let fs = static_tls_init_block(block);
-            if fs.is_null() {
-                static_tls_create_block()
-            } else {
-                stack_top = block;
-                tls_owned = false;
-                fs
-            }
-        } else {
-            static_tls_create_block()
-        }
-    } else if !stack_owned && tls_total > 0 && stack_size > tls_total + 4096 {
-        // Carve TLS out of the top of the application-provided stack (musl
-        // behaviour). A separate mmap here can land directly below the stack
-        // and prevent MAP_GROWSDOWN from expanding it.
-        let block = ((user_top as usize - tls_total) & !63usize) as *mut u8;
-        let fs = __keel_init_thread_tls_at(block);
-        if fs.is_null() {
-            __keel_create_thread_tls()
-        } else {
-            stack_top = block;
-            tls_owned = false;
-            fs
-        }
+        carve_thread_tls(
+            static_tls_init_block,
+            static_tls_create_block,
+            user_top,
+            stack_size,
+            tls_total,
+            stack_owned,
+            &mut stack_top,
+            &mut tls_owned,
+        )
     } else {
-        __keel_create_thread_tls()
+        carve_thread_tls(
+            dynamic_tls_init,
+            dynamic_tls_create,
+            user_top,
+            stack_size,
+            tls_total,
+            stack_owned,
+            &mut stack_top,
+            &mut tls_owned,
+        )
     };
     if fs_base.is_null() {
         if stack_owned { sys_munmap(stack, stack_size); }
