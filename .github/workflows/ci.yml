@@ -22,8 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install cross compilers
         run: |
@@ -61,8 +61,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install musl-tools
         run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -156,8 +156,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust nightly + riscv64 target
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install stable Rust + riscv64 target
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: riscv64gc-unknown-linux-musl
 

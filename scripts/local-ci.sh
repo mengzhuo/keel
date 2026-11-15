@@ -19,7 +19,7 @@ exec "$RUNNER" run --rm \
     export DEBIAN_FRONTEND=noninteractive
     apt-get -o Acquire::ForceIPv4=true update -qq
     apt-get -o Acquire::ForceIPv4=true install -y -qq curl musl-tools ca-certificates file gcc
-    curl --proto '"'"'=https'"'"' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly --profile minimal
+    curl --proto '"'"'=https'"'"' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
     . "$HOME/.cargo/env"
     touch /tmp/keel-ci-seed
     cargo build --workspace

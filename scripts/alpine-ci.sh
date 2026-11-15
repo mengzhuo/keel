@@ -18,7 +18,7 @@ exec "$RUNNER" run --rm \
     "${CI_IMAGE:-alpine:latest}" sh -c '
     set -e
     apk add --no-cache bash file binutils build-base rustup >/dev/null
-    rustup-init -y --profile minimal --default-toolchain nightly
+    rustup-init -y --profile minimal --default-toolchain stable
     . "$HOME/.cargo/env"
 
     # The test harness expects Debian-style musl-gcc and CRT paths.
