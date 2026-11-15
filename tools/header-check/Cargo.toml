@@ -1,0 +1,10 @@
+[package]
+name = "keel-header-check"
+version = "0.1.1"
+edition = "2021"
+description = "Check that keel's C header macros agree with its Rust constants"
+license = "BSD-3-Clause"
+repository = "https://github.com/mengzhuo/keel"
+publish = false
+
+[dependencies]

@@ -14,7 +14,27 @@ env:
   RUST_TEST_THREADS: "1"
 
 jobs:
+  # First gate: the hand-maintained headers and the Rust sources are
+  # independent sources of truth, so fail fast if a numeric macro drifts.
+  header-consistency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu
+
+      - name: Check headers against Rust constants
+        run: cargo run -q -p keel-header-check -- --include include
+
   build-and-test:
+    needs: header-consistency
     strategy:
       fail-fast: false
       matrix:
@@ -129,9 +149,6 @@ jobs:
 
       - name: Check macro expansion parity
         run: ./scripts/macro-parity.sh
-
-      - name: Check headers against Rust constants
-        run: python3 tests/header_rust_consistency.py --include include
 
   riscv64-cross:
     runs-on: ubuntu-latest

@@ -1,5 +1,5 @@
 [workspace]
-members = ["libc", "utils"]
+members = ["libc", "utils", "tools/header-check"]
 
 [profile.dev]
 panic = "abort"

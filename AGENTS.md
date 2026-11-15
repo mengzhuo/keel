@@ -13,6 +13,7 @@
 | `include/` | Hand-maintained C headers used by fixtures and packaged in `keel-dev`. |
 | `crt/` | Rust `global_asm!` startup objects (`crt1.o`, `Scrt1.o`, `crti.o`, `crtn.o`); built by `scripts/build-crt.sh`. |
 | `utils/` | Package `keel-utils`; Rust multicall binary for `getconf`, `getent`, `iconv`, `ldd`, `ldconfig`. |
+| `tools/header-check/` | Package `keel-header-check`; expands the headers for all three arches and compares every integer macro with the matching Rust constant. It is the first CI gate. |
 | `tests/` | Root-package integration tests; C fixtures live in `tests/fixtures/`. |
 | `libc-test-harness/` | Shell runner for upstream `libc-test`; reports in `libc-test-harness/reports/`. |
 | `scripts/local-ci.sh` | Runs `cargo build/test --workspace` in the Ubuntu CI image (it does not run the harness). |
@@ -46,10 +47,11 @@ cargo test --test math       # one test file, after the build above
 ./scripts/build-utils.sh     # keel-linked Rust musl-utils replacement (dist/utils/)
 ./scripts/package-apk.sh     # keel, keel-dev and keel-utils APKs
 ./scripts/macro-parity.sh    # expanded-macro parity vs musl 1.2.6 (3 arches)
+cargo run -q -p keel-header-check -- --include include  # header macros vs Rust constants
 ./scripts/workload-suites.sh # upstream CPython/Git/nginx suites vs musl (root + Docker)
 ```
 
-- `scripts/macro-parity.sh` downloads musl 1.2.6 into `~/.cache/keel`, generates its headers for x86_64/aarch64/riscv64, and compares the expansion of every macro defined by both keel and musl in both C and C++. It requires `gcc`/`g++`, `aarch64-linux-gnu-gcc`/`g++` and `riscv64-linux-gnu-gcc`/`g++`. Intentional differences live in `tests/macro-parity.allowlist`; all current entries are keel's 64-bit x86_64 `long double` ABI (in `float.h` and `values.h`). `tests/macro-parity.coverage` pins the missing-ABI-macro count at zero, and `tests/header_rust_consistency.py` checks that every numeric header macro matches the corresponding Rust constant.
+- `scripts/macro-parity.sh` downloads musl 1.2.6 into `~/.cache/keel`, generates its headers for x86_64/aarch64/riscv64, and compares the expansion of every macro defined by both keel and musl in both C and C++. It requires `gcc`/`g++`, `aarch64-linux-gnu-gcc`/`g++` and `riscv64-linux-gnu-gcc`/`g++`. Intentional differences live in `tests/macro-parity.allowlist`; all current entries are keel's 64-bit x86_64 `long double` ABI (in `float.h` and `values.h`). `tests/macro-parity.coverage` pins the missing-ABI-macro count at zero, and `tools/header-check` (`cargo run -p keel-header-check`) checks that every numeric header macro matches the corresponding Rust constant. It runs first in CI, before the build, and uses the same three compilers.
 
 - **Bare `cargo build` only builds the root `keel-rt` package (the `keel` loader).** The root `Cargo.toml` is both workspace and package, so `libc.so`/`libc.a` are not rebuilt. Use `--workspace` or `-p keel-libc`.
 - `-p libc` and `-p ldso` do not exist. The artifact name comes from `[lib] name = "c"`, not the package name.
@@ -251,7 +253,7 @@ scripts/alpine-ci.sh            # Alpine 3.23.3, cargo test green
 scripts/parity-check.sh all     # 0 unexpected diffs vs musl 1.2.6
 scripts/riscv-smoke.sh          # riscv64 cross-build + qemu fixtures, 0 failures
 scripts/macro-parity.sh         # 0 mismatches, 0 missing ABI macros (3 arches, C/C++)
-tests/header_rust_consistency.py # 1385/1385 numeric header macros match Rust
+cargo run -q -p keel-header-check -- --include include  # 1407/1407 numeric header macros match Rust
 
 LTP 20250930, x86_64, 1488 syscalls tags:
   musl baseline                 # 112 FAIL, 139 TCONF
