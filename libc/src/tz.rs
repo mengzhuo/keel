@@ -406,7 +406,7 @@ unsafe fn do_tzset() {
     TZ_MAP_SIZE = map_size;
     if !map.is_null() {
         let mut scale = 2usize;
-        if *map.add(4) != b'1' {
+        if *map.add(4) != 0 {
             let skip = zi_dotprod(map.add(20), &[1, 1, 8, 5, 6, 1]);
             TZ_TRANS = map.add(skip + 44 + 44);
             scale = 3;
@@ -418,12 +418,20 @@ unsafe fn do_tzset() {
         TZ_ABBREVS = TZ_TYPES.add(6 * zi_read32(TZ_TRANS.sub(8)) as usize);
         TZ_ABBREVS_END = TZ_ABBREVS.add(zi_read32(TZ_TRANS.sub(4)) as usize);
 
-        if *map.add(map_size - 1) == b'\n' as u8 {
-            let mut p = map.add(map_size - 2);
-            while *p != b'\n' as u8 {
-                p = p.sub(1);
-            }
-            s = p.add(1) as *const c_char;
+        // v2/v3 files end with "\n<POSIX TZ>\n"; locate the first newline
+        // from the second header's counts instead of scanning backwards
+        // (musl: time: fix TZif version and footer parsing).
+        let footer = (TZ_TRANS as usize).wrapping_sub(map as usize)
+            + zi_dotprod(
+                TZ_TRANS.sub(24),
+                &[1, 1, (1u8 << scale) + 4, (1u8 << scale) + 1, 6, 1],
+            );
+        if *map.add(4) != 0
+            && footer < map_size - 1
+            && *map.add(footer) == b'\n' as u8
+            && *map.add(map_size - 1) == b'\n' as u8
+        {
+            s = map.add(footer + 1) as *const c_char;
         } else {
             crate::__tzname[0] = core::ptr::null_mut();
             crate::__tzname[1] = core::ptr::null_mut();

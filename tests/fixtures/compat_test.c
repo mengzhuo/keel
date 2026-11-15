@@ -32,6 +32,7 @@
 #include <getopt.h>
 #include <poll.h>
 #include <regex.h>
+#include <nl_types.h>
 
 struct memcookie { char data[64]; size_t len, pos; };
 static ssize_t mc_read(void *c, char *b, size_t n) {
@@ -202,6 +203,11 @@ int main(void) {
     CHECK(glob("/tmp/*", 0, 0, &gl) == 0 && gl.gl_pathc > 0, "glob");
     globfree(&gl);
 
+    /* GLOB_DOOFFS must not overflow the result vector. */
+    memset(&gl, 0, sizeof(gl));
+    gl.gl_offs = (size_t)-1;
+    CHECK(glob("/tmp/*", GLOB_DOOFFS, 0, &gl) == GLOB_NOSPACE, "glob dooffs overflow");
+
     /* nftw over a small tree */
     char tree[] = "/tmp/keel-ftw-XXXXXX";
     if (mkdtemp(tree)) {
@@ -244,6 +250,33 @@ int main(void) {
         CHECK(strcmp(we.we_wordv[1], "b c") == 0 && strcmp(we.we_wordv[2], "d value") == 0, "wordexp values");
     }
     wordfree(&we);
+
+    /* WRDE_DOOFFS must not overflow the result vector either. */
+    memset(&we, 0, sizeof(we));
+    we.we_offs = (size_t)-1;
+    CHECK(wordexp("a", &we, WRDE_DOOFFS) == WRDE_NOSPACE, "wordexp dooffs overflow");
+
+    /* Small offsets are placed at the front of we_wordv. */
+    memset(&we, 0, sizeof(we));
+    we.we_offs = 2;
+    CHECK(wordexp("a", &we, WRDE_DOOFFS) == 0 && we.we_wordc == 1 &&
+          we.we_wordv[0] == NULL && we.we_wordv[1] == NULL &&
+          strcmp(we.we_wordv[2], "a") == 0, "wordexp dooffs");
+    wordfree(&we);
+
+    /* WRDE_APPEND appends to the existing vector. */
+    memset(&we, 0, sizeof(we));
+    CHECK(wordexp("a", &we, 0) == 0 && we.we_wordc == 1, "wordexp append base");
+    CHECK(wordexp("b", &we, WRDE_APPEND) == 0 && we.we_wordc == 2 &&
+          strcmp(we.we_wordv[1], "b") == 0, "wordexp append");
+    wordfree(&we);
+
+    /* catgets must reject the invalid catalog descriptor. */
+    errno = 0;
+    CHECK(catgets((nl_catd)-1, 1, 1, "default") != NULL && errno == EBADF, "catgets EBADF");
+
+    /* hstrerror messages */
+    CHECK(strcmp(hstrerror(2), "Try again") == 0, "hstrerror");
 
     /* fopencookie over a memory buffer */
     {

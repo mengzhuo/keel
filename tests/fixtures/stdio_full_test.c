@@ -6,6 +6,8 @@
 #include "stdlib.h"
 #include "fcntl.h"
 #include "unistd.h"
+#include "errno.h"
+#include "limits.h"
 
 static int test_fopen_fclose(void) {
     FILE *f = fopen("/tmp/test_stdio_fopen.txt", "w");
@@ -145,6 +147,29 @@ static int test_sscanf(void) {
     char empty[] = { 0 };
     n = sscanf(empty, "a");
     if (n != EOF) return 4;
+
+    /* %m allocates the destination buffer. */
+    char *ms = NULL;
+    n = sscanf("hello world", "%ms", &ms);
+    if (n != 1 || !ms || strcmp(ms, "hello") != 0) return 5;
+    free(ms);
+    ms = NULL;
+    n = sscanf("abcdef", "%3ms", &ms);
+    if (n != 1 || !ms || strcmp(ms, "abc") != 0) return 6;
+    free(ms);
+    ms = NULL;
+    n = sscanf("abc123", "%m[abc]", &ms);
+    if (n != 1 || !ms || strcmp(ms, "abc") != 0) return 7;
+    free(ms);
+    ms = NULL;
+    n = sscanf("xyz", "%mc", &ms);
+    if (n != 1 || !ms || ms[0] != 'x') return 8;
+    free(ms);
+
+    /* An unrepresentable field width is a format error. */
+    int dummy = 0;
+    n = sscanf("123", "%18446744073709551617d", &dummy);
+    if (n != EOF) return 9;
     return 0;
 }
 
@@ -274,6 +299,20 @@ static int test_fdopen(void) {
     return 0;
 }
 
+static int test_seek_overflow(void) {
+    FILE *f = fopen("/tmp/test_stdio_seek.txt", "w+");
+    if (!f) return 1;
+    fputs("abcdef", f);
+    if (fflush(f) != 0) return 2;
+    rewind(f);
+    if (fgetc(f) != 'a') return 3;
+    errno = 0;
+    if (fseeko(f, LLONG_MIN, SEEK_CUR) != -1 || errno != EOVERFLOW) return 4;
+    fclose(f);
+    remove("/tmp/test_stdio_seek.txt");
+    return 0;
+}
+
 int main(void) {
     int r;
     if ((r = test_fopen_fclose())) { printf("fopen_fclose fail %d\n", r); return r; }
@@ -292,6 +331,7 @@ int main(void) {
     if ((r = test_fopen64())) { printf("fopen64 fail %d\n", r); return r + 140; }
     if ((r = test_perror_smoke())) { printf("perror fail %d\n", r); return r + 150; }
     if ((r = test_fdopen())) { printf("fdopen fail %d\n", r); return r + 160; }
+    if ((r = test_seek_overflow())) { printf("seek_overflow fail %d\n", r); return r + 170; }
     printf("stdio full ok\n");
     return 0;
 }

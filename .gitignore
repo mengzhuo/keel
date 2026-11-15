@@ -75,3 +75,4 @@ __pycache__/
 *.pyc
 /tests/fixtures/group_many_test
 /workload-suites/
+/tests/fixtures/time_regressions_test

@@ -3348,6 +3348,7 @@ pub unsafe extern "C" fn pthread_create(
 pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut c_void) -> c_int {
     let slot = thread as *mut Thread;
     if slot.is_null() { return EINVAL; }
+    if thread == pthread_self() { return EDEADLK; }
     if (*slot).detach_state == DT_DETACHED { return EINVAL; }
     let tid_ptr = &raw mut (*slot).tid;
     loop {
@@ -4855,7 +4856,10 @@ pub unsafe extern "C" fn catclose(_catd: nl_catd) -> c_int { 0 }
 
 #[no_mangle]
 pub unsafe extern "C" fn catgets(catd: nl_catd, _set_id: c_int, _msg_id: c_int, s: *const c_char) -> *mut c_char {
-    if catd == !0usize as nl_catd { return s as *mut c_char; }
+    if catd == !0usize as nl_catd {
+        ERRNO!() = EBADF_VAL;
+        return s as *mut c_char;
+    }
     s as *mut c_char
 }
 
@@ -6075,7 +6079,16 @@ pub unsafe extern "C" fn fseeko(stream: *mut FILE, offset: i64, whence: c_int) -
     let mut adj_offset = offset;
     if whence == SEEK_CUR {
         if !f.rpos.is_null() {
-            adj_offset -= f.rend as i64 - f.rpos as i64;
+            let buffered = f.rend as i64 - f.rpos as i64;
+            if adj_offset < i64::MIN + buffered {
+                ERRNO!() = EOVERFLOW;
+                return -1;
+            }
+            adj_offset -= buffered;
+        }
+        if adj_offset < i64::MIN + f.ungotten_count as i64 {
+            ERRNO!() = EOVERFLOW;
+            return -1;
         }
         adj_offset -= f.ungotten_count as i64;
     }
@@ -6113,7 +6126,12 @@ pub unsafe extern "C" fn ftello(stream: *mut FILE) -> i64 {
     if !f.rpos.is_null() {
         pos += f.rpos as i64 - f.rend as i64;
     } else if !f.wbase.is_null() {
-        pos += f.wpos as i64 - f.wbase as i64;
+        let buffered = f.wpos as i64 - f.wbase as i64;
+        if buffered > i64::MAX - pos {
+            ERRNO!() = EOVERFLOW;
+            return -1;
+        }
+        pos += buffered;
     }
     pos - f.ungotten_count as i64
 }
@@ -8207,10 +8225,22 @@ unsafe fn do_vsscanf(
         }
         let suppress = if *fmt.add(fi) as u8 == b'*' { fi += 1; true } else { false };
         let mut width: usize = 0;
+        let mut width_overflow = false;
         while (*fmt.add(fi) as u8) >= b'0' && (*fmt.add(fi) as u8) <= b'9' {
-            width = width * 10 + ((*fmt.add(fi) as u8) - b'0') as usize; fi += 1;
+            let digit = ((*fmt.add(fi) as u8) - b'0') as usize;
+            if width > (c_int::MAX as usize - digit) / 10 {
+                width_overflow = true;
+                break;
+            }
+            width = width * 10 + digit;
+            fi += 1;
         }
-        if *fmt.add(fi) as u8 == b'm' { fi += 1; }
+        if width_overflow { input_eof = true; break; }
+        let mut alloc = false;
+        if *fmt.add(fi) as u8 == b'm' {
+            alloc = !suppress;
+            fi += 1;
+        }
         let mut len_mod = 0u8;
         match *fmt.add(fi) as u8 {
             b'h' => { fi += 1; if *fmt.add(fi) as u8 == b'h' { fi += 1; len_mod = 2; } else { len_mod = 1; } }
@@ -8305,29 +8335,83 @@ unsafe fn do_vsscanf(
             b'c' => {
                 let w = if width > 0 { width } else { 1 };
                 if p >= buf_len { input_eof = true; break; }
-                let dest_ptr: *mut c_char = if !suppress { args.next_arg::<*mut c_char>() } else { core::ptr::null_mut() };
                 let start_p = p;
                 let mut j = 0usize;
-                while j < w && p < buf_len {
-                    if !dest_ptr.is_null() { *dest_ptr.add(j) = *buf.add(p) as c_char; }
-                    p += 1; j += 1;
+                if alloc {
+                    let out = args.next_arg::<*mut *mut c_char>();
+                    let s = crate::malloc(w + 1) as *mut c_char;
+                    if s.is_null() {
+                        if !consumed.is_null() { *consumed = p; }
+                        return if assigned == 0 { -1 } else { assigned };
+                    }
+                    while j < w && p < buf_len {
+                        *s.add(j) = *buf.add(p) as c_char;
+                        p += 1; j += 1;
+                    }
+                    if j != w {
+                        crate::free(s as *mut c_void);
+                        p = start_p;
+                        input_eof = true;
+                        break;
+                    }
+                    if !out.is_null() { *out = s; } else { crate::free(s as *mut c_void); }
+                    if !suppress { assigned += 1; }
+                } else {
+                    let dest_ptr: *mut c_char = if !suppress { args.next_arg::<*mut c_char>() } else { core::ptr::null_mut() };
+                    while j < w && p < buf_len {
+                        if !dest_ptr.is_null() { *dest_ptr.add(j) = *buf.add(p) as c_char; }
+                        p += 1; j += 1;
+                    }
+                    if j != w { p = start_p; input_eof = true; break; }
+                    if !suppress { assigned += 1; }
                 }
-                if j != w { p = start_p; input_eof = true; break; }
-                if !suppress { assigned += 1; }
             }
             b's' => {
                 while p < buf_len && is_ws_byte(*buf.add(p)) { p += 1; }
                 if p >= buf_len { input_eof = true; break; }
-                let dest_ptr: *mut c_char = if !suppress { args.next_arg::<*mut c_char>() } else { core::ptr::null_mut() };
                 let w = if width > 0 { width } else { usize::MAX };
-                let mut j = 0usize;
-                while p < buf_len && *buf.add(p) != 0 && !is_ws_byte(*buf.add(p)) && j < w {
-                    if !dest_ptr.is_null() { *dest_ptr.add(j) = *buf.add(p) as c_char; }
-                    p += 1; j += 1;
+                if alloc {
+                    let out = args.next_arg::<*mut *mut c_char>();
+                    let mut k = 31usize;
+                    let mut s = crate::malloc(k) as *mut u8;
+                    if s.is_null() {
+                        if !consumed.is_null() { *consumed = p; }
+                        return if assigned == 0 { -1 } else { assigned };
+                    }
+                    let mut j = 0usize;
+                    let mut failed = false;
+                    while p < buf_len && *buf.add(p) != 0 && !is_ws_byte(*buf.add(p)) && j < w {
+                        *s.add(j) = *buf.add(p);
+                        j += 1;
+                        p += 1;
+                        if j == k {
+                            let nk = k * 2 + 1;
+                            let ns = crate::realloc(s as *mut c_void, nk) as *mut u8;
+                            if ns.is_null() { failed = true; break; }
+                            s = ns;
+                            k = nk;
+                        }
+                    }
+                    if failed {
+                        crate::free(s as *mut c_void);
+                        if !consumed.is_null() { *consumed = p; }
+                        return if assigned == 0 { -1 } else { assigned };
+                    }
+                    if j == 0 { crate::free(s as *mut c_void); break; }
+                    *s.add(j) = 0;
+                    if !out.is_null() { *out = s as *mut c_char; } else { crate::free(s as *mut c_void); }
+                    if !suppress { assigned += 1; }
+                } else {
+                    let dest_ptr: *mut c_char = if !suppress { args.next_arg::<*mut c_char>() } else { core::ptr::null_mut() };
+                    let mut j = 0usize;
+                    while p < buf_len && *buf.add(p) != 0 && !is_ws_byte(*buf.add(p)) && j < w {
+                        if !dest_ptr.is_null() { *dest_ptr.add(j) = *buf.add(p) as c_char; }
+                        p += 1; j += 1;
+                    }
+                    if j == 0 { break; }
+                    if !dest_ptr.is_null() { *dest_ptr.add(j) = 0; }
+                    if !suppress { assigned += 1; }
                 }
-                if j == 0 { break; }
-                if !dest_ptr.is_null() { *dest_ptr.add(j) = 0; }
-                if !suppress { assigned += 1; }
             }
             b'[' => {
                 fi += 1;
@@ -8366,19 +8450,55 @@ unsafe fn do_vsscanf(
                 if *fmt.add(fi) as u8 == b']' { fi += 1; }
                 fi -= 1; // common fi += 1 will advance past the closing ]
                 if p >= buf_len { input_eof = true; break; }
-                let dest_ptr: *mut c_char = if !suppress { args.next_arg::<*mut c_char>() } else { core::ptr::null_mut() };
                 let w = if width > 0 { width } else { usize::MAX };
-                let mut j = 0usize;
-                while p < buf_len && *buf.add(p) != 0 && j < w {
-                    let c = *buf.add(p);
-                    let in_set = charset[c as usize] != 0;
-                    if negate { if in_set { break; } } else { if !in_set { break; } }
-                    if !dest_ptr.is_null() { *dest_ptr.add(j) = c as c_char; }
-                    p += 1; j += 1;
+                if alloc {
+                    let out = args.next_arg::<*mut *mut c_char>();
+                    let mut k = 31usize;
+                    let mut s = crate::malloc(k) as *mut u8;
+                    if s.is_null() {
+                        if !consumed.is_null() { *consumed = p; }
+                        return if assigned == 0 { -1 } else { assigned };
+                    }
+                    let mut j = 0usize;
+                    let mut failed = false;
+                    while p < buf_len && *buf.add(p) != 0 && j < w {
+                        let c = *buf.add(p);
+                        let in_set = charset[c as usize] != 0;
+                        if negate { if in_set { break; } } else if !in_set { break; }
+                        *s.add(j) = c;
+                        j += 1;
+                        p += 1;
+                        if j == k {
+                            let nk = k * 2 + 1;
+                            let ns = crate::realloc(s as *mut c_void, nk) as *mut u8;
+                            if ns.is_null() { failed = true; break; }
+                            s = ns;
+                            k = nk;
+                        }
+                    }
+                    if failed {
+                        crate::free(s as *mut c_void);
+                        if !consumed.is_null() { *consumed = p; }
+                        return if assigned == 0 { -1 } else { assigned };
+                    }
+                    if j == 0 { crate::free(s as *mut c_void); break; }
+                    *s.add(j) = 0;
+                    if !out.is_null() { *out = s as *mut c_char; } else { crate::free(s as *mut c_void); }
+                    if !suppress { assigned += 1; }
+                } else {
+                    let dest_ptr: *mut c_char = if !suppress { args.next_arg::<*mut c_char>() } else { core::ptr::null_mut() };
+                    let mut j = 0usize;
+                    while p < buf_len && *buf.add(p) != 0 && j < w {
+                        let c = *buf.add(p);
+                        let in_set = charset[c as usize] != 0;
+                        if negate { if in_set { break; } } else if !in_set { break; }
+                        if !dest_ptr.is_null() { *dest_ptr.add(j) = c as c_char; }
+                        p += 1; j += 1;
+                    }
+                    if j == 0 { break; }
+                    if !dest_ptr.is_null() { *dest_ptr.add(j) = 0; }
+                    if !suppress { assigned += 1; }
                 }
-                if j == 0 { break; }
-                if !dest_ptr.is_null() { *dest_ptr.add(j) = 0; }
-                if !suppress { assigned += 1; }
             }
             _ => break,
         }
@@ -10795,7 +10915,7 @@ unsafe fn tm_to_secs(tm: *const tm) -> i64 {
     let mut is_leap = false;
     let mut t = year_to_secs(year, &mut is_leap);
     t += month_to_secs(month, is_leap) as i64;
-    t += 86400 * ((*tm).tm_mday - 1) as i64;
+    t += 86400 * ((*tm).tm_mday as i64 - 1);
     t += 3600 * (*tm).tm_hour as i64;
     t += 60 * (*tm).tm_min as i64;
     t += (*tm).tm_sec as i64;
@@ -11607,6 +11727,24 @@ pub unsafe extern "C" fn strptime(s: *const c_char, fmt: *const c_char, tm: *mut
                 if digits == 0 { return core::ptr::null_mut(); }
                 let (hh, mm) = if digits <= 2 { (off, 0i64) } else { (off / 100, off % 100) };
                 (*tm).tm_gmtoff = (hh * 3600 + mm * 60) * if neg { -1 } else { 1 };
+            }
+            b'Z' => {
+                let mut matched = false;
+                for i in 0..2 {
+                    let name = crate::tzname[i];
+                    if name.is_null() { continue; }
+                    let len = strlen(name);
+                    if strncmp(p, name as *const u8, len) == 0 {
+                        (*tm).tm_isdst = i as c_int;
+                        p = p.add(len);
+                        matched = true;
+                        break;
+                    }
+                }
+                if !matched {
+                    // No match: skip an alphabetic zone abbreviation.
+                    while *p != 0 && (*p | 32).wrapping_sub(b'a') <= 25 { p = p.add(1); }
+                }
             }
             b'%' => {
                 if *p != b'%' { return core::ptr::null_mut(); }
@@ -13060,7 +13198,9 @@ unsafe fn parse_float(s: *const u8, endptr: *mut *mut u8, is_f32: bool) -> f64 {
     if *p == b'0' && (*p.add(1) == b'x' || *p.add(1) == b'X') {
         p = p.add(2);
         let mut mant: u128 = 0;
-        let mut frac_hex: u32 = 0;
+        let mut frac_hex: i64 = 0;
+        let mut dropped: i64 = 0;
+        let mut tail_nonzero = false;
         let mut found = false;
         let mut in_frac = false;
 
@@ -13068,6 +13208,11 @@ unsafe fn parse_float(s: *const u8, endptr: *mut *mut u8, is_f32: bool) -> f64 {
             if let Some(d) = hex_val(*p) {
                 if mant <= u128::MAX / 16 {
                     mant = mant * 16 + d as u128;
+                } else {
+                    // Too many significant digits for u128: keep the leading
+                    // ones and remember that the dropped tail is nonzero.
+                    dropped += 1;
+                    if d != 0 { tail_nonzero = true; }
                 }
                 if in_frac { frac_hex += 1; }
                 p = p.add(1);
@@ -13104,17 +13249,23 @@ unsafe fn parse_float(s: *const u8, endptr: *mut *mut u8, is_f32: bool) -> f64 {
         if !endptr.is_null() { *endptr = p as *mut u8; }
         if mant == 0 { return if neg { -0.0 } else { 0.0 }; }
 
-        let total_exp = bin_exp as i64 - 4 * frac_hex as i64;
-        return hex_mant_to_f64(mant, total_exp, neg);
+        // The exponent must account for every fractional digit, including
+        // the ones dropped from `mant`.
+        let total_exp = bin_exp as i64 - 4 * (frac_hex - dropped);
+        let r = hex_mant_to_f64(mant, total_exp, neg, tail_nonzero);
+        note_float_range(r, true, is_f32);
+        return r;
     }
 
     // decimal: collect into buffer, use from_str for correct rounding
     let mut buf = [0u8; 65536];
     let mut n = 0usize;
     let mut found_digit = false;
+    let mut nonzero = false;
 
     while *p >= b'0' && *p <= b'9' {
         if n < 65535 { buf[n] = *p; n += 1; }
+        if *p != b'0' { nonzero = true; }
         p = p.add(1);
         found_digit = true;
     }
@@ -13123,6 +13274,7 @@ unsafe fn parse_float(s: *const u8, endptr: *mut *mut u8, is_f32: bool) -> f64 {
         p = p.add(1);
         while *p >= b'0' && *p <= b'9' {
             if n < 65535 { buf[n] = *p; n += 1; }
+            if *p != b'0' { nonzero = true; }
             p = p.add(1);
             found_digit = true;
         }
@@ -13150,21 +13302,43 @@ unsafe fn parse_float(s: *const u8, endptr: *mut *mut u8, is_f32: bool) -> f64 {
     );
     if is_f32 {
         match <f32 as core::str::FromStr>::from_str(s_str) {
-            Ok(v) => { let r = v as f64; if neg { -r } else { r } }
+            Ok(v) => {
+                let r = if neg { -(v as f64) } else { v as f64 };
+                note_float_range(r, nonzero, true);
+                r
+            }
             Err(_) => { if !endptr.is_null() { *endptr = s as *mut u8; } 0.0 }
         }
     } else {
         match <f64 as core::str::FromStr>::from_str(s_str) {
-            Ok(v) => if neg { -v } else { v },
+            Ok(v) => {
+                let r = if neg { -v } else { v };
+                note_float_range(r, nonzero, false);
+                r
+            }
             Err(_) => { if !endptr.is_null() { *endptr = s as *mut u8; } 0.0 }
         }
     }
 }
 
+/// Set ERANGE for overflow and underflow, like musl's floatscan.
+unsafe fn note_float_range(r: f64, nonzero: bool, is_f32: bool) {
+    let (infinite, zero, subnormal) = if is_f32 {
+        let v = r as f32;
+        (v.is_infinite(), v == 0.0, v != 0.0 && v.abs() < f32::MIN_POSITIVE)
+    } else {
+        (r.is_infinite(), r == 0.0, r != 0.0 && r.abs() < f64::MIN_POSITIVE)
+    };
+    if infinite || subnormal || (zero && nonzero) {
+        ERRNO!() = ERANGE_VAL;
+    }
+}
+
 // Convert hex mantissa integer to f64 with correct rounding.
 // mant: integer from parsed hex digits. total_exp: bin_exp - 4 * frac_hex_digits.
+// tail_nonzero records dropped digits below `mant` for the sticky bit.
 // Value = mant * 2^total_exp.
-fn hex_mant_to_f64(mant: u128, total_exp: i64, neg: bool) -> f64 {
+fn hex_mant_to_f64(mant: u128, total_exp: i64, neg: bool, tail_nonzero: bool) -> f64 {
     if mant == 0 { return if neg { -0.0 } else { 0.0 }; }
 
     let msb = (127 - mant.leading_zeros()) as i64;
@@ -13190,7 +13364,7 @@ fn hex_mant_to_f64(mant: u128, total_exp: i64, neg: bool) -> f64 {
         let shifted = mant << (shift as u32);
         let mantissa52 = (shifted as u64) & 0x000FFFFFFFFFFFFF;
         let guard = ((shifted >> 52) & 1) != 0;
-        let sticky = (shifted >> 53) != 0;
+        let sticky = (shifted >> 53) != 0 || tail_nonzero;
         let mut result = mantissa52;
         if guard && (sticky || (result & 1) != 0) {
             result += 1;
@@ -13215,9 +13389,9 @@ fn hex_mant_to_f64(mant: u128, total_exp: i64, neg: bool) -> f64 {
     // shift > 0: round to nearest even
     let mantissa = ((mant >> shift as u32) as u64) & 0x000FFFFFFFFFFFFF;
     let guard = ((mant >> (shift as u32 - 1)) & 1) != 0;
-    let sticky = if shift > 1 {
+    let sticky = (if shift > 1 {
         (mant & ((1u128 << (shift as u32 - 1)) - 1)) != 0
-    } else { false };
+    } else { false }) || tail_nonzero;
 
     let mut result_mant = mantissa;
     let mut result_exp = biased_exp;
@@ -19566,8 +19740,15 @@ pub unsafe extern "C" fn herror(s: *const core::ffi::c_char) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn hstrerror(_err: i32) -> *const core::ffi::c_char {
-    b"Unknown error\0".as_ptr() as *const core::ffi::c_char
+pub unsafe extern "C" fn hstrerror(err: i32) -> *const core::ffi::c_char {
+    let msg: &[u8] = match err {
+        1 => b"Host not found\0",
+        2 => b"Try again\0",
+        3 => b"Non-recoverable error\0",
+        4 => b"Address not available\0",
+        _ => b"Unknown error\0",
+    };
+    msg.as_ptr() as *const core::ffi::c_char
 }
 
 // ============================================================
@@ -21889,6 +22070,7 @@ pub unsafe extern "C" fn pthread_tryjoin_np(thread: PthreadT, retval: *mut *mut 
 pub unsafe extern "C" fn pthread_timedjoin_np(thread: PthreadT, retval: *mut *mut c_void, abstime: *const timespec) -> c_int {
     let slot = thread as *mut Thread;
     if slot.is_null() { return EINVAL; }
+    if thread == pthread_self() { return EDEADLK; }
     if (*slot).detach_state == DT_DETACHED { return EINVAL; }
     loop {
         let r = pthread_tryjoin_np(thread, retval);

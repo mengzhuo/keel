@@ -555,7 +555,19 @@ pub unsafe extern "C" fn glob(
     if old_n != 0 && !(*pglob).gl_pathv.is_null() && flags & GLOB_APPEND_V == 0 {
         // Nothing to free; append is off.
     }
-    let total = offs + old_n + matches + 1;
+    // offs is caller-controlled with GLOB_DOOFFS, so bound the vector size
+    // before it wraps (musl: regex: avoid overflow sizing glob result vector).
+    let lim = usize::MAX / core::mem::size_of::<*mut c_char>() / 2;
+    let total = offs
+        .checked_add(old_n)
+        .and_then(|n| n.checked_add(matches))
+        .and_then(|n| n.checked_add(1));
+    if offs >= lim || total.is_none_or(|n| n > lim) {
+        for i in 0..list.n { crate::free(*list.items.add(i) as *mut c_void); }
+        crate::free(list.items as *mut c_void);
+        return GLOB_NOSPACE_V;
+    }
+    let total = total.expect("checked above");
     let pathv = crate::calloc(total, core::mem::size_of::<*mut c_char>()) as *mut *mut c_char;
     if pathv.is_null() {
         for i in 0..list.n { crate::free(*list.items.add(i) as *mut c_void); }

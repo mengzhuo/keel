@@ -11,8 +11,8 @@ pub struct WordexpT {
     pub we_offs: usize,
 }
 
-const WRDE_APPEND_V: c_int = 1;
-const WRDE_DOOFFS_V: c_int = 2;
+const WRDE_APPEND_V: c_int = 2;
+const WRDE_DOOFFS_V: c_int = 1;
 const WRDE_NOCMD_V: c_int = 4;
 const WRDE_REUSE_V: c_int = 8;
 const WRDE_UNDEF_V: c_int = 32;
@@ -29,23 +29,24 @@ struct WordList {
     cap: usize,
 }
 
-unsafe fn wl_push(list: *mut WordList, s: *const u8, len: usize) {
+unsafe fn wl_push(list: *mut WordList, s: *const u8, len: usize) -> c_int {
     if (*list).n == (*list).cap {
         let ncap = if (*list).cap == 0 { 16 } else { (*list).cap * 2 };
         let na = crate::realloc(
             (*list).items as *mut c_void,
             ncap * core::mem::size_of::<*mut c_char>(),
         ) as *mut *mut c_char;
-        if na.is_null() { return; }
+        if na.is_null() { return WRDE_NOSPACE_V; }
         (*list).items = na;
         (*list).cap = ncap;
     }
     let p = crate::malloc(len + 1) as *mut c_char;
-    if p.is_null() { return; }
+    if p.is_null() { return WRDE_NOSPACE_V; }
     core::ptr::copy_nonoverlapping(s, p as *mut u8, len);
     *p.add(len) = 0;
     *(*list).items.add((*list).n) = p;
     (*list).n += 1;
+    0
 }
 
 unsafe fn wl_free(list: *mut WordList) {
@@ -453,24 +454,37 @@ pub unsafe extern "C" fn wordexp(s: *const c_char, p: *mut WordexpT, flags: c_in
             let mut g: GlobT = core::mem::zeroed();
             let r = crate::glob(wb_data(&mut w) as *const c_char, 0x10 | 0x04, None, &mut g); // NOCHECK|NOSORT
             if r == 0 {
+                let mut oom = false;
                 for k in 0..g.gl_pathc {
                     let gp = *g.gl_pathv.add(k);
                     let l = crate::strlen(gp);
-                    wl_push(&mut list, gp as *const u8, l);
+                    if wl_push(&mut list, gp as *const u8, l) != 0 { oom = true; break; }
                 }
                 crate::globfree(&mut g);
-            } else {
-                wl_push(&mut list, wb_data(&mut w), w.len);
+                if oom { return we_fail(&mut list, &mut w, WRDE_NOSPACE_V); }
+            } else if wl_push(&mut list, wb_data(&mut w), w.len) != 0 {
+                return we_fail(&mut list, &mut w, WRDE_NOSPACE_V);
             }
-        } else {
-            wl_push(&mut list, wb_data(&mut w), w.len);
+        } else if wl_push(&mut list, wb_data(&mut w), w.len) != 0 {
+            return we_fail(&mut list, &mut w, WRDE_NOSPACE_V);
         }
         wb_free(&mut w);
     }
 
     let old = if flags & WRDE_APPEND_V != 0 { (*p).we_wordc } else { 0 };
     let offs = if flags & WRDE_DOOFFS_V != 0 { (*p).we_offs } else { 0 };
-    let total = offs + old + list.n + 1;
+    // we_offs is caller-controlled with WRDE_DOOFFS; keep the vector size
+    // from wrapping.
+    let lim = usize::MAX / core::mem::size_of::<*mut c_char>() / 2;
+    let total = offs
+        .checked_add(old)
+        .and_then(|n| n.checked_add(list.n))
+        .and_then(|n| n.checked_add(1));
+    if offs >= lim || total.is_none_or(|n| n > lim) {
+        wl_free(&mut list);
+        return WRDE_NOSPACE_V;
+    }
+    let total = total.expect("checked above");
     let pathv = crate::calloc(total, core::mem::size_of::<*mut c_char>()) as *mut *mut c_char;
     if pathv.is_null() {
         wl_free(&mut list);

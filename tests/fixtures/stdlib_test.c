@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <math.h>
 
 static int cmp_int(const void *a, const void *b) {
     return *(const int *)a - *(const int *)b;
@@ -113,6 +115,34 @@ static void test_system(void) {
     if (((r >> 8) & 0xFF) != 42) { puts("system fail"); exit(1); }
 }
 
+static void test_strtod(void) {
+    char *end;
+    errno = 0;
+    double d = strtod("1.5", &end);
+    if (d != 1.5 || *end != 0 || errno != 0) { puts("strtod basic fail"); exit(1); }
+
+    errno = 0;
+    d = strtod("1e999", NULL);
+    if (!isinf(d) || errno != ERANGE) { puts("strtod overflow fail"); exit(1); }
+
+    errno = 0;
+    d = strtod("1e-999", NULL);
+    if (d != 0.0 || errno != ERANGE) { puts("strtod underflow fail"); exit(1); }
+
+    /* Dropped hex digits must not change the scaling. */
+    d = strtod("0x1.00000000000000000000000000000001", NULL);
+    if (d != 1.0) { puts("strtod long hex fail"); exit(1); }
+    d = strtod("0x1.111111111111281", NULL);
+    if (d != 0x1.1111111111113p0) { puts("strtod hex rounding fail"); exit(1); }
+
+    errno = 0;
+    float f = strtof("1e39", NULL);
+    if (!isinf(f) || errno != ERANGE) { puts("strtof overflow fail"); exit(1); }
+    errno = 0;
+    f = strtof("1e-46", NULL);
+    if (f != 0.0f || errno != ERANGE) { puts("strtof underflow fail"); exit(1); }
+}
+
 int main(void) {
     /* original tests */
     if (atoi("123") != 123) return 1;
@@ -149,6 +179,7 @@ int main(void) {
     test_env();
     test_multibyte();
     test_system();
+    test_strtod();
 
     puts("stdlib ok");
     return 0;
