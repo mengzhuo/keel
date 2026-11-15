@@ -21,8 +21,13 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
     for arg in args {
         let s = arg.to_string_lossy();
         match s.as_ref() {
-            "--list" | "--verify" | "-v" | "--verbose" => {}
-            "-r" | "--function-relocs" | "-u" | "--unused" | "-d" | "--data-relocs" => {}
+            // --list is the default output mode.
+            "--list" => {}
+            "--verify" | "-v" | "--verbose" | "-r" | "--function-relocs" | "-u"
+            | "--unused" | "-d" | "--data-relocs" => {
+                eprintln!("ldd: option not supported: {s}");
+                return ExitCode::from(1);
+            }
             _ if s.starts_with('-') && s != "-" => {
                 eprintln!("ldd: unknown option: {s}");
                 return ExitCode::from(1);
@@ -88,7 +93,7 @@ fn one(file: &Path) -> Result<(), String> {
                     if !seen_before {
                         match ElfFile::open(&path) {
                             Ok(dep) => {
-                                println!("\t{name} => {} (0x0)", path.display());
+                                println!("\t{name} => {}", path.display());
                                 let mut child_inherited = child_rpaths.clone();
                                 for dir in &inherited {
                                     push_unique(&mut child_inherited, dir.clone());
@@ -101,7 +106,7 @@ fn one(file: &Path) -> Result<(), String> {
                             }
                         }
                     } else {
-                        println!("\t{name} => {} (0x0)", path.display());
+                        println!("\t{name} => {}", path.display());
                     }
                 }
                 None => {

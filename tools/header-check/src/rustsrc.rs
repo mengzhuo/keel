@@ -176,10 +176,12 @@ const TYPE_SUFFIXES: [&str; 10] = [
 /// is reported as unsupported so the caller can count it as skipped.
 pub fn eval_rust(expr: &str) -> Eval {
     let mut expr = strip_digit_underscores(expr.trim());
-    expr = strip_type_suffixes(&expr);
+    // Expand TYPE::MAX/MIN before stripping type suffixes, otherwise "i64"
+    // is removed and the remaining "::MAX" is rejected as unsupported.
     for (from, to) in REPLACEMENTS {
         expr = expr.replace(from, to);
     }
+    expr = strip_type_suffixes(&expr);
     if expr.contains("::") || expr.contains(" as ") || expr.contains("sizeof") {
         return Err(Bad("unsupported"));
     }
@@ -237,10 +239,9 @@ mod tests {
         assert_eq!(eval_rust("0x8000_0000"), Ok(0x8000_0000));
         assert_eq!(eval_rust("1_000 + 24"), Ok(1024));
         assert_eq!(eval_rust("(1 << 4) - 1"), Ok(15));
-        // `TYPE::MAX` is skipped, as in the Python checker this replaced: the
-        // type-suffix stripping removes `i64` before the replacement table can
-        // expand it, so the expression is reported as unsupported.
-        assert!(eval_rust("i64::MAX").is_err());
+        assert_eq!(eval_rust("i64::MAX"), Ok(9223372036854775807));
+        assert_eq!(eval_rust("u32::MAX"), Ok(4294967295));
+        assert_eq!(eval_rust("isize::MIN"), Ok(-9223372036854775808));
         assert!(eval_rust("core::mem::size_of::<T>()").is_err());
     }
 

@@ -104,7 +104,7 @@ impl ElfFile {
             let start = p.p_offset as usize;
             let end = start.checked_add(p.p_filesz as usize)?;
             if end <= data.len() {
-                Some(cstr(&data[start..end]).to_string())
+                Some(cstr(&data[start..end]))
             } else {
                 None
             }
@@ -157,24 +157,18 @@ impl ElfFile {
                     let strtab_end = strtab_off.saturating_add(strsz).min(data.len());
                     let strtab = &data[strtab_off..strtab_end];
                     for off in needed_offsets {
-                        if off < strtab.len() {
-                            needed.push(cstr(&strtab[off..]).to_string());
+                        if let Some(name) = strtab_string(&strtab, off) {
+                            needed.push(name);
                         }
                     }
                     if let Some(off) = soname_off {
-                        if off < strtab.len() {
-                            soname = Some(cstr(&strtab[off..]).to_string());
-                        }
+                        soname = strtab_string(&strtab, off);
                     }
                     if let Some(off) = rpath_off {
-                        if off < strtab.len() {
-                            rpath = Some(cstr(&strtab[off..]).to_string());
-                        }
+                        rpath = strtab_string(&strtab, off);
                     }
                     if let Some(off) = runpath_off {
-                        if off < strtab.len() {
-                            runpath = Some(cstr(&strtab[off..]).to_string());
-                        }
+                        runpath = strtab_string(&strtab, off);
                     }
                 }
             }
@@ -203,7 +197,9 @@ pub fn vaddr_to_offset(phdrs: &[Phdr], vaddr: u64) -> Option<u64> {
         if p.p_type != PT_LOAD {
             continue;
         }
-        let end = p.p_vaddr.checked_add(p.p_filesz)?;
+        let Some(end) = p.p_vaddr.checked_add(p.p_filesz) else {
+            continue;
+        };
         if vaddr >= p.p_vaddr && vaddr < end {
             return Some(p.p_offset + (vaddr - p.p_vaddr));
         }
@@ -211,9 +207,13 @@ pub fn vaddr_to_offset(phdrs: &[Phdr], vaddr: u64) -> Option<u64> {
     None
 }
 
-fn cstr(bytes: &[u8]) -> &str {
+fn cstr(bytes: &[u8]) -> String {
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-    std::str::from_utf8(&bytes[..end]).unwrap_or("")
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
+
+fn strtab_string(strtab: &[u8], off: usize) -> Option<String> {
+    strtab.get(off..).map(cstr)
 }
 
 fn invalid(msg: &str) -> io::Error {

@@ -212,9 +212,17 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         match args[i].as_str() {
             "-a" => all = true,
             "-v" => {
-                i += 1; // specification name; the supported set is the default
+                i += 1;
                 if i >= args.len() {
                     return fail("getconf: -v requires a specification");
+                }
+                // Accept the portable POSIX/XBS5 specification names. keel
+                // reports the default C-locale values regardless of -v.
+                if !args[i].starts_with("POSIX_") && !args[i].starts_with("XBS5_") {
+                    return fail(&format!(
+                        "getconf: unsupported specification: {}",
+                        args[i]
+                    ));
                 }
             }
             "--" => {
@@ -246,6 +254,8 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
     if all {
         for var in VARS {
             if let Kind::Path(_) = var.kind {
+                // Path variables cannot be queried without a pathname.
+                println!("{} = undefined", var.name);
                 continue;
             }
             match query(var, None) {
@@ -290,7 +300,7 @@ fn query(var: &Var, path: Option<&str>) -> Result<Option<String>, String> {
         Kind::Undef => Ok(None),
         Kind::Path(id) => {
             let Some(path) = path else {
-                return Err("invalid variable type".into());
+                return Err("pathname required".into());
             };
             let cpath = CString::new(path).map_err(|_| "path contains a NUL byte".to_string())?;
             let value = unsafe { posix::pathconf(cpath.as_ptr(), id) };
