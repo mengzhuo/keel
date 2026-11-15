@@ -60,7 +60,7 @@ cargo run -q -p keel-header-check -- --include include  # header macros vs Rust 
 - Cargo stops at the first failing test binary; use `cargo test --workspace --no-fail-fast` when you need the full picture.
 - Toolchain is nightly (`rust-toolchain.toml`) and requires `musl-gcc`. `static_hello` also needs host CRT objects under `/usr/lib/<arch>-linux-musl/`.
 - Dev profile is intentional: `opt-level = 2`, `overflow-checks = false`, `panic = "abort"`. The release profile is size-oriented (`opt-level = "s"`, `strip = "symbols"`, `panic = "abort"`), and `.cargo/config.toml` sets `RUST_TEST_THREADS=1` plus `-C force-unwind-tables=no`. Do not change these without re-running the size and performance measurements.
-- New fixture binaries are written into `tests/fixtures/`; add each output path to the manual list in `.gitignore`.
+- Fixture binaries, DSOs, and generated sources are built under `target/fixtures/`; the source tree stays clean, so no `.gitignore` entries are needed.
 - `tests/compat.rs` checks `glob("/tmp/*")`; a fresh container has an empty `/tmp`. `local-ci.sh` seeds a file, but manual runs need `touch /tmp/keel-ci-seed` first.
 - On Alpine, cargo drops the `cdylib` unless `RUSTFLAGS='-C target-feature=-crt-static'`; static fixtures also need `musl-gcc` to add `-no-pie` and `/usr/lib/<arch>-linux-musl/crt*.o` symlinks. `scripts/alpine-ci.sh` sets these up.
 - If the container cannot reach the package/rustup registries, set `HTTP_PROXY`/`HTTPS_PROXY`; in this lab use `http://10.0.0.1:8123`. Both CI scripts forward them.
@@ -80,7 +80,7 @@ Pass extra compiler flags through the `extra` slice. Math adds
 `common::compile_static(src, bin)` builds a static fixture against `libc.a`
 with the host musl CRT objects; tests then run it directly and through the
 standalone `loader`. Tests that build DSOs or custom loader layouts still
-invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/libc_test_regression.rs` and `tests/libc_test_functional.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup. They skip when `LIBC_TEST_DIR` (default: sibling `libc-test`) is absent, so set it to a nonexistent path when you only want the local fixtures.
+invoke the toolchain directly. `tests/crypt.rs` compiles the checked-in `tests/fixtures/crypt_test.c`. `tests/libc_test_regression.rs` and `tests/libc_test_functional.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup. They skip when `LIBC_TEST_DIR` (default: sibling `libc-test`) is absent, so set it to a nonexistent path when you only want the local fixtures.
 
 `libc` sets `test = false`; all coverage is through these root integration tests.
 
@@ -260,7 +260,7 @@ scripts/alpine-ci.sh            # Alpine 3.23.3, cargo test green
 scripts/parity-check.sh all     # 0 unexpected diffs vs musl 1.2.6
 scripts/riscv-smoke.sh          # riscv64 cross-build + qemu fixtures, 0 failures
 scripts/macro-parity.sh         # 0 mismatches, 0 missing ABI macros (3 arches, C/C++)
-cargo run -q -p keel-header-check -- --include include  # 1407/1407 numeric header macros match Rust
+cargo run -q -p keel-header-check -- --include include  # 1442/1442 numeric header macros match Rust
 
 LTP 20250930, x86_64, 1488 syscalls tags:
   musl baseline                 # 112 FAIL, 139 TCONF
