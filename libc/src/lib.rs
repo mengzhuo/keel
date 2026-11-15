@@ -20974,21 +20974,64 @@ pub unsafe extern "C" fn gethostid() -> i64 {
     crate::strtol(buf.as_ptr() as *const core::ffi::c_char, core::ptr::null_mut(), 16)
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct TermiosBuf {
+    c_iflag: u32,
+    c_oflag: u32,
+    c_cflag: u32,
+    c_lflag: u32,
+    c_line: u8,
+    c_cc: [u8; 32],
+    c_ispeed: u32,
+    c_ospeed: u32,
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn getpass(prompt: *const core::ffi::c_char) -> *mut core::ffi::c_char {
     static mut BUF: [core::ffi::c_char; 256] = [0; 256];
-    // Write prompt
-    crate::write(2, prompt as *const core::ffi::c_void, crate::strlen(prompt));
-    // TODO: disable echo with termios while reading, as musl does.  The
-    // current implementation leaves the password visible on the terminal.
-    let n = crate::read(0, BUF.as_mut_ptr() as *mut core::ffi::c_void, 255);
-    if n > 0 {
-        let end = if BUF[(n - 1) as usize] == '\n' as c_char { n - 1 } else { n };
-        BUF[end as usize] = 0;
-    } else {
-        BUF[0] = 0;
+    if prompt.is_null() { return core::ptr::null_mut(); }
+    const O_NOCTTY_V: i32 = 0x100;
+    const ECHO_V: u32 = 0o10;
+    const ISIG_V: u32 = 0o1;
+    const ICANON_V: u32 = 0o2;
+    const INLCR_V: u32 = 0o100;
+    const IGNCR_V: u32 = 0o200;
+    const ICRNL_V: u32 = 0o400;
+    const TCSAFLUSH_V: i32 = 2;
+
+    let fd = crate::open(
+        b"/dev/tty\0".as_ptr() as *const core::ffi::c_char,
+        O_RDWR | O_NOCTTY_V | O_CLOEXEC,
+        0,
+    );
+    if fd < 0 { return core::ptr::null_mut(); }
+    let mut t: TermiosBuf = core::mem::zeroed();
+    if tcgetattr(fd, &mut t as *mut TermiosBuf as *mut core::ffi::c_void) < 0 {
+        crate::close(fd);
+        return core::ptr::null_mut();
     }
-    BUF.as_mut_ptr()
+    let old = t;
+    t.c_lflag &= !(ECHO_V | ISIG_V);
+    t.c_lflag |= ICANON_V;
+    t.c_iflag &= !(INLCR_V | IGNCR_V);
+    t.c_iflag |= ICRNL_V;
+    tcsetattr(fd, TCSAFLUSH_V, &t as *const TermiosBuf as *const core::ffi::c_void);
+    tcdrain(fd);
+    dprintf(fd, b"%s\0".as_ptr() as *const core::ffi::c_char, prompt);
+    let n = crate::read(fd, BUF.as_mut_ptr() as *mut core::ffi::c_void, BUF.len() - 1);
+    let ok = n >= 0;
+    if ok {
+        let mut len = n as usize;
+        if (len > 0 && BUF[len - 1] == b'\n' as core::ffi::c_char) || len == BUF.len() - 1 {
+            len -= 1;
+        }
+        BUF[len] = 0;
+    }
+    tcsetattr(fd, TCSAFLUSH_V, &old as *const TermiosBuf as *const core::ffi::c_void);
+    dprintf(fd, b"\n\0".as_ptr() as *const core::ffi::c_char);
+    crate::close(fd);
+    if ok { BUF.as_mut_ptr() } else { core::ptr::null_mut() }
 }
 
 #[no_mangle]

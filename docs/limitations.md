@@ -44,8 +44,6 @@ regressions.  It is not an exhaustive security review.
 
 ## Process and file APIs
 
-- **`getpass` leaves terminal echo enabled.**  It reads from stdin without
-  the termios echo handling that musl uses.
 - **The base page size is hardcoded to 4096.**  `getpagesize` and
   `sysconf(_SC_PAGE_SIZE)` do not query `AT_PAGESZ`, so they are wrong on
   aarch64/riscv64 kernels configured with 16 KiB or 64 KiB pages.
