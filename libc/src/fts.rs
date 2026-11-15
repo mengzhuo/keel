@@ -159,55 +159,6 @@ unsafe fn fts_stat_path(path: *const c_char, follow: bool, st: *mut Stat) -> c_i
     if follow { crate::stat(path, st) } else { crate::lstat(path, st as *mut c_void) }
 }
 
-unsafe fn fts_collect_names(path: *const c_char) -> (*mut *mut c_char, usize) {
-    let fd = crate::open(path, crate::O_DIRECTORY, 0); // O_RDONLY|O_DIRECTORY
-    if fd < 0 { return (core::ptr::null_mut(), 0); }
-    let mut cap = 16usize;
-    let mut count = 0usize;
-    let mut arr = crate::malloc(cap * core::mem::size_of::<*mut c_char>()) as *mut *mut c_char;
-    if arr.is_null() { crate::close(fd); return (core::ptr::null_mut(), 0); }
-    let mut buf = [0u8; 4096];
-    loop {
-        let n = <Arch as Syscalls>::syscall3(
-            SYS_GETDENTS64,
-            fd as i64,
-            buf.as_mut_ptr() as i64,
-            buf.len() as i64,
-        ) as isize;
-        if n <= 0 { break; }
-        let mut pos = 0usize;
-        while pos < n as usize {
-            let ent = buf.as_ptr().add(pos) as *const linux_dirent64;
-            let reclen = (*ent).d_reclen as usize;
-            if reclen == 0 { break; }
-            let namep = (ent as *const u8).add(core::mem::offset_of!(linux_dirent64, d_name)) as *const c_char;
-            let nl = crate::strlen(namep);
-            if count + 2 >= cap {
-                cap *= 2;
-                let na = crate::realloc(arr as *mut c_void, cap * core::mem::size_of::<*mut c_char>()) as *mut *mut c_char;
-                if na.is_null() { break; }
-                arr = na;
-            }
-            let copy = crate::malloc(nl + 1) as *mut c_char;
-            if copy.is_null() { break; }
-            core::ptr::copy_nonoverlapping(namep, copy, nl + 1);
-            *arr.add(count) = copy;
-            count += 1;
-            pos += reclen;
-        }
-    }
-    crate::close(fd);
-    (arr, count)
-}
-
-unsafe fn fts_free_names(arr: *mut *mut c_char, count: usize) {
-    if arr.is_null() { return; }
-    for i in 0..count {
-        if !(*arr.add(i)).is_null() { crate::free(*arr.add(i) as *mut c_void); }
-    }
-    crate::free(arr as *mut c_void);
-}
-
 unsafe extern "C" fn fts_cmp_trampoline(
     a: *const c_void,
     b: *const c_void,
@@ -255,7 +206,7 @@ unsafe fn fts_walk(fts: *mut Fts, ent: *mut FtsEnt) {
         p = (*p).fts_parent;
     }
 
-    let (names, count) = fts_collect_names((*ent).fts_path);
+    let (names, count) = crate::list_dir_names((*ent).fts_path);
     if !names.is_null() {
         let ptrsz = core::mem::size_of::<*mut c_char>();
         let kids = crate::malloc((count + 1) * ptrsz) as *mut *mut FtsEnt;
@@ -295,7 +246,7 @@ unsafe fn fts_walk(fts: *mut Fts, ent: *mut FtsEnt) {
             for i in 0..nkids { fts_walk(fts, *kids.add(i)); }
             crate::free(kids as *mut c_void);
         }
-        fts_free_names(names, count);
+        crate::free_names(names, count);
     }
 
     let dp = fts_ent_alloc((*ent).fts_path, fts_name_ptr(ent), (*ent).fts_level, (*ent).fts_parent);

@@ -201,7 +201,38 @@ unsafe fn glob_list_push_n(list: *mut GlobList, s: *const u8, len: usize) {
     (*list).n += 1;
 }
 
-unsafe fn list_dir_names(path: *const c_char) -> (*mut *mut c_char, usize) {
+/// Iterate over the entries of an open directory fd with getdents64.
+/// The callback receives each NUL-terminated name; returning false stops the
+/// scan. Returns false if a getdents call failed.
+pub(crate) unsafe fn for_each_dirent<F: FnMut(*const c_char) -> bool>(
+    fd: c_int,
+    buf: *mut u8,
+    cap: usize,
+    mut cb: F,
+) -> bool {
+    let name_off = core::mem::offset_of!(linux_dirent64, d_name);
+    loop {
+        let n = <Arch as Syscalls>::syscall3(
+            SYS_GETDENTS64,
+            fd as i64,
+            buf as i64,
+            cap as i64,
+        ) as isize;
+        if n < 0 { return false; }
+        if n == 0 { return true; }
+        let mut off = 0usize;
+        while off + name_off < n as usize {
+            let ent = buf.add(off) as *const linux_dirent64;
+            let reclen = (*ent).d_reclen as usize;
+            if reclen == 0 || off + reclen > n as usize { break; }
+            let name = buf.add(off + name_off) as *const c_char;
+            off += reclen;
+            if !cb(name) { return true; }
+        }
+    }
+}
+
+pub(crate) unsafe fn list_dir_names(path: *const c_char) -> (*mut *mut c_char, usize) {
     let fd = crate::open(path, crate::O_DIRECTORY, 0);
     if fd < 0 { return (core::ptr::null_mut(), 0); }
     let mut cap = 32usize;
@@ -211,41 +242,40 @@ unsafe fn list_dir_names(path: *const c_char) -> (*mut *mut c_char, usize) {
     #[repr(align(8))]
     struct Buf([u8; 8192]);
     let mut buf = Buf([0u8; 8192]);
-    let name_off = core::mem::offset_of!(linux_dirent64, d_name);
-    loop {
-        let n = <Arch as Syscalls>::syscall3(
-            SYS_GETDENTS64,
-            fd as i64,
-            buf.0.as_mut_ptr() as i64,
-            buf.0.len() as i64,
-        ) as isize;
-        if n <= 0 { break; }
-        let mut off = 0usize;
-        while off + name_off < n as usize {
-            let ent = buf.0.as_ptr().add(off) as *const linux_dirent64;
-            let reclen = (*ent).d_reclen as usize;
-            if reclen == 0 { break; }
-            let name = buf.0.as_ptr().add(off + name_off) as *const c_char;
-            let nl = crate::strlen(name);
-            if count + 2 >= cap {
-                cap *= 2;
-                let na = crate::realloc(arr as *mut c_void, cap * core::mem::size_of::<*mut c_char>()) as *mut *mut c_char;
-                if na.is_null() { break; }
-                arr = na;
+    let mut failed = false;
+    for_each_dirent(fd, buf.0.as_mut_ptr(), buf.0.len(), |name| {
+        let nl = crate::strlen(name);
+        if count + 2 >= cap {
+            cap *= 2;
+            let na = crate::realloc(
+                arr as *mut c_void,
+                cap * core::mem::size_of::<*mut c_char>(),
+            ) as *mut *mut c_char;
+            if na.is_null() {
+                failed = true;
+                return false;
             }
-            let copy = crate::malloc(nl + 1) as *mut c_char;
-            if copy.is_null() { break; }
-            core::ptr::copy_nonoverlapping(name as *const u8, copy as *mut u8, nl + 1);
-            *arr.add(count) = copy;
-            count += 1;
-            off += reclen;
+            arr = na;
         }
-    }
+        let copy = crate::malloc(nl + 1) as *mut c_char;
+        if copy.is_null() {
+            failed = true;
+            return false;
+        }
+        core::ptr::copy_nonoverlapping(name as *const u8, copy as *mut u8, nl + 1);
+        *arr.add(count) = copy;
+        count += 1;
+        true
+    });
     crate::close(fd);
+    if failed {
+        free_names(arr, count);
+        return (core::ptr::null_mut(), 0);
+    }
     (arr, count)
 }
 
-unsafe fn free_names(arr: *mut *mut c_char, n: usize) {
+pub(crate) unsafe fn free_names(arr: *mut *mut c_char, n: usize) {
     if arr.is_null() { return; }
     for i in 0..n {
         if !(*arr.add(i)).is_null() { crate::free(*arr.add(i) as *mut c_void); }
@@ -730,38 +760,29 @@ unsafe fn nftw_do(
         #[repr(align(8))]
         struct Buf([u8; 8192]);
         let mut dbuf = Buf([0u8; 8192]);
-        let name_off = core::mem::offset_of!(linux_dirent64, d_name);
-        loop {
-            let n = <Arch as Syscalls>::syscall3(
-                SYS_GETDENTS64,
-                dfd as i64,
-                dbuf.0.as_mut_ptr() as i64,
-                dbuf.0.len() as i64,
-            ) as isize;
-            if n <= 0 { break; }
-            let mut off = 0usize;
-            while off + name_off < n as usize {
-                let ent = dbuf.0.as_ptr().add(off) as *const linux_dirent64;
-                let reclen = (*ent).d_reclen as usize;
-                if reclen == 0 { break; }
-                let name = dbuf.0.as_ptr().add(off + name_off) as *const c_char;
-                off += reclen;
-                if *name == b'.' as c_char {
-                    let s = *name.add(1);
-                    if s == 0 || (s == b'.' as c_char && *name.add(2) == 0) { continue; }
-                }
-                let nl = crate::strlen(name);
-                if len + 1 + nl >= cap {
-                    ERRNO!() = 36;
-                    crate::close(dfd);
-                    return -1;
-                }
-                *buf.add(len) = b'/';
-                core::ptr::copy_nonoverlapping(name as *const u8, buf.add(len + 1), nl + 1);
-                let r = nftw_do(buf, cap, len + 1 + nl, cb, fd_limit - 1, flags, &mut new, level + 1);
-                if r != 0 { crate::close(dfd); return r; }
+        let mut result = 0i32;
+        for_each_dirent(dfd, dbuf.0.as_mut_ptr(), dbuf.0.len(), |name| {
+            if *name == b'.' as c_char {
+                let s = *name.add(1);
+                if s == 0 || (s == b'.' as c_char && *name.add(2) == 0) { return true; }
             }
-        }
+            let nl = crate::strlen(name);
+            if len + 1 + nl >= cap {
+                ERRNO!() = 36;
+                result = -1;
+                return false;
+            }
+            *buf.add(len) = b'/';
+            core::ptr::copy_nonoverlapping(name as *const u8, buf.add(len + 1), nl + 1);
+            let r = nftw_do(buf, cap, len + 1 + nl, cb, fd_limit - 1, flags, &mut new, level + 1);
+            if r != 0 {
+                result = r;
+                return false;
+            }
+            true
+        });
+        crate::close(dfd);
+        if result != 0 { return result; }
         crate::close(dfd);
     } else if dfd >= 0 {
         crate::close(dfd);

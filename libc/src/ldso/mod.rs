@@ -11,27 +11,19 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 include!("arch.rs");
+include!("elf_common.rs");
 
 // ============================================================
 // Constants
 // ============================================================
 
-const PT_LOAD: u32 = 1;
-const PT_DYNAMIC: u32 = 2;
-const PT_PHDR: u32 = 6;
 const PT_TLS: u32 = 7;
-const PF_R: u32 = 4;
-const PF_W: u32 = 2;
-const PF_X: u32 = 1;
 
-const DT_NULL: u64 = 0;
 const DT_NEEDED: u64 = 1;
 const DT_PLTRELSZ: u64 = 2;
 const DT_HASH: u64 = 4;
 const DT_STRTAB: u64 = 5;
 const DT_SYMTAB: u64 = 6;
-const DT_RELA: u64 = 7;
-const DT_RELASZ: u64 = 8;
 const DT_STRSZ: u64 = 10;
 const DT_INIT: u64 = 12;
 const DT_FINI: u64 = 13;
@@ -51,7 +43,6 @@ const R_X86_64_64: u64 = 1;
 const R_X86_64_COPY: u64 = 5;
 const R_X86_64_GLOB_DAT: u64 = 6;
 const R_X86_64_JUMP_SLOT: u64 = 7;
-const R_X86_64_RELATIVE: u64 = 8;
 const R_X86_64_DTPMOD64: u64 = 16;
 const R_X86_64_DTPOFF64: u64 = 17;
 const R_X86_64_TPOFF64: u64 = 18;
@@ -60,7 +51,6 @@ const R_AARCH64_NONE: u64 = 0;
 const R_AARCH64_ABS64: u64 = 257;
 const R_AARCH64_GLOB_DAT: u64 = 1025;
 const R_AARCH64_JUMP_SLOT: u64 = 1026;
-const R_AARCH64_RELATIVE: u64 = 1027;
 const R_AARCH64_TLS_DTPMOD64: u64 = 1028;
 const R_AARCH64_TLS_DTPREL64: u64 = 1029;
 const R_AARCH64_TLS_TPREL64: u64 = 1030;
@@ -69,7 +59,6 @@ const R_AARCH64_TLSLE_ADD_TPREL_LO12: u64 = 550;
 const R_AARCH64_TLSLE_ADD_TPREL_LO12_NC: u64 = 551;
 const R_AARCH64_TLSDESC: u64 = 1031;
 
-const R_RISCV_RELATIVE: u64 = 3;
 const R_RISCV_64: u64 = 2;
 const R_RISCV_GLOB_DAT: u64 = 5;  // skipped, RISC-V uses R_RISCV_64=2 as GLOB_DAT
 const R_RISCV_JUMP_SLOT: u64 = 5;
@@ -86,28 +75,13 @@ const RTLD_NOLOAD: i32 = 4;
 const RTLD_NODELETE: i32 = 0x1000;
 const RTLD_GLOBAL: i32 = 0x100;
 
-const AT_NULL: u64 = 0;
-const AT_PHDR: u64 = 3;
-const AT_PHENT: u64 = 4;
-const AT_PHNUM: u64 = 5;
-const AT_PAGESZ: u64 = 6;
-const AT_BASE: u64 = 7;
-const AT_ENTRY: u64 = 9;
 const AT_UID: u64 = 11;
 const AT_EUID: u64 = 12;
 const AT_GID: u64 = 13;
 const AT_EGID: u64 = 14;
 const AT_SECURE: u64 = 23;
 const AT_RANDOM: u64 = 25;
-const AT_SYSINFO_EHDR: u64 = 33;
 
-const PROT_READ: i32 = 1;
-const PROT_WRITE: i32 = 2;
-const PROT_EXEC: i32 = 4;
-const PROT_NONE: i32 = 0;
-const MAP_PRIVATE: i32 = 0x02;
-const MAP_FIXED: i32 = 0x10;
-const MAP_ANONYMOUS: i32 = 0x20;
 const MAP_FAILED: usize = !0usize;
 
 const PHDR_SIZE: usize = 56;
@@ -967,19 +941,6 @@ unsafe fn die(code: i32, label: &[u8], detail: usize) -> ! {
 // ELF helpers
 // ============================================================
 
-fn prot_from_flags(flags: u32) -> i32 {
-    let mut prot = 0;
-    if flags & PF_R != 0 {
-        prot |= PROT_READ;
-    }
-    if flags & PF_W != 0 {
-        prot |= PROT_WRITE;
-    }
-    if flags & PF_X != 0 {
-        prot |= PROT_EXEC;
-    }
-    prot
-}
 
 // ============================================================
 // Library search

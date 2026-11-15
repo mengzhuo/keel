@@ -107,23 +107,23 @@ pub extern "C" fn llrintl(x: f64) -> c_longlong {
 #[cfg(target_arch = "aarch64")]
 #[no_mangle]
 pub extern "C" fn lrintl(x: f128) -> c_long {
-    lrint(x as f64)
+    lrint(f128_to_f64(x))
 }
 
 #[cfg(target_arch = "aarch64")]
 #[no_mangle]
 pub extern "C" fn llrintl(x: f128) -> c_longlong {
-    llrint(x as f64)
+    llrint(f128_to_f64(x))
 }
 
 #[cfg(target_arch = "riscv64")]
 #[no_mangle]
 pub extern "C" fn lrintl(x: f128) -> c_long {
-    lrint(x as f64)
+    lrint(f128_to_f64(x))
 }
 
 #[cfg(target_arch = "riscv64")]
 #[no_mangle]
 pub extern "C" fn llrintl(x: f128) -> c_longlong {
-    llrint(x as f64)
+    llrint(f128_to_f64(x))
 }

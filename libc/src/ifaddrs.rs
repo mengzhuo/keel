@@ -413,28 +413,13 @@ unsafe fn list_net_names<F: FnMut(*const c_char, usize)>(mut cb: F) {
     let fd = crate::open(b"/sys/class/net\0".as_ptr() as *const c_char, crate::O_DIRECTORY, 0);
     if fd < 0 { return; }
     let mut buf = DirentBuf([0u8; 4096]);
-    let name_off = core::mem::offset_of!(linux_dirent64, d_name);
-    loop {
-        let n = <Arch as Syscalls>::syscall3(
-            SYS_GETDENTS64,
-            fd as i64,
-            buf.0.as_mut_ptr() as i64,
-            buf.0.len() as i64,
-        ) as isize;
-        if n <= 0 { break; }
-        let mut off = 0usize;
-        while off + name_off < n as usize {
-            let ent = buf.0.as_ptr().add(off) as *const linux_dirent64;
-            let reclen = (*ent).d_reclen as usize;
-            if reclen == 0 { break; }
-            let name = buf.0.as_ptr().add(off + name_off) as *const c_char;
-            let len = crate::strlen(name);
-            if len > 0 && *name != b'.' as c_char {
-                cb(name, len);
-            }
-            off += reclen;
+    crate::for_each_dirent(fd, buf.0.as_mut_ptr(), buf.0.len(), |name| {
+        let len = crate::strlen(name);
+        if len > 0 && *name != b'.' as c_char {
+            cb(name, len);
         }
-    }
+        true
+    });
     crate::close(fd);
 }
 

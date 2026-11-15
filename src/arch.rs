@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-#![allow(dead_code)]
-
 // Architecture layer for the standalone loader.
 //
 // Used as a normal module from main.rs.  Contains the raw syscall ABI, the
@@ -12,6 +10,7 @@
 // Syscall ABI
 // ============================================================
 
+#[allow(dead_code)]
 pub trait Syscalls {
     unsafe fn syscall0(n: i64) -> i64;
     unsafe fn syscall1(n: i64, a1: i64) -> i64;
@@ -23,6 +22,7 @@ pub trait Syscalls {
     unsafe fn syscall_noreturn1(n: i64, a1: i64) -> !;
 }
 
+#[cfg(target_arch = "x86_64")]
 pub struct X86_64;
 
 // x86_64
@@ -160,6 +160,7 @@ impl Syscalls for X86_64 {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
 pub struct Aarch64;
 
 // aarch64
@@ -268,6 +269,7 @@ impl Syscalls for Aarch64 {
     }
 }
 
+#[cfg(target_arch = "riscv64")]
 pub struct Riscv64;
 
 // riscv64

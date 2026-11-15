@@ -2,10 +2,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #![cfg_attr(not(test), no_std)]
-#![feature(c_variadic)]
-#![feature(linkage)]
-#![cfg_attr(target_arch = "aarch64", feature(f128))]
-#![cfg_attr(target_arch = "riscv64", feature(f128))]
 #![allow(dead_code, non_camel_case_types)]
 // A libc necessarily keeps mutable global state (stdio tables, passwd/group
 // buffers, resolver state).  References to it are deliberate and confined to
@@ -16,6 +12,135 @@
 #![allow(improper_ctypes_definitions)]
 
 use core::ffi::{c_char, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong, c_void, VaList};
+
+// Stable-Rust representation of C `long double` on the 128-bit targets.
+// AArch64 passes binary128 in one SIMD register; RISC-V passes it in a pair
+// of FP registers, which a two-f64 struct reproduces.
+#[cfg(target_arch = "aarch64")]
+pub type f128 = core::arch::aarch64::float64x2_t;
+
+#[cfg(target_arch = "riscv64")]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct f128 {
+    lo: u64,
+    hi: u64,
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[inline]
+fn f128_from_bits(bits: u128) -> f128 {
+    unsafe { core::mem::transmute::<u128, f128>(bits) }
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[inline]
+fn f128_to_bits(x: f128) -> u128 {
+    unsafe { core::mem::transmute::<f128, u128>(x) }
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+fn f128_is_nan(x: f128) -> bool {
+    let bits = f128_to_bits(x);
+    ((bits >> 112) & 0x7fff) == 0x7fff && (bits & ((1u128 << 112) - 1)) != 0
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+fn f128_to_f64(x: f128) -> f64 {
+    let bits = f128_to_bits(x);
+    let sign = (bits >> 127) as u64;
+    let exp = ((bits >> 112) & 0x7fff) as i32;
+    let frac = bits & ((1u128 << 112) - 1);
+    let signbit = sign << 63;
+    if exp == 0x7fff {
+        let m = if frac == 0 { 0x7ff0_0000_0000_0000 } else { 0x7ff8_0000_0000_0000 };
+        return f64::from_bits(signbit | m);
+    }
+    if exp == 0 { return f64::from_bits(signbit); }
+    let e = exp - 16383;
+    if e > 1023 { return f64::from_bits(signbit | 0x7ff0_0000_0000_0000); }
+    if e < -1074 { return f64::from_bits(signbit); }
+    let sig = (1u128 << 112) | frac;
+    if e >= -1022 {
+        let mut m = (sig >> 60) as u64;
+        let rem = sig & ((1u128 << 60) - 1);
+        let half = 1u128 << 59;
+        if rem > half || (rem == half && (m & 1) != 0) { m += 1; }
+        let mut ef = (e + 1023) as u64;
+        if m == (1u64 << 53) { m >>= 1; ef += 1; }
+        if ef >= 0x7ff { return f64::from_bits(signbit | 0x7ff0_0000_0000_0000); }
+        return f64::from_bits(signbit | (ef << 52) | (m & ((1u64 << 52) - 1)));
+    }
+    let rshift = (-(e + 962)) as u32;
+    let mut m = (sig >> rshift) as u64;
+    let rem = sig & ((1u128 << rshift) - 1);
+    let half = 1u128 << (rshift - 1);
+    if rem > half || (rem == half && (m & 1) != 0) { m += 1; }
+    if m >= (1u64 << 52) {
+        return f64::from_bits(signbit | (1u64 << 52));
+    }
+    f64::from_bits(signbit | m)
+}
+
+#[cfg(target_arch = "riscv64")]
+unsafe fn valist_read_f128(args: &mut VaList<'_>) -> f128 {
+    // RISC-V va_list is an opaque pointer to the next argument. A 16-byte
+    // variable argument is 16-byte aligned and 16 bytes long.
+    let pp = args as *mut VaList<'_> as *mut *const u8;
+    let p = ((*pp as usize) + 15) & !15usize;
+    let bits = core::ptr::read_unaligned(p as *const u128);
+    *pp = (p + 16) as *const u8;
+    f128_from_bits(bits)
+}
+
+#[cfg(target_arch = "aarch64")]
+#[repr(C)]
+struct Aarch64VaList {
+    stack: *const u8,
+    gr_top: *const u8,
+    vr_top: *const u8,
+    gr_offs: i32,
+    vr_offs: i32,
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn valist_read_f128(args: &mut VaList<'_>) -> f128 {
+    let p = args as *mut VaList<'_> as *mut Aarch64VaList;
+    let off = (*p).vr_offs;
+    let addr = if off == 0 {
+        let a = (*p).stack;
+        (*p).stack = a.add(16);
+        a
+    } else {
+        let a = (*p).vr_top.offset(off as isize);
+        (*p).vr_offs = off + 16;
+        a
+    };
+    f128_from_bits(core::ptr::read_unaligned(addr as *const u128))
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+fn f64_to_f128(v: f64) -> f128 {
+    let bits = v.to_bits();
+    let sign = (bits >> 63) as u128;
+    let exp = ((bits >> 52) & 0x7ff) as i32;
+    let frac = bits & ((1u64 << 52) - 1);
+    if exp == 0x7ff {
+        let m = if frac == 0 { 0 } else { ((frac as u128) << 60) | (1u128 << 111) };
+        return f128_from_bits((sign << 127) | (0x7fff_u128 << 112) | m);
+    }
+    if exp == 0 {
+        if frac == 0 { return f128_from_bits(sign << 127); }
+        let msb = 63 - frac.leading_zeros() as i32; // 0..51
+        let e = msb - 1074;
+        let f = ((frac as u128) << (112 - msb as u32)) & ((1u128 << 112) - 1);
+        return f128_from_bits((sign << 127) | (((e + 16383) as u128) << 112) | f);
+    }
+    let e = exp - 1023;
+    let f = (frac as u128) << 60;
+    f128_from_bits((sign << 127) | (((e + 16383) as u128) << 112) | f)
+}
+
 use core::ptr::null_mut;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicUsize, Ordering};
 
@@ -2730,7 +2855,6 @@ pub unsafe extern "C" fn __keel_set_thread_tls_hooks(
 }
 
 #[inline(never)]
-#[linkage = "weak"]
 #[no_mangle]
 pub extern "C" fn __keel_create_thread_tls() -> *mut u8 {
     match unsafe { TLS_HOOKS } {
@@ -2740,7 +2864,6 @@ pub extern "C" fn __keel_create_thread_tls() -> *mut u8 {
 }
 
 #[inline(never)]
-#[linkage = "weak"]
 #[no_mangle]
 pub unsafe extern "C" fn __keel_init_thread_tls_at(block: *mut u8) -> *mut u8 {
     match TLS_HOOKS {
@@ -2750,7 +2873,6 @@ pub unsafe extern "C" fn __keel_init_thread_tls_at(block: *mut u8) -> *mut u8 {
 }
 
 #[inline(never)]
-#[linkage = "weak"]
 #[no_mangle]
 pub extern "C" fn __keel_tls_block_size() -> usize {
     match unsafe { TLS_HOOKS } {
@@ -2760,7 +2882,6 @@ pub extern "C" fn __keel_tls_block_size() -> usize {
 }
 
 #[inline(never)]
-#[linkage = "weak"]
 #[no_mangle]
 pub extern "C" fn __keel_tls_base_offset() -> usize {
     match unsafe { TLS_HOOKS } {
@@ -6802,12 +6923,7 @@ macro_rules! impl_format {
                         (b'L', b'f') | (b'L', b'F') | (b'L', b'e') | (b'L', b'E')
                         | (b'L', b'g') | (b'L', b'G') | (b'L', b'a') | (b'L', b'A') => {
                             #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-                            let val = {
-                                let lo: u64 = args.next_arg::<u64>();
-                                let hi: u64 = args.next_arg::<u64>();
-                                let combined: u128 = ((hi as u128) << 64) | (lo as u128);
-                                f128::from_bits(combined) as f64
-                            };
+                            let val = f128_to_f64(valist_read_f128(args));
                             #[cfg(target_arch = "x86_64")]
                             let val = args.next_arg::<f64>();
                             let ucase = spec == b'F' || spec == b'E' || spec == b'G' || spec == b'A';
@@ -8139,7 +8255,7 @@ unsafe fn do_vsscanf(
                         let out = args.next_arg::<*mut f64>(); if !out.is_null() { *out = val; }
                     } else if _real_len == 5 {
                         #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-                        { let out = args.next_arg::<*mut f128>(); if !out.is_null() { *out = val as f128; } }
+                        { let out = args.next_arg::<*mut f128>(); if !out.is_null() { *out = f64_to_f128(val); } }
                         #[cfg(target_arch = "x86_64")]
                         { let out = args.next_arg::<*mut f64>(); if !out.is_null() { *out = val; } }
                     } else {
@@ -10056,11 +10172,11 @@ pub unsafe extern "C" fn wcstold(s: *const wchar_t, endptr: *mut *mut wchar_t) -
 
 #[no_mangle]
 #[cfg(target_arch = "aarch64")]
-pub unsafe extern "C" fn wcstold(s: *const wchar_t, endptr: *mut *mut wchar_t) -> f128 { wcstod(s, endptr) as f128 }
+pub unsafe extern "C" fn wcstold(s: *const wchar_t, endptr: *mut *mut wchar_t) -> f128 { f64_to_f128(wcstod(s, endptr)) }
 
 #[no_mangle]
 #[cfg(target_arch = "riscv64")]
-pub unsafe extern "C" fn wcstold(s: *const wchar_t, endptr: *mut *mut wchar_t) -> f128 { wcstod(s, endptr) as f128 }
+pub unsafe extern "C" fn wcstold(s: *const wchar_t, endptr: *mut *mut wchar_t) -> f128 { f64_to_f128(wcstod(s, endptr)) }
 
 #[no_mangle]
 pub unsafe extern "C" fn wcstoimax(s: *const wchar_t, endptr: *mut *mut wchar_t, base: c_int) -> c_longlong { wcstoll(s, endptr, base) }
@@ -10743,12 +10859,7 @@ unsafe fn vswprintf_impl(
                     (b'L', b'f') | (b'L', b'F') | (b'L', b'e') | (b'L', b'E')
                     | (b'L', b'g') | (b'L', b'G') | (b'L', b'a') | (b'L', b'A') => {
                         #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-                        let val = {
-                            let lo: u64 = args.next_arg::<u64>();
-                            let hi: u64 = args.next_arg::<u64>();
-                            let combined: u128 = ((hi as u128) << 64) | (lo as u128);
-                            f128::from_bits(combined) as f64
-                        };
+                        let val = f128_to_f64(valist_read_f128(&mut args));
                         #[cfg(target_arch = "x86_64")]
                         let val = args.next_arg::<f64>();
                         let ucase = spec == b'F' || spec == b'E' || spec == b'G' || spec == b'A';
@@ -13602,13 +13713,13 @@ pub unsafe extern "C" fn strtold(s: *const c_char, endptr: *mut *mut c_char) -> 
 #[no_mangle]
 #[cfg(target_arch = "aarch64")]
 pub unsafe extern "C" fn strtold(s: *const c_char, endptr: *mut *mut c_char) -> f128 {
-    strtod(s, endptr) as f128
+    f64_to_f128(strtod(s, endptr))
 }
 
 #[no_mangle]
 #[cfg(target_arch = "riscv64")]
 pub unsafe extern "C" fn strtold(s: *const c_char, endptr: *mut *mut c_char) -> f128 {
-    strtod(s, endptr) as f128
+    f64_to_f128(strtod(s, endptr))
 }
 
 #[no_mangle]
@@ -15680,14 +15791,6 @@ include!("tz.rs");
 #[allow(dead_code, deref_nullptr)]
 mod ldso;
 
-#[cfg(test)]
-mod libc_unit_stub {
-    #[test]
-    fn stub() {
-        assert!(true);
-    }
-}
-
 // ============================================================
 // fmax/fmin and related helpers
 // ============================================================
@@ -16530,9 +16633,10 @@ pub unsafe extern "C" fn nexttowardf(x: f32, y: f64) -> f32 {
 #[no_mangle]
 #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 pub unsafe extern "C" fn nexttowardf(x: f32, y: f128) -> f32 {
-    if y.is_nan() { return (x as f128 + y) as f32; }
-    if (x as f128) == y { return x; }
-    nextafterf(x, if y > x as f128 { f32::INFINITY } else { f32::NEG_INFINITY })
+    if f128_is_nan(y) { return f32::NAN; }
+    let yf = f128_to_f64(y);
+    if x as f64 == yf { return x; }
+    nextafterf(x, if yf > x as f64 { f32::INFINITY } else { f32::NEG_INFINITY })
 }
 
 #[no_mangle]
