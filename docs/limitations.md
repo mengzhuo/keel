@@ -68,8 +68,9 @@ regressions.  It is not an exhaustive security review.
   macro-parity differences, and this is why some upstream long-double test
   vectors are skipped.
 - **aarch64/riscv64 long-double math computes through `f64`.**  The function
-  signatures use `f128`, but `math_long_double.rs` currently converts through
-  `f64`, so results can lose precision beyond double range.
+  signatures use the 128-bit ABI, but `math_long_double.rs`, `strtold` and
+  `printf`'s `%Lf` convert through `f64`, so results lose precision and range
+  beyond double.
 - **`vfork` forwards to `fork` and `posix_spawn` uses `fork`.**  The
   semantics are the portable ones; the copy-on-write/`vfork` performance
   optimisation is not implemented.

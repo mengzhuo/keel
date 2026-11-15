@@ -5,7 +5,7 @@
 [![docs.rs](https://img.shields.io/docsrs/keel-libc?label=docs.rs)](https://docs.rs/keel-libc)
 [![downloads](https://img.shields.io/crates/d/keel-libc.svg?label=downloads)](https://crates.io/crates/keel-libc)
 [![license](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
-[![rust](https://img.shields.io/badge/rust-nightly-orange.svg)](rust-toolchain.toml)
+[![rust](https://img.shields.io/badge/rust-stable-green.svg)](rust-toolchain.toml)
 [![platforms](https://img.shields.io/badge/platforms-x86__64%20%7C%20aarch64%20%7C%20riscv64-blue.svg)](docs/comparison.md)
 
 keel is a Rust implementation of the musl C library ABI and dynamic linker
@@ -29,7 +29,7 @@ riscv64 is covered by the cross-build and the qemu smoke suite.
 
 ## Build
 
-The toolchain is pinned to Rust nightly by `rust-toolchain.toml`.  The
+The toolchain is pinned to stable Rust by `rust-toolchain.toml`.  The
 integration tests need `musl-gcc`, `file` and binutils; the static fixtures
 also need the host musl CRT objects under `/usr/lib/<arch>-linux-musl/`.
 
