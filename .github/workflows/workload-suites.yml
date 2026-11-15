@@ -33,9 +33,12 @@ jobs:
       - name: Run upstream test suites
         env:
           ALPINE_MIRROR: ${{ vars.ALPINE_MIRROR || 'https://dl-cdn.alpinelinux.org' }}
+          # Pass dispatch input through the environment so it is never
+          # re-parsed as shell syntax.
+          SUITES: ${{ inputs.suites || 'python git nginx' }}
         run: |
           sudo ALPINE_MIRROR="$ALPINE_MIRROR" \
-            ./scripts/workload-suites.sh ${{ inputs.suites || 'python git nginx' }}
+            ./scripts/workload-suites.sh $SUITES
 
       - name: Upload reports
         if: always()

@@ -239,7 +239,7 @@ static void test_stat_funcs(void) {
     if (!S_ISDIR(st.st_mode)) { puts("stat S_ISDIR fail"); exit(1); }
     if (st.st_nlink == 0) { puts("stat nlink fail"); exit(1); }
     if (stat("/dev/null", &st) != 0) { puts("stat /dev/null fail"); exit(1); }
-    if (!S_ISCHR(st.st_mode)) { }
+    if (!S_ISCHR(st.st_mode)) { puts("stat /dev/null mode fail"); exit(1); }
     FILE *f = tmpfile();
     if (f) {
         fputs("test", f);

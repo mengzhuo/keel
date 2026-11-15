@@ -9,11 +9,16 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <sys/syscall.h>
 
 static int t_status;
 
 static void t_error(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
     t_status = 1;
 }
 
