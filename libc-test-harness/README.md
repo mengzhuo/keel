@@ -46,7 +46,7 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
 - **Only the functional subset runs by default** — use `./run.sh all` for everything.
 
 Current baseline (x86_64, current `libc-test` checkout): `functional` 73/73,
-`regression` 67 PASS + 1 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The
+`regression` 66 PASS + 2 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The
 regression skip is `pthread_atfork-errno-clobber`, which can only pass as an
 unprivileged user and also fails under musl when root. On aarch64,
 `functional/strtold` and `functional/tls_local_exec` are skipped for the

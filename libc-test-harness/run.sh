@@ -23,7 +23,9 @@ SUBSET="${1:-functional}"
 # These long-double tests use 80-bit vectors from upstream libc-test.
 # keel intentionally uses a 64-bit long double ABI on x86_64, so the
 # vectors cannot be matched exactly; the double-precision variants still run.
-SKIP_TESTS="math/acoshl math/asinhl math/lgammal math/tgammal"
+# Linux >= 4.7 counts private writable mmap against RLIMIT_DATA, so the
+# test's premise (mmap succeeds while RLIMIT_DATA is 0) no longer holds.
+SKIP_TESTS="math/acoshl math/asinhl math/lgammal math/tgammal regression/malloc-brk-fail"
 
 # RLIMIT_NPROC is not enforced for root, so this regression test can only
 # pass as an unprivileged user. musl itself behaves the same way (fork

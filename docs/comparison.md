@@ -149,7 +149,7 @@ a different ABI implementation.
 |---|---|
 | Nine real Alpine workloads pass | [workloads.md](workloads.md) |
 | LTP failure lists match musl | [ltp.md](ltp.md) |
-| libc-test: 414 PASS / 5 SKIP / 0 FAIL as root; 415 PASS / 4 SKIP as unprivileged CI (current `libc-test` checkout, 2026-11-15) | `libc-test-harness/reports/` |
+| libc-test: 413 PASS / 6 SKIP / 0 FAIL as root; 414 PASS / 5 SKIP as unprivileged CI (current `libc-test` checkout, 2026-11-15) | `libc-test-harness/reports/` |
 | 0 unexpected parity diffs vs musl 1.2.6 | `scripts/parity-check.sh` |
 | Full musl 1.2.6 symbol surface in `libc.so` | `scripts/parity-check.sh symbols` |
 | x86\_64, aarch64, riscv64 | CI and `scripts/riscv-smoke.sh` |
