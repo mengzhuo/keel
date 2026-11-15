@@ -190,6 +190,12 @@ int main(void) {
     CHECK(iswprint(0xE9) != 0, "iswprint latin-1");
     CHECK(iswpunct(0xA6) != 0, "iswpunct broken bar");
     CHECK(iswspace(0x2028) != 0 && iswspace(0x3000) != 0, "iswspace unicode");
+    CHECK(wcwidth(L'A') == 1 && wcwidth(0x300) == 0, "wcwidth basic");
+    CHECK(wcwidth(0x4E00) == 2 && wcwidth(0x1F600) == 2, "wcwidth wide");
+    CHECK(wcwidth(0x7F) == -1, "wcwidth control");
+    CHECK(towupper(0xE9) == 0xC9 && towlower(0xC9) == 0xE9, "towupper latin-1");
+    CHECK(towupper(0x3B1) == 0x391 && towlower(0x410) == 0x430, "towupper greek/cyrillic");
+    CHECK(iswlower(0xE9) != 0 && iswupper(0x3B1) == 0 && iswupper(0x391) != 0, "iswlower/upper unicode");
 
     /* vfwprintf must not fail when the output exceeds 4096 wide chars. */
     {

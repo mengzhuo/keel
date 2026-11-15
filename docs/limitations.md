@@ -35,9 +35,6 @@ regressions.  It is not an exhaustive security review.
 - **Locale data is minimal.**  `setlocale` recognizes `C`, `POSIX` and a
   UTF-8 ctype mode; there is no locale database, collation data, monetary
   formatting or localized time formatting beyond the C locale.
-- **No Unicode width tables.**  `wcwidth` returns one column for every
-  printable character and `wcswidth` counts every non-NUL character as one
-  column.  Combining marks and double-width characters are therefore wrong.
 - **`iconv` supports a fixed encoding set.**  UTF-8/16/32, ASCII, the
   ISO-8859 family, Windows-1251/1252, KOI8-R, GBK/GB2312, Big5, EUC-JP and
   Shift-JIS are implemented; other musl charmaps are not available.

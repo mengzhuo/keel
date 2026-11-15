@@ -10212,12 +10212,12 @@ pub extern "C" fn iswgraph(c: wint_t) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn iswlower(c: wint_t) -> c_int {
-    if c < 128 { islower(c as c_int) } else { 0 }
+    (unsafe { towupper(c) } != c) as c_int
 }
 
 #[no_mangle]
 pub extern "C" fn iswupper(c: wint_t) -> c_int {
-    if c < 128 { isupper(c as c_int) } else { 0 }
+    (unsafe { towlower(c) } != c) as c_int
 }
 
 static WCTYPE_ALNUM: c_int = WC_ALNUM;
@@ -10273,14 +10273,56 @@ pub unsafe extern "C" fn iswctype(c: wint_t, desc: wctype_t) -> c_int {
 static WCTRANS_LOWER: c_int = 1;
 static WCTRANS_UPPER: c_int = 2;
 
+/// Port of musl's casemap() from ctype/towctrans.c.
+fn casemap(c: wint_t, dir: i32) -> wint_t {
+    let c0 = c;
+    if c0 >= 0x20000 {
+        return c0;
+    }
+    let b = (c0 >> 8) as usize;
+    let cc = c0 & 255;
+    let x = (cc / 3) as usize;
+    let y = (cc % 3) as usize;
+    const MT: [u32; 3] = [2048, 342, 57];
+    let v = WCTYPE_CASEMAP_TAB[WCTYPE_CASEMAP_TAB[b] as usize * 86 + x] as u32;
+    let v = (v * MT[y] >> 11) % 6;
+    let r = WCTYPE_CASEMAP_RULES[(WCTYPE_CASEMAP_RULEBASES[b] + v as u8) as usize];
+    let rt = (r & 255) as i32;
+    let rd = r >> 8;
+    if rt < 2 {
+        return (c0 as i32 + (rd & -((rt) ^ dir))) as wint_t;
+    }
+    let mut xn = (rd & 0xff) as u32;
+    let mut xb = (rd as u32) >> 8;
+    while xn != 0 {
+        let idx = (xb + xn / 2) as usize;
+        let try_ = WCTYPE_CASEMAP_EXCEPTIONS[idx][0] as u32;
+        if try_ == cc {
+            let r2 = WCTYPE_CASEMAP_RULES[WCTYPE_CASEMAP_EXCEPTIONS[idx][1] as usize];
+            let rt2 = (r2 & 255) as i32;
+            let rd2 = r2 >> 8;
+            if rt2 < 2 {
+                return (c0 as i32 + (rd2 & -((rt2) ^ dir))) as wint_t;
+            }
+            return (c0 as i32 + if dir != 0 { -1 } else { 1 }) as wint_t;
+        } else if try_ > cc {
+            xn /= 2;
+        } else {
+            xb += xn / 2;
+            xn -= xn / 2;
+        }
+    }
+    c0
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn towlower(c: wint_t) -> wint_t {
-    if c < 128 { tolower(c as c_int) as wint_t } else { c }
+    casemap(c, 0)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn towupper(c: wint_t) -> wint_t {
-    if c < 128 { toupper(c as c_int) as wint_t } else { c }
+    casemap(c, 1)
 }
 
 #[no_mangle]
@@ -16796,13 +16838,13 @@ pub unsafe extern "C" fn wcswcs(haystack: *const u32, needle: *const u32) -> *mu
 #[no_mangle]
 pub unsafe extern "C" fn wcswidth(s: *const u32, n: usize) -> i32 {
     let mut width = 0i32;
-    let mut i = 0;
+    let mut i = 0usize;
     while i < n {
         let c = *s.add(i);
         if c == 0 { break; }
-        // No Unicode width tables: every non-NUL character counts as one
-        // column, so combining marks and double-width characters are wrong.
-        width += 1;
+        let w = wcwidth(c);
+        if w < 0 { return w; }
+        width += w;
         i += 1;
     }
     width
@@ -21910,12 +21952,43 @@ pub unsafe extern "C" fn __wcsxfrm_l(dest: *mut u32, src: *const u32, n: usize, 
     wcsxfrm(dest as *mut wchar_t, src as *const wchar_t, n)
 }
 
-// No Unicode width tables: printable characters report one column, so
-// combining marks and double-width characters are not handled.
+#[inline]
+fn wctable_width(table: &[u8], wc: u32) -> bool {
+    let page = table[(wc >> 8) as usize] as usize;
+    (table[page * 32 + ((wc & 255) >> 3) as usize] >> (wc & 7)) & 1 != 0
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn wcwidth(c: u32) -> i32 {
-    if c == 0 { return 0; }
-    if c < 32 || (c >= 0x7f && c < 0xa0) { return -1; }
+    // Port of musl's wcwidth, using the nonspacing/wide tables.
+    let wc = c;
+    if wc < 0xff {
+        return if ((wc + 1) & 0x7f) >= 0x21 {
+            1
+        } else if wc != 0 {
+            -1
+        } else {
+            0
+        };
+    }
+    if (wc & 0xfffe_ffff) < 0xfffe {
+        if wctable_width(&WCTYPE_NONSPACING_TABLE, wc) {
+            return 0;
+        }
+        if wctable_width(&WCTYPE_WIDE_TABLE, wc) {
+            return 2;
+        }
+        return 1;
+    }
+    if (wc & 0xfffe) == 0xfffe {
+        return -1;
+    }
+    if wc.wrapping_sub(0x20000) < 0x20000 {
+        return 2;
+    }
+    if wc == 0xe0001 || wc.wrapping_sub(0xe0020) < 0x5f || wc.wrapping_sub(0xe0100) < 0xef {
+        return 0;
+    }
     1
 }
 
