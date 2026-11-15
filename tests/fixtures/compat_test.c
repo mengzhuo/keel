@@ -22,6 +22,7 @@
 #include <glob.h>
 #include <ftw.h>
 #include <wordexp.h>
+#include <fts.h>
 #include <monetary.h>
 #include <wchar.h>
 #include <wctype.h>
@@ -61,6 +62,11 @@ static int mc_seek(void *c, off_t *o, int w) {
     return 0;
 }
 static int mc_close(void *c) { (void)c; return 0; }
+
+static int fts_name_cmp(const FTSENT **a, const FTSENT **b)
+{
+    return strcmp((*a)->fts_name, (*b)->fts_name);
+}
 
 static int nftw_visits;
 static int nftw_cb(const char *path, const struct stat *st, int type, struct FTW *ftw) {
@@ -264,6 +270,28 @@ int main(void) {
     memset(&gl, 0, sizeof(gl));
     gl.gl_offs = (size_t)-1;
     CHECK(glob("/tmp/*", GLOB_DOOFFS, 0, &gl) == GLOB_NOSPACE, "glob dooffs overflow");
+
+    /* fts over a tree, with and without a comparator. */
+    {
+        char *paths[] = {(char *)"/tmp", NULL};
+        FTS *ft = fts_open(paths, FTS_PHYSICAL | FTS_NOCHDIR, NULL);
+        CHECK(ft != NULL, "fts_open");
+        if (ft) {
+            int count = 0;
+            FTSENT *e;
+            while ((e = fts_read(ft)) != NULL) count++;
+            CHECK(count > 0, "fts_read count");
+            CHECK(fts_close(ft) == 0, "fts_close");
+        }
+        ft = fts_open(paths, FTS_PHYSICAL | FTS_NOCHDIR, fts_name_cmp);
+        CHECK(ft != NULL, "fts_open comparator");
+        if (ft) {
+            int count = 0;
+            while (fts_read(ft) != NULL) count++;
+            CHECK(count > 0, "fts_read comparator count");
+            fts_close(ft);
+        }
+    }
 
     /* nftw over a small tree */
     char tree[] = "/tmp/keel-ftw-XXXXXX";
