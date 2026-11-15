@@ -4,6 +4,31 @@
 #ifndef _KEEL_SYS_TIMEX_H
 #define _KEEL_SYS_TIMEX_H
 #include <features.h>
+#include <sys/time.h>
+
+struct timex {
+    unsigned modes;
+    long offset;
+    long freq;
+    long maxerror;
+    long esterror;
+    int status;
+    long constant;
+    long precision;
+    long tolerance;
+    struct timeval time;
+    long tick;
+    long ppsfreq;
+    long jitter;
+    int shift;
+    long stabil;
+    long jitcnt;
+    long calcnt;
+    long errcnt;
+    long stbcnt;
+    int tai;
+    int __padding[11];
+};
 
 /* musl 1.2.6 compatibility macros */
 #define ADJ_ESTERROR 0x0008

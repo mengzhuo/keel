@@ -302,7 +302,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
     let start = s;
     let mut cap = n;
     let mut f = fmt;
-    while cap > 0 && *f != 0 {
+    while cap > 1 && *f != 0 {
         if *f as u8 != b'%' {
             *s = *f;
             s = s.add(1);
@@ -326,7 +326,12 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
         let mut plus = false;
         loop {
             match *f as u8 {
-                b'=' => { f = f.add(1); fill = *f; f = f.add(1); }
+                b'=' => {
+                    f = f.add(1);
+                    if *f == 0 { break; }
+                    fill = *f;
+                    f = f.add(1);
+                }
                 b'^' => { nogrp = true; f = f.add(1); }
                 b'(' => { negpar = true; f = f.add(1); }
                 b'+' => { plus = true; f = f.add(1); }
@@ -335,9 +340,15 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
                 _ => break,
             }
         }
+        // Bound the parsed sizes: the composition buffers below are fixed
+        // and f64 never needs more than 309 integer or ~1100 fraction
+        // digits, so anything larger is truncated instead of overflowing.
+        const MAX_FW: usize = 10_000;
+        const MAX_LP: usize = 350;
+        const MAX_RP: usize = 150;
         let mut fw = 0usize;
         while *f as u8 >= b'0' && *f as u8 <= b'9' {
-            fw = fw * 10 + (*f as u8 - b'0') as usize;
+            fw = (fw * 10 + (*f as u8 - b'0') as usize).min(MAX_FW);
             f = f.add(1);
         }
         let mut lp = 1usize;
@@ -345,7 +356,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
             f = f.add(1);
             lp = 0;
             while *f as u8 >= b'0' && *f as u8 <= b'9' {
-                lp = lp * 10 + (*f as u8 - b'0') as usize;
+                lp = (lp * 10 + (*f as u8 - b'0') as usize).min(MAX_LP);
                 f = f.add(1);
             }
             if lp == 0 { lp = 1; }
@@ -355,7 +366,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
             rp = 0;
             f = f.add(1);
             while *f as u8 >= b'0' && *f as u8 <= b'9' {
-                rp = rp * 10 + (*f as u8 - b'0') as usize;
+                rp = (rp * 10 + (*f as u8 - b'0') as usize).min(MAX_RP);
                 f = f.add(1);
             }
         }
@@ -366,7 +377,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
         let ax = if neg { -x } else { x };
 
         // Render the absolute number without width.
-        let mut num = [0 as c_char; 256];
+        let mut num = [0 as c_char; 512];
         let rn = crate::snprintf(
             num.as_mut_ptr(),
             num.len(),
@@ -386,7 +397,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
         let zero_pad = if int_digits < lp { lp - int_digits } else { 0 };
 
         // Group integer digits (only when explicitly enabled; C locale has none).
-        let mut grouped = [0 as c_char; 320];
+        let mut grouped = [0 as c_char; 512];
         let mut glen = 0usize;
         if !nogrp && int_digits > 3 {
             let first = int_digits % 3;
@@ -402,7 +413,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
         let _ = &mut nlen;
 
         // Compose sign/parens + zeros + grouped integer + fraction.
-        let mut core = [0 as c_char; 640];
+        let mut core = [0 as c_char; 1024];
         let mut clen = 0usize;
         let parens = negpar && neg;
         if parens { core[clen] = b'(' as c_char; clen += 1; }
@@ -438,7 +449,7 @@ unsafe fn strfmon_impl(mut s: *mut c_char, n: usize, fmt: *const c_char, mut ap:
         }
         let _ = nosym;
     }
-    *s = 0;
+    if n > 0 { *s = 0; }
     (s as usize - start as usize) as isize
 }
 

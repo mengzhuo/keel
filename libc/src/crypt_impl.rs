@@ -822,9 +822,18 @@ pub unsafe extern "C" fn __crypt_blowfish(key: *const c_char, setting: *const c_
 // crypt_r / crypt
 // ============================================================
 
+#[repr(C)]
+struct CryptData {
+    initialized: c_int,
+    buf: [c_char; 256],
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn __crypt_r(key: *const c_char, setting: *const c_char, data: *mut crate::c_void) -> *mut c_char {
-    let output = data as *mut c_char;
+    if data.is_null() { return core::ptr::null_mut(); }
+    let crypt_data = data as *mut CryptData;
+    (*crypt_data).initialized = 1;
+    let output = (*crypt_data).buf.as_mut_ptr();
     let s = setting as *const u8;
     if *s == b'$' && *s.add(1) != 0 && *s.add(2) != 0 {
         if *s.add(1) == b'1' && *s.add(2) == b'$' {
@@ -852,11 +861,11 @@ pub unsafe extern "C" fn __crypt_r(key: *const c_char, setting: *const c_char, d
     output
 }
 
-static mut CRYPT_BUF: [u8; 128] = [0; 128];
+static mut CRYPT_DATA: CryptData = CryptData { initialized: 0, buf: [0; 256] };
 
 #[no_mangle]
 pub unsafe extern "C" fn crypt(key: *const c_char, setting: *const c_char) -> *mut c_char {
-    __crypt_r(key, setting, core::ptr::addr_of_mut!(CRYPT_BUF) as *mut crate::c_void)
+    __crypt_r(key, setting, core::ptr::addr_of_mut!(CRYPT_DATA) as *mut crate::c_void)
 }
 
 #[no_mangle]

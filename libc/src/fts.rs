@@ -31,7 +31,7 @@ pub const FTS_SKIP_V: c_int = 1;
 pub const FTS_FOLLOW_V: c_int = 2;
 pub const FTS_NOINSTR_V: c_int = 3;
 
-const FTS_NAME_OFF: usize = 112;
+const FTS_NAME_OFF: usize = core::mem::offset_of!(FtsEnt, fts_name);
 
 #[repr(C)]
 pub struct FtsEnt {
@@ -58,6 +58,7 @@ pub struct FtsEnt {
 }
 
 const _: [(); 120] = [(); core::mem::size_of::<FtsEnt>()];
+const _: [(); 112] = [(); FTS_NAME_OFF];
 
 pub struct Fts {
     roots: *mut *mut c_char,

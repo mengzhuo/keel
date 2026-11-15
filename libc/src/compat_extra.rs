@@ -168,10 +168,24 @@ pub unsafe extern "C" fn aio_write(aiocbp: *mut Aiocb) -> c_int {
     0
 }
 
+const O_DSYNC_V: c_int = 0o10000;
+const O_SYNC_V: c_int = 0o4010000;
+const AIO_ALLDONE_V: c_int = 2;
+const LIO_READ_V: c_int = 0;
+const LIO_WRITE_V: c_int = 1;
+const LIO_NOP_V: c_int = 2;
+
 #[no_mangle]
 pub unsafe extern "C" fn aio_fsync(op: c_int, aiocbp: *mut Aiocb) -> c_int {
     if aiocbp.is_null() { ERRNO!() = EINVAL; return -1; }
-    let r = if op == 1 { crate::fdatasync((*aiocbp).aio_fildes) } else { crate::fsync((*aiocbp).aio_fildes) };
+    let r = if op == O_DSYNC_V {
+        crate::fdatasync((*aiocbp).aio_fildes)
+    } else if op == O_SYNC_V {
+        crate::fsync((*aiocbp).aio_fildes)
+    } else {
+        ERRNO!() = EINVAL;
+        return -1;
+    };
     let ok = if r < 0 {
         aio_finish(aiocbp, -1, ERRNO!())
     } else {
@@ -214,30 +228,10 @@ pub unsafe extern "C" fn aio_return(aiocbp: *mut Aiocb) -> isize {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn aio_cancel(fd: c_int, aiocbp: *mut Aiocb) -> c_int {
-    aio_lock();
-    if !aiocbp.is_null() {
-        let slot = aio_find(aiocbp);
-        let canceled = !slot.is_null() && (*slot).active && (*aiocbp).aio_fildes == fd;
-        if canceled {
-            (*slot).ret = -1;
-            (*slot).err = ECANCELED;
-        }
-        aio_unlock();
-        return if canceled { 1 } else { 2 };
-    }
-    let mut canceled = false;
-    let mut slot = AIO_HEAD;
-    while !slot.is_null() {
-        if (*slot).active && !(*slot).cb.is_null() && (*(*slot).cb).aio_fildes == fd {
-            (*slot).ret = -1;
-            (*slot).err = ECANCELED;
-            canceled = true;
-        }
-        slot = (*slot).next;
-    }
-    aio_unlock();
-    if canceled { 1 } else { 2 }
+pub unsafe extern "C" fn aio_cancel(_fd: c_int, _aiocbp: *mut Aiocb) -> c_int {
+    // keel services AIO synchronously, so by the time the caller can cancel
+    // the request it has already completed.
+    AIO_ALLDONE_V
 }
 
 #[no_mangle]
@@ -305,9 +299,13 @@ pub unsafe extern "C" fn lio_listio(
         let cb = *aiocb_list.add(i);
         if cb.is_null() { continue; }
         let r = match (*cb).aio_lio_opcode {
-            0 => aio_read(cb),
-            1 => aio_write(cb),
-            _ => 0,
+            LIO_READ_V => aio_read(cb),
+            LIO_WRITE_V => aio_write(cb),
+            LIO_NOP_V => 0,
+            _ => {
+                ERRNO!() = EINVAL;
+                return -1;
+            }
         };
         if r == 0 { ok += 1; }
     }

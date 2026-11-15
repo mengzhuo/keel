@@ -7,6 +7,9 @@
 #include <features.h>
 
 /* musl 1.2.6 compatibility macros */
+typedef int once_flag;
+void call_once(once_flag *, void (*)(void));
+
 #define ONCE_FLAG_INIT 0
 #define TSS_DTOR_ITERATIONS 4
 #define thrd_equal(A, B) ((A) == (B))

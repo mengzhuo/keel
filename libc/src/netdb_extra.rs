@@ -260,34 +260,40 @@ unsafe fn serv_copy_out(se: *mut ServEnt, buf: *mut c_char, buflen: usize, res: 
 pub unsafe extern "C" fn getservbyname_r(
     name: *const c_char,
     proto: *const c_char,
-    _se: *mut ServEnt,
+    se: *mut ServEnt,
     buf: *mut c_char,
     buflen: usize,
     res: *mut *mut ServEnt,
 ) -> c_int {
-    if res.is_null() { return EINVAL; }
+    if res.is_null() || se.is_null() { return EINVAL; }
     *res = core::ptr::null_mut();
     let p = getservbyname(name, proto);
     if p.is_null() { return NDB_ENOENT; }
-    let mut tmp = ServEnt { s_name: (*p).s_name, s_aliases: (*p).s_aliases, s_port: (*p).s_port, s_proto: (*p).s_proto };
-    serv_copy_out(&mut tmp, buf, buflen, res)
+    (*se).s_name = (*p).s_name;
+    (*se).s_aliases = (*p).s_aliases;
+    (*se).s_port = (*p).s_port;
+    (*se).s_proto = (*p).s_proto;
+    serv_copy_out(se, buf, buflen, res)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn getservbyport_r(
     port: c_int,
     proto: *const c_char,
-    _se: *mut ServEnt,
+    se: *mut ServEnt,
     buf: *mut c_char,
     buflen: usize,
     res: *mut *mut ServEnt,
 ) -> c_int {
-    if res.is_null() { return EINVAL; }
+    if res.is_null() || se.is_null() { return EINVAL; }
     *res = core::ptr::null_mut();
     let p = getservbyport(port, proto);
     if p.is_null() { return NDB_ENOENT; }
-    let mut tmp = ServEnt { s_name: (*p).s_name, s_aliases: (*p).s_aliases, s_port: (*p).s_port, s_proto: (*p).s_proto };
-    serv_copy_out(&mut tmp, buf, buflen, res)
+    (*se).s_name = (*p).s_name;
+    (*se).s_aliases = (*p).s_aliases;
+    (*se).s_port = (*p).s_port;
+    (*se).s_proto = (*p).s_proto;
+    serv_copy_out(se, buf, buflen, res)
 }
 
 // ------------------------------------------------------------------

@@ -236,6 +236,13 @@ static mut LOADED_PATH: *mut u8 = core::ptr::null_mut();
 static mut LOADED_PATH_CAP: usize = 0;
 static mut LOADED_PATH_LEN: usize = 0;
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct NeededName {
+    ptr: *const u8,
+    len: usize,
+}
+
 unsafe fn map_zeroed(bytes: usize) -> *mut u8 {
     if bytes == 0 {
         return core::ptr::null_mut();
@@ -2305,7 +2312,7 @@ core::arch::global_asm!(
     ".type __tlsdesc_static,%function",
     "__tlsdesc_static:",
     "ld a0, 8(a0)",
-    "jr t0",
+    "ret",
 );
 
 // Dynamic descriptor: descriptor[1] packs (module << 32) | offset.  The
@@ -2399,7 +2406,7 @@ core::arch::global_asm!(
     "ld t1, 8(sp)",
     "ld t0, 0(sp)",
     "addi sp, sp, 128",
-    "jr t0",
+    "ret",
 );
 
 #[repr(C)]
@@ -3583,7 +3590,8 @@ unsafe fn load_needed_dso(
     Some(idx)
 }
 
-/// Walk one loaded object's dynamic section and load its DT_NEEDED entries.
+/// Undo a partially completed dlopen: unmap and free every object registered
+/// at or after `first_new`, and drop any staged fd-path from the failed load.
 unsafe fn rollback_loaded(first_new: usize) {
     let mut i = first_new;
     while i < LOADED_COUNT {
@@ -3602,6 +3610,7 @@ unsafe fn rollback_loaded(first_new: usize) {
     if first_new < LOADED_COUNT {
         LOADED_COUNT = first_new;
     }
+    LOADED_PATH_LEN = 0;
 }
 
 unsafe fn add_dependency(obj_idx: usize, dep_idx: usize) {
@@ -3659,6 +3668,7 @@ unsafe fn promote_global(idx: usize) {
     sys_munmap(seen, count);
 }
 
+/// Walk one loaded object's dynamic section and load its DT_NEEDED entries.
 unsafe fn load_object_needed(obj_idx: usize, ld_path: Option<*const u8>, make_global: bool) -> bool {
     let (dyn_addr, dyn_memsz, strtab, strsz) = {
         let obj = &(**LOADED.add(obj_idx));
@@ -3809,9 +3819,6 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     let mut dt_hash: u64 = 0;
     let mut dt_versym: u64 = 0;
 
-    // TODO: grow this array dynamically.  The executable's direct DT_NEEDED
-    // list is capped at 32 entries here; any additional entries are dropped.
-    let mut needed_offsets: [u64; 32] = [0; 32];
     let mut needed_count: usize = 0;
 
     if dyn_vaddr != 0 {
@@ -3825,12 +3832,7 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
                 break;
             }
             match d_tag {
-                DT_NEEDED => {
-                    if needed_count < 32 {
-                        needed_offsets[needed_count] = d_val;
-                        needed_count += 1;
-                    }
-                }
+                DT_NEEDED => needed_count += 1,
                 DT_SYMTAB => dt_symtab = d_val,
                 DT_STRTAB => dt_strtab = d_val,
                 DT_STRSZ => dt_strsz = d_val,
@@ -3848,12 +3850,35 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
         }
     }
 
-    // Resolve DT_NEEDED name pointers (offsets into strtab)
-    let mut needed_names: [(*const u8, usize); 32] = [(core::ptr::null(), 0); 32];
-    for i in 0..needed_count {
-        let name_ptr = (exec_base + dt_strtab + needed_offsets[i]) as *const u8;
-        let name_len = str_len(name_ptr);
-        needed_names[i] = (name_ptr, name_len);
+    // The executable's direct DT_NEEDED list has no fixed cap: size the
+    // temporary tables from the count above.
+    let needed_offsets = map_zeroed(needed_count * core::mem::size_of::<u64>()) as *mut u64;
+    let needed_names = map_zeroed(needed_count * core::mem::size_of::<NeededName>()) as *mut NeededName;
+    if needed_count != 0 && (needed_offsets.is_null() || needed_names.is_null()) {
+        die(95, b"needed_mmap", needed_count);
+    }
+    if dyn_vaddr != 0 && needed_count != 0 {
+        let dyn_start = (exec_base + dyn_vaddr) as usize;
+        let dyn_end = dyn_start + dyn_memsz as usize;
+        let mut dp = dyn_start;
+        let mut i = 0usize;
+        while dp + 16 <= dyn_end && i < needed_count {
+            let d_tag = u64::from_le_bytes(core::ptr::read_unaligned(dp as *const [u8; 8]));
+            let d_val = u64::from_le_bytes(core::ptr::read_unaligned((dp + 8) as *const [u8; 8]));
+            if d_tag == DT_NULL {
+                break;
+            }
+            if d_tag == DT_NEEDED {
+                *needed_offsets.add(i) = d_val;
+                i += 1;
+            }
+            dp += 16;
+        }
+        for i in 0..needed_count {
+            let name_ptr = (exec_base + dt_strtab + *needed_offsets.add(i)) as *const u8;
+            let name_len = str_len(name_ptr);
+            *needed_names.add(i) = NeededName { ptr: name_ptr, len: name_len };
+        }
     }
 
     if dt_runpath_present {
@@ -3942,12 +3967,18 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     // object's dependencies, breadth-first. DSO dependencies are not
     // optional: real programs (curl, git, python, ...) rely on them.
     for i in 0..needed_count {
-        let (name_ptr, name_len) = needed_names[i];
-        let dep = match load_needed_dso(name_ptr, name_len, ld_path, true, 0) {
+        let name = *needed_names.add(i);
+        let dep = match load_needed_dso(name.ptr, name.len, ld_path, true, 0) {
             Some(d) => d,
             None => die(89, b"needed_fd", LOADED_COUNT),
         };
         add_dependency(0, dep);
+    }
+    if !needed_offsets.is_null() {
+        sys_munmap(needed_offsets as *mut u8, needed_count * core::mem::size_of::<u64>());
+    }
+    if !needed_names.is_null() {
+        sys_munmap(needed_names as *mut u8, needed_count * core::mem::size_of::<NeededName>());
     }
     let mut scan = 1usize;
     while scan < LOADED_COUNT {

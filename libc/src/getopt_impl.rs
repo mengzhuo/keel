@@ -84,7 +84,6 @@ pub unsafe extern "C" fn getopt(
     if !found || c == b':' {
         optopt = c as c_int;
         if *spec != b':' as c_char && opterr != 0 {
-            let mut msg = [0 as c_char; 256];
             let prog = if !(*argv).is_null() { *argv } else { b"\0".as_ptr() as *const c_char };
             crate::fprintf(
                 crate::stderr,
@@ -93,7 +92,6 @@ pub unsafe extern "C" fn getopt(
                 clen as c_int,
                 optchar,
             );
-            let _ = &mut msg;
         }
         return b'?' as c_int;
     }
@@ -142,6 +140,7 @@ unsafe fn getopt_long_core(
     idx: *mut c_int,
     longonly: bool,
 ) -> c_int {
+    if optstring.is_null() { return -1; }
     optarg = core::ptr::null_mut();
     let cur = *argv.add(optind as usize);
     let is_long = !longopts.is_null()
@@ -175,7 +174,6 @@ unsafe fn getopt_long_core(
             cnt += 1;
             i += 1;
         }
-        let _ = arg;
         if cnt == 1 {
             let opt = arg;
             optind += 1;
@@ -237,16 +235,16 @@ unsafe fn getopt_long_core(
     getopt(argc, argv, optstring)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn getopt_long(
+unsafe fn getopt_long_impl(
     argc: c_int,
     argv: *const *const c_char,
     optstring: *const c_char,
     longopts: *const LongOption,
     idx: *mut c_int,
+    longonly: bool,
 ) -> c_int {
     getopt_reset_if_needed();
-    if argc <= 0 || argv.is_null() { return -1; }
+    if argc <= 0 || argv.is_null() || optstring.is_null() { return -1; }
     if optind >= argc || (*argv.add(optind as usize)).is_null() { return -1; }
     let skipped = optind;
     if *optstring != b'+' as c_char && *optstring != b'-' as c_char {
@@ -260,7 +258,7 @@ pub unsafe extern "C" fn getopt_long(
         optind = i;
     }
     let resumed = optind;
-    let ret = getopt_long_core(argc, argv, optstring, longopts, idx, false);
+    let ret = getopt_long_core(argc, argv, optstring, longopts, idx, longonly);
     if resumed > skipped {
         let cnt = optind - resumed;
         let mut i = 0;
@@ -274,6 +272,17 @@ pub unsafe extern "C" fn getopt_long(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn getopt_long(
+    argc: c_int,
+    argv: *const *const c_char,
+    optstring: *const c_char,
+    longopts: *const LongOption,
+    idx: *mut c_int,
+) -> c_int {
+    getopt_long_impl(argc, argv, optstring, longopts, idx, false)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn getopt_long_only(
     argc: c_int,
     argv: *const *const c_char,
@@ -281,30 +290,5 @@ pub unsafe extern "C" fn getopt_long_only(
     longopts: *const LongOption,
     idx: *mut c_int,
 ) -> c_int {
-    getopt_reset_if_needed();
-    if argc <= 0 || argv.is_null() { return -1; }
-    if optind >= argc || (*argv.add(optind as usize)).is_null() { return -1; }
-    let skipped = optind;
-    if *optstring != b'+' as c_char && *optstring != b'-' as c_char {
-        let mut i = optind;
-        loop {
-            if i >= argc || (*argv.add(i as usize)).is_null() { return -1; }
-            let a = *argv.add(i as usize);
-            if *a == b'-' as c_char && *a.add(1) != 0 { break; }
-            i += 1;
-        }
-        optind = i;
-    }
-    let resumed = optind;
-    let ret = getopt_long_core(argc, argv, optstring, longopts, idx, true);
-    if resumed > skipped {
-        let cnt = optind - resumed;
-        let mut i = 0;
-        while i < cnt {
-            getopt_permute(argv as *mut *mut c_char, skipped as isize, (optind - 1) as isize);
-            i += 1;
-        }
-        optind = skipped + cnt;
-    }
-    ret
+    getopt_long_impl(argc, argv, optstring, longopts, idx, true)
 }

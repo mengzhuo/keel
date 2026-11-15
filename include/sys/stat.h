@@ -105,6 +105,7 @@ int fstatat(int, const char *, struct stat *, int);
 int chmod(const char *, mode_t);
 int fchmod(int, mode_t);
 int fchmodat(int, const char *, mode_t, int);
+int lchmod(const char *, mode_t);
 mode_t umask(mode_t);
 int mkdir(const char *, mode_t);
 int mkfifo(const char *, mode_t);

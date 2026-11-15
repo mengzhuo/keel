@@ -197,11 +197,20 @@ pub fn __math_uflowf(sign: u32) -> f32 {
     __math_xflowf(sign, 1.2e-38f32)
 }
 
+// musl exports signgam as an alias of __signgam. rustc's cdylib export list
+// localizes linker-level aliases, so keep two real statics and update both
+// together wherever the gamma sign is produced.
 #[no_mangle]
 pub static mut signgam: c_int = 0;
 
 #[no_mangle]
 pub static mut __signgam: c_int = 0;
+
+#[inline]
+pub(crate) unsafe fn set_signgam(v: c_int) {
+    signgam = v;
+    __signgam = v;
+}
 
 pub const FP_NAN: c_int = 0;
 pub const FP_INFINITE: c_int = 1;

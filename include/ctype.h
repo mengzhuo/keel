@@ -98,4 +98,16 @@ static __inline int __isspace(int _c)
 #define __LITTLE_ENDIAN 1234
 #define __LONG_MAX 0x7fffffffffffffffL
 #define __BIG_ENDIAN 4321
+
+/* glibc-compatible ctype tables (also exported by musl). */
+#ifdef __cplusplus
+extern "C" {
+#endif
+unsigned short **__ctype_b_loc(void);
+int **__ctype_tolower_loc(void);
+int **__ctype_toupper_loc(void);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

@@ -108,6 +108,8 @@ struct hostent *gethostent(void);
 
 struct servent *getservbyname(const char *, const char *);
 struct servent *getservbyport(int, const char *);
+int getservbyname_r(const char *, const char *, struct servent *, char *, size_t, struct servent **);
+int getservbyport_r(int, const char *, struct servent *, char *, size_t, struct servent **);
 void setservent(int);
 void endservent(void);
 struct servent *getservent(void);

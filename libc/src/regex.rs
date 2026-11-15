@@ -141,41 +141,93 @@ fn case_fold_byte(b: u8) -> u8 {
 
 
 
+unsafe fn find_top_level_bar(pat: *const c_char, start: usize, end: usize) -> Option<usize> {
+    let mut i = start;
+    let mut depth = 0i32;
+    let mut in_bracket = false;
+    while i < end {
+        let c = *pat.add(i) as u8;
+        if c == b'\\' { i += 2; continue; }
+        if in_bracket {
+            if c == b']' { in_bracket = false; }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'[' => in_bracket = true,
+            b'(' => depth += 1,
+            b')' => { if depth > 0 { depth -= 1; } }
+            b'|' if depth == 0 => return Some(i),
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 fn compile_expr(
     ctx: &mut RegexCContext,
     pat: *const c_char,
     plen: usize,
     start: usize,
     end: usize,
-    in_group: bool,
+    _in_group: bool,
 ) -> bool {
-    let mut i = start;
-    let mut alt_start = start;
-    let extended = ctx.extended;
-
-    while i < end {
-        let b = unsafe { *pat.add(i) as u8 };
-
-        if b == b'|' && extended {
-            if !compile_sequence(ctx, pat, plen, alt_start, i) { return false; }
-            let jump_pos = ctx.pos;
+    if ctx.extended {
+        if let Some(bar) = unsafe { find_top_level_bar(pat, start, end) } {
+            let split = ctx.pos;
+            if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
+            if !compile_sequence(ctx, pat, plen, start, bar) { return false; }
+            let jump = ctx.pos;
             if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
-            let cur = ctx.pos;
-            unsafe { patch32((*ctx.code).code, jump_pos + 1, cur as u32); }
-            alt_start = i + 1;
-            i += 1;
-            continue;
-        }
-
-        if b == b')' && extended && in_group {
-            if !compile_sequence(ctx, pat, plen, alt_start, i) { return false; }
+            let alt = ctx.pos;
+            unsafe { patch32((*ctx.code).code, split + 1, alt as u32); }
+            if !compile_expr(ctx, pat, plen, bar + 1, end, false) { return false; }
+            let after = ctx.pos;
+            unsafe { patch32((*ctx.code).code, jump + 1, after as u32); }
             return true;
         }
-
-        i += 1;
     }
+    compile_sequence(ctx, pat, plen, start, end)
+}
 
-    compile_sequence(ctx, pat, plen, alt_start, end)
+unsafe fn emit_bytes(ctx: &mut RegexCContext, src: *const u8, len: usize) -> bool {
+    if !grow_code(ctx, ctx.pos + len) { return false; }
+    core::ptr::copy_nonoverlapping(src, (*ctx.code).code.add(ctx.pos), len);
+    ctx.pos += len;
+    true
+}
+
+fn emit_quantifier(ctx: &mut RegexCContext, prev: *const u8, len: usize, kind: u8) -> bool {
+    unsafe {
+        if kind == b'*' {
+            let split = ctx.pos;
+            if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
+            if !emit_bytes(ctx, prev, len) { return false; }
+            let jump = ctx.pos;
+            if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
+            let after = ctx.pos;
+            patch32((*ctx.code).code, split + 1, after as u32);
+            patch32((*ctx.code).code, jump + 1, split as u32);
+        } else if kind == b'+' {
+            let atom = ctx.pos;
+            if !emit_bytes(ctx, prev, len) { return false; }
+            let split = ctx.pos;
+            if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
+            let jump = ctx.pos;
+            if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
+            let after = ctx.pos;
+            patch32((*ctx.code).code, split + 1, after as u32);
+            patch32((*ctx.code).code, jump + 1, atom as u32);
+        } else {
+            let split = ctx.pos;
+            if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
+            if !emit_bytes(ctx, prev, len) { return false; }
+            let after = ctx.pos;
+            patch32((*ctx.code).code, split + 1, after as u32);
+        }
+    }
+    true
 }
 
 fn compile_sequence(
@@ -191,15 +243,18 @@ fn compile_sequence(
     while i < end {
         let b = unsafe { *pat.add(i) as u8 };
 
+        // compile_expr() splits top-level alternatives into separate ranges;
+        // a bar that reaches here is inside a bracket or a malformed branch.
         if b == b'|' && extended { return true; }
-        if b == b')' && in_group_check(start, end, extended) { return true; }
 
         if b == b'\\' && i + 1 < end {
             let next = unsafe { *pat.add(i + 1) as u8 };
             if next >= 0x80 { return false; }
             if !extended && next == b'(' {
+                let atom = ctx.pos;
                 i = i.wrapping_add(2);
                 if !compile_group(ctx, pat, plen, &mut i, end) { return false; }
+                ctx.last_atom_start = atom;
                 continue;
             }
             if !extended && next == b')' { return true; }
@@ -211,8 +266,10 @@ fn compile_sequence(
         }
 
         if b == b'(' && extended {
+            let atom = ctx.pos;
             i += 1;
             if !compile_group(ctx, pat, plen, &mut i, end) { return false; }
+            ctx.last_atom_start = atom;
             continue;
         }
 
@@ -248,48 +305,19 @@ fn compile_sequence(
 
         if (b == b'*' || b == b'+' || b == b'?') && ctx.last_atom_start < ctx.pos {
             let prev_start = ctx.last_atom_start;
-            let prev_end = ctx.pos;
+            let prev_len = ctx.pos - prev_start;
             let op = unsafe { *(*ctx.code).code.add(prev_start) };
             if op == OP_CHAR || op == OP_BRACKET || op == OP_ANY || op == OP_BOL || op == OP_EOL {
-                let prev_len = prev_end - prev_start;
-                let mut prev = [0u8; 32];
-                for k in 0..prev_len {
-                    prev[k] = unsafe { *(*ctx.code).code.add(prev_start + k) };
+                let prev = unsafe { crate::malloc(prev_len) as *mut u8 };
+                if prev.is_null() { return false; }
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        (*ctx.code).code.add(prev_start), prev, prev_len);
                 }
                 ctx.pos = prev_start;
-
-                if b == b'*' {
-                    let sp = ctx.pos;
-                    if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
-                    for k in 0..prev_len { if !emit(ctx, prev[k]) { return false; } }
-                    let jmp = ctx.pos;
-                    if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
-                    let after = ctx.pos;
-                    unsafe {
-                        patch32((*ctx.code).code, sp + 1, after as u32);
-                        patch32((*ctx.code).code, jmp + 1, sp as u32);
-                    }
-                } else if b == b'+' {
-                    // Emit one mandatory copy of the atom before the split;
-                    // jumping to the split first would let '+' match empty.
-                    let atom_start = ctx.pos;
-                    for k in 0..prev_len { if !emit(ctx, prev[k]) { return false; } }
-                    let sp = ctx.pos;
-                    if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
-                    let jmp = ctx.pos;
-                    if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
-                    let after = ctx.pos;
-                    unsafe {
-                        patch32((*ctx.code).code, sp + 1, after as u32);
-                        patch32((*ctx.code).code, jmp + 1, atom_start as u32);
-                    }
-                } else {
-                    let sp = ctx.pos;
-                    if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
-                    for k in 0..prev_len { if !emit(ctx, prev[k]) { return false; } }
-                    let after = ctx.pos;
-                    unsafe { patch32((*ctx.code).code, sp + 1, after as u32); }
-                }
+                let ok = emit_quantifier(ctx, prev, prev_len, b);
+                unsafe { crate::free(prev as *mut c_void); }
+                if !ok { return false; }
                 ctx.last_atom_start = prev_start;
                 i += 1;
                 continue;
@@ -305,10 +333,6 @@ fn compile_sequence(
     true
 }
 
-fn in_group_check(start: usize, end: usize, extended: bool) -> bool {
-    extended && end > start
-}
-
 fn compile_group(
     ctx: &mut RegexCContext,
     pat: *const c_char,
@@ -317,11 +341,19 @@ fn compile_group(
     end: usize,
 ) -> bool {
     let start = *i;
-    let mut depth = 1;
+    let mut depth = 1i32;
+    let mut in_bracket = false;
     let mut j = start;
     while j < end && depth > 0 {
         let b = unsafe { *pat.add(j) as u8 };
-        if b == b'(' { depth += 1; }
+        if b == b'\\' { j += 2; continue; }
+        if in_bracket {
+            if b == b']' { in_bracket = false; }
+            j += 1;
+            continue;
+        }
+        if b == b'[' { in_bracket = true; }
+        else if b == b'(' { depth += 1; }
         else if b == b')' { depth -= 1; }
         if depth > 0 { j += 1; }
     }

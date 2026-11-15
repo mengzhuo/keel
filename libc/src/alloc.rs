@@ -15,7 +15,9 @@ const ALLOC_CLASSES: usize = ALLOC_MAX_CLASS / ALLOC_STEP + 1;
 const ALLOC_HDR: usize = core::mem::size_of::<AllocBlock>();
 const ALLOC_LARGE: usize = 1usize << 63;
 const ALLOC_ALIGNED: usize = 1usize << 62;
-const ALLOC_PAGES_MASK: usize = ALLOC_LARGE - 1;
+// Page counts live below both tag bits; masking with ALLOC_LARGE - 1 would
+// keep the ALLOC_ALIGNED bit and overstate every aligned block by 2^62 bytes.
+const ALLOC_PAGES_MASK: usize = ALLOC_ALIGNED - 1;
 
 #[repr(C)]
 struct AllocBlock {

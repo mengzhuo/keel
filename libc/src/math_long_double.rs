@@ -185,30 +185,69 @@ ld_wrapper!(atan2l, crate::atan2, f64_f64_ret);
 ld_wrapper!(copysignl, crate::copysign, f64_f64_ret);
 ld_wrapper!(fmodl, crate::fmod, f64_f64_ret);
 
+#[cfg(target_arch = "x86_64")]
 #[no_mangle]
 pub unsafe extern "C" fn frexpl(x: f64, exp: *mut i32) -> f64 {
     crate::frexp(x, exp)
 }
 
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[no_mangle]
+pub unsafe extern "C" fn frexpl(x: f128, exp: *mut i32) -> f128 {
+    crate::frexp(x as f64, exp) as f128
+}
+
+#[cfg(target_arch = "x86_64")]
 #[no_mangle]
 pub unsafe extern "C" fn modfl(x: f64, iptr: *mut f64) -> f64 {
     crate::modf(x, iptr)
 }
 
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[no_mangle]
+pub unsafe extern "C" fn modfl(x: f128, iptr: *mut f128) -> f128 {
+    let mut ip = 0.0f64;
+    let fp = crate::modf(x as f64, &mut ip);
+    *iptr = ip as f128;
+    fp as f128
+}
+
+#[cfg(target_arch = "x86_64")]
 #[no_mangle]
 pub unsafe extern "C" fn nanl(_tagp: *const core::ffi::c_char) -> f64 {
     f64::NAN
 }
 
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[no_mangle]
+pub unsafe extern "C" fn nanl(_tagp: *const core::ffi::c_char) -> f128 {
+    f64::NAN as f128
+}
+
+#[cfg(target_arch = "x86_64")]
 #[no_mangle]
 pub unsafe extern "C" fn sincosl(x: f64, s: *mut f64, c: *mut f64) {
     *s = crate::sin(x);
     *c = crate::cos(x);
 }
 
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[no_mangle]
+pub unsafe extern "C" fn sincosl(x: f128, s: *mut f128, c: *mut f128) {
+    *s = crate::sin(x as f64) as f128;
+    *c = crate::cos(x as f64) as f128;
+}
+
+#[cfg(target_arch = "x86_64")]
 #[no_mangle]
 pub unsafe extern "C" fn remquol(x: f64, y: f64, quo: *mut i32) -> f64 {
     crate::remquo(x, y, quo)
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[no_mangle]
+pub unsafe extern "C" fn remquol(x: f128, y: f128, quo: *mut i32) -> f128 {
+    crate::remquo(x as f64, y as f64, quo) as f128
 }
 
 #[no_mangle]

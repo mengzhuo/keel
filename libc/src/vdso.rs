@@ -234,7 +234,7 @@ unsafe extern "C" fn getcpu_init(cpu: *mut u32, node: *mut u32, unused: *mut c_v
     let p = vdso_lookup_either(b"__vdso_getcpu", b"__kernel_getcpu");
     GETCPU_VDSO.store(p as *mut c_void, Ordering::Relaxed);
     if p == 0 {
-        -(ENOSYS_VAL as c_long)
+        -(ENOSYS as c_long)
     } else {
         let f: unsafe extern "C" fn(*mut u32, *mut u32, *mut c_void) -> c_long =
             core::mem::transmute(p);
