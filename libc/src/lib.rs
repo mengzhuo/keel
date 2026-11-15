@@ -6723,7 +6723,17 @@ macro_rules! impl_format {
                             let mut mb = [0u8; 8];
                             let mut st: c_uint = 0;
                             let n = wcrtomb(mb.as_mut_ptr() as *mut c_char, ch, &mut st);
-                            if n != !0usize { ($write_str)(mb.as_ptr(), n); count += n; }
+                            if n != !0usize {
+                                let pad = width.saturating_sub(n);
+                                if flags & FLAG_MINUS != 0 {
+                                    ($write_str)(mb.as_ptr(), n);
+                                    for _ in 0..pad { ($write_char)(b' '); }
+                                } else {
+                                    for _ in 0..pad { ($write_char)(b' '); }
+                                    ($write_str)(mb.as_ptr(), n);
+                                }
+                                count += n + pad;
+                            }
                         }
                         (b'l', b'x') => {
                             let val = args.next_arg::<c_ulong>();
@@ -7584,7 +7594,7 @@ unsafe fn fmt_hex_float(dst: *mut u8, val: f64, precision: i32, _flags: u8, uppe
     let round_nib = ((rm >> 48) & 0xF) as u8;
     let rest = rm & 0x0000FFFFFFFFFFFF;
     let last_nib = if p > 0 {
-        hex_char_val(*dst.add(pos - 1))
+        hex_val(*dst.add(pos - 1)).unwrap_or(0)
     } else {
         lead
     };
@@ -7599,7 +7609,7 @@ unsafe fn fmt_hex_float(dst: *mut u8, val: f64, precision: i32, _flags: u8, uppe
                 break;
             }
             j -= 1;
-            let v = hex_char_val(*dst.add(j));
+            let v = hex_val(*dst.add(j)).unwrap_or(0);
             if v < 15 {
                 *dst.add(j) = hex_digit_char(v + 1, lc);
                 break;
@@ -7638,12 +7648,6 @@ fn hex_digit_char(v: u8, lowercase: bool) -> u8 {
 }
 
 #[inline]
-fn hex_char_val(c: u8) -> u8 {
-    if c >= b'0' && c <= b'9' { c - b'0' }
-    else if c >= b'a' && c <= b'f' { c - b'a' + 10 }
-    else if c >= b'A' && c <= b'F' { c - b'A' + 10 }
-    else { 0 }
-}
 
 // Apply width and flags padding to a formatted string in buf[0..len].
 // Writes the final result to dst. Returns total bytes written.
@@ -8008,7 +8012,16 @@ unsafe fn format_to_buf(buf: *mut u8, cap: usize, fmt: *const c_char, args: &mut
                         let mut mb = [0u8; 8];
                         let mut st: c_uint = 0;
                         let n = wcrtomb(mb.as_mut_ptr() as *mut c_char, ch, &mut st);
-                        if n != !0usize { ws!(mb.as_ptr(), n); }
+                        if n != !0usize {
+                            let pad = width.saturating_sub(n);
+                            if flags & FLAG_MINUS != 0 {
+                                ws!(mb.as_ptr(), n);
+                                for _ in 0..pad { wc!(b' '); }
+                            } else {
+                                for _ in 0..pad { wc!(b' '); }
+                                ws!(mb.as_ptr(), n);
+                            }
+                        }
                     }
                     (b'l', b'x') => {
                         let val = args.next_arg::<c_ulong>();
@@ -8203,6 +8216,10 @@ pub unsafe extern "C" fn snprintf(buf: *mut c_char, size: usize, fmt: *const c_c
 
 #[no_mangle]
 pub unsafe extern "C" fn vasprintf(strp: *mut *mut c_char, fmt: *const c_char, ap: VaList) -> c_int {
+    if strp.is_null() {
+        ERRNO!() = EINVAL;
+        return -1;
+    }
     let len = vsnprintf(core::ptr::null_mut(), 0, fmt, ap.clone());
     if len < 0 {
         *strp = core::ptr::null_mut();
@@ -9402,7 +9419,10 @@ pub unsafe extern "C" fn atexit(func: unsafe extern "C" fn()) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __cxa_finalize(_dso: *mut c_void) {}
+pub unsafe extern "C" fn __cxa_finalize(_dso: *mut c_void) {
+    // Modules are never unloaded (dlclose is a no-op), so there is nothing
+    // to finalize here.
+}
 
 // ============================================================
 // getenv / setenv / putenv / unsetenv / clearenv
@@ -10844,7 +10864,14 @@ unsafe fn vswprintf_impl(
                     }
                     (b'l', b'c') => {
                         let ch = args.next_arg::<wint_t>();
-                        wc!(ch);
+                        let pad = width.saturating_sub(1);
+                        if flags & FLAG_MINUS != 0 {
+                            wc!(ch);
+                            for _ in 0..pad { wc!(b' '); }
+                        } else {
+                            for _ in 0..pad { wc!(b' '); }
+                            wc!(ch);
+                        }
                     }
                     (b'l', b's') => {
                         let ws_arg = args.next_arg::<*const wchar_t>();
