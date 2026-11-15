@@ -58,7 +58,7 @@ cargo run -q -p keel-header-check -- --include include  # header macros vs Rust 
 - Even `cargo test --workspace` does not build `libc.so`; integration tests assert that file exists. Always run `cargo build --workspace` first.
 - Tests and the harness hardcode `target/debug`; `cargo test --release` still looks for debug artifacts. Stick to the dev profile.
 - Cargo stops at the first failing test binary; use `cargo test --workspace --no-fail-fast` when you need the full picture.
-- Toolchain is stable (`rust-toolchain.toml`) and requires `musl-gcc`. `static_hello` also needs host CRT objects under `/usr/lib/<arch>-linux-musl/`.
+- Toolchain is stable 1.99+ (`rust-toolchain.toml`) and requires `musl-gcc`. `static_hello` also needs host CRT objects under `/usr/lib/<arch>-linux-musl/`.
 - Dev profile is intentional: `opt-level = 2`, `overflow-checks = false`, `panic = "abort"`. The release profile is size-oriented (`opt-level = "s"`, `strip = "symbols"`, `panic = "abort"`), and `.cargo/config.toml` sets `RUST_TEST_THREADS=1` plus `-C force-unwind-tables=no`. Do not change these without re-running the size and performance measurements.
 - Fixture binaries, DSOs, and generated sources are built under `target/fixtures/`; the source tree stays clean, so no `.gitignore` entries are needed.
 - `tests/compat.rs` checks `glob("/tmp/*")`; a fresh container has an empty `/tmp`. `local-ci.sh` seeds a file, but manual runs need `touch /tmp/keel-ci-seed` first.

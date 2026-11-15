@@ -29,7 +29,7 @@ riscv64 is covered by the cross-build and the qemu smoke suite.
 
 ## Build
 
-The toolchain is pinned to stable Rust by `rust-toolchain.toml`.  The
+The toolchain is pinned to stable Rust by `rust-toolchain.toml`; Rust 1.99 or newer is required for stable C varargs.  The
 integration tests need `musl-gcc`, `file` and binutils; the static fixtures
 also need the host musl CRT objects under `/usr/lib/<arch>-linux-musl/`.
 
