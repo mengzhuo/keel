@@ -5,6 +5,10 @@
 #include "stdio.h"
 #include "stdlib.h"
 
+static int qc_fd = -1;
+static void qc_a(void) { write(qc_fd, "A", 1); }
+static void qc_b(void) { write(qc_fd, "B", 1); }
+
 int main(void) {
     int status = -1;
     pid_t pid = fork();
@@ -33,6 +37,27 @@ int main(void) {
     if (getppid() <= 0) return 9;
     if (getuid() == (uid_t)-1) return 10;
     if (getgid() == (gid_t)-1) return 11;
+
+    /* quick_exit runs at_quick_exit handlers in reverse order. */
+    {
+        int p[2];
+        if (pipe(p) != 0) return 12;
+        pid = fork();
+        if (pid < 0) return 13;
+        if (pid == 0) {
+            close(p[0]);
+            qc_fd = p[1];
+            if (at_quick_exit(qc_a) != 0 || at_quick_exit(qc_b) != 0) _exit(90);
+            quick_exit(7);
+        }
+        close(p[1]);
+        char buf[3] = {0, 0, 0};
+        ssize_t n = read(p[0], buf, 2);
+        close(p[0]);
+        w = waitpid(pid, &status, 0);
+        if (n != 2 || buf[0] != 'B' || buf[1] != 'A') return 14;
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 7) return 15;
+    }
 
     puts("process ok");
     return 0;

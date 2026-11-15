@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 Meng Zhuo */
 /* SPDX-License-Identifier: BSD-3-Clause */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -168,6 +169,15 @@ static void test_strtod(void) {
     errno = 0;
     d = strtod(frac, NULL);
     if (d != 0.0 || errno != ERANGE) { puts("strtod long fraction fail"); exit(1); }
+
+    /* gcvt honours the requested precision (%.*g). */
+    {
+        char gbuf[64];
+        gcvt(123.456, 4, gbuf);
+        if (strcmp(gbuf, "123.5") != 0) { puts("gcvt precision fail"); exit(1); }
+        gcvt(-0.000123456, 3, gbuf);
+        if (strcmp(gbuf, "-0.000123") != 0) { puts("gcvt small fail"); exit(1); }
+    }
 
     /* A mantissa longer than the internal buffer still overflows. */
     char big[900];
