@@ -14378,6 +14378,25 @@ unsafe fn match_bracket(mut p: *const u8, k: u8, kfold: u8) -> bool {
 }
 
 /// Core fnmatch for a single path component (no FNM_PATHNAME splitting).
+/// Match one non-star, non-end pattern token against one input byte.
+unsafe fn fnmatch_token(
+    tok: c_int,
+    pat: *const u8,
+    s: *const u8,
+    flags: c_int,
+) -> bool {
+    if *s == 0 {
+        return false;
+    }
+    let k = *s;
+    let kfold = if flags & FNM_CASEFOLD != 0 { ascii_casefold(k) } else { k };
+    match tok {
+        FNM_QUESTION => true,
+        FNM_BRACKET => match_bracket(pat, k, kfold),
+        c => k as c_int == c || kfold as c_int == c,
+    }
+}
+
 unsafe fn fnmatch_internal(pat: *const u8, str: *const u8, flags: c_int) -> c_int {
     // Handle leading .
     if flags & FNM_PERIOD != 0 && *str == b'.' && *pat != b'.' {
@@ -14398,24 +14417,8 @@ unsafe fn fnmatch_internal(pat: *const u8, str: *const u8, flags: c_int) -> c_in
                 p = p.add(1);
                 break;
             }
-            FNM_QUESTION => {
-                if *s == 0 { return FNM_NOMATCH; }
-                s = s.add(1);
-                p = p.add(step);
-            }
-            FNM_BRACKET => {
-                if *s == 0 { return FNM_NOMATCH; }
-                let k = *s;
-                let kfold = if flags & FNM_CASEFOLD != 0 { ascii_casefold(k) } else { k };
-                if !match_bracket(p, k, kfold) { return FNM_NOMATCH; }
-                p = p.add(step);
-                s = s.add(1);
-            }
-            c => {
-                if *s == 0 { return FNM_NOMATCH; }
-                let k = *s;
-                let kfold = if flags & FNM_CASEFOLD != 0 { ascii_casefold(k) } else { k };
-                if k as c_int != c && kfold as c_int != c { return FNM_NOMATCH; }
+            _ => {
+                if !fnmatch_token(tok, p, s, flags) { return FNM_NOMATCH; }
                 p = p.add(step);
                 s = s.add(1);
             }
@@ -14449,24 +14452,12 @@ unsafe fn fnmatch_internal(pat: *const u8, str: *const u8, flags: c_int) -> c_in
     let mut ts = stail;
     loop {
         let (tok, step) = pat_next(tp, usize::MAX, flags);
-        tp = tp.add(step);
         if tok == FNM_END {
             break;
         }
-        let k = *ts;
-        if k == 0 { return FNM_NOMATCH; }
-        let kfold = if flags & FNM_CASEFOLD != 0 { ascii_casefold(k) } else { k };
-        match tok {
-            FNM_QUESTION => { ts = ts.add(1); }
-            FNM_BRACKET => {
-                if !match_bracket(tp.sub(step), k, kfold) { return FNM_NOMATCH; }
-                ts = ts.add(1);
-            }
-            c => {
-                if k as c_int != c && kfold as c_int != c { return FNM_NOMATCH; }
-                ts = ts.add(1);
-            }
-        }
+        if !fnmatch_token(tok, tp, ts, flags) { return FNM_NOMATCH; }
+        tp = tp.add(step);
+        ts = ts.add(1);
     }
 
     let endstr = stail;
@@ -14496,31 +14487,11 @@ unsafe fn fnmatch_internal(pat: *const u8, str: *const u8, flags: c_int) -> c_in
                     ok = true;
                     break;
                 }
-                if *tmp_s == 0 {
+                if !fnmatch_token(t, tmp_p, tmp_s, flags) {
                     matched = false;
                     break;
                 }
-                let k = *tmp_s;
-                let kfold = if flags & FNM_CASEFOLD != 0 { ascii_casefold(k) } else { k };
-                match t {
-                    FNM_QUESTION => {
-                        tmp_s = tmp_s.add(1);
-                    }
-                    FNM_BRACKET => {
-                        if !match_bracket(tmp_p, k, kfold) {
-                            matched = false;
-                            break;
-                        }
-                        tmp_s = tmp_s.add(1);
-                    }
-                    c => {
-                        if k as c_int != c && kfold as c_int != c {
-                            matched = false;
-                            break;
-                        }
-                        tmp_s = tmp_s.add(1);
-                    }
-                }
+                tmp_s = tmp_s.add(1);
                 tmp_p = tmp_p.add(st);
             }
             if ok { break; }
