@@ -69,7 +69,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-registry-${{ hashFiles('**/Cargo.toml', 'rust-toolchain.toml') }}
 
       - name: Resolve libc-test revision
         id: libc_test
