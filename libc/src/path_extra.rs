@@ -629,7 +629,6 @@ struct History {
     chain: *mut History,
     dev: u64,
     ino: u64,
-    level: c_int,
     base: c_int,
 }
 
@@ -655,7 +654,6 @@ unsafe fn nftw_do(
     fd_limit: c_int,
     flags: c_int,
     h: *mut History,
-    _base: c_int,
     level: c_int,
 ) -> c_int {
     let path = buf as *const c_char;
@@ -699,7 +697,6 @@ unsafe fn nftw_do(
         chain: h,
         dev: st.st_dev,
         ino: st.st_ino,
-        level: level + 1,
         base: parent_base,
     };
     let mut ftw = Ftw { base: parent_base, level: level };
@@ -761,7 +758,7 @@ unsafe fn nftw_do(
                 }
                 *buf.add(len) = b'/';
                 core::ptr::copy_nonoverlapping(name as *const u8, buf.add(len + 1), nl + 1);
-                let r = nftw_do(buf, cap, len + 1 + nl, cb, fd_limit - 1, flags, &mut new, parent_base, level + 1);
+                let r = nftw_do(buf, cap, len + 1 + nl, cb, fd_limit - 1, flags, &mut new, level + 1);
                 if r != 0 { crate::close(dfd); return r; }
             }
         }
@@ -776,7 +773,6 @@ unsafe fn nftw_do(
         let r = walk_call(cb, path, &st, type_, &mut f2);
         if r != 0 { return r; }
     }
-    let _ = &mut new;
     0
 }
 
@@ -793,7 +789,7 @@ pub unsafe extern "C" fn nftw(
     if l >= PATH_MAX_V { ERRNO!() = 36; return -1; }
     let mut buf = [0u8; PATH_MAX_V + 1];
     core::ptr::copy_nonoverlapping(path as *const u8, buf.as_mut_ptr(), l + 1);
-    nftw_do(buf.as_mut_ptr(), buf.len(), l, WalkCb::N(f), fd_limit, flags, core::ptr::null_mut(), 0, 0)
+    nftw_do(buf.as_mut_ptr(), buf.len(), l, WalkCb::N(f), fd_limit, flags, core::ptr::null_mut(), 0)
 }
 
 #[no_mangle]
@@ -808,5 +804,5 @@ pub unsafe extern "C" fn ftw(
     if l >= PATH_MAX_V { ERRNO!() = 36; return -1; }
     let mut buf = [0u8; PATH_MAX_V + 1];
     core::ptr::copy_nonoverlapping(path as *const u8, buf.as_mut_ptr(), l + 1);
-    nftw_do(buf.as_mut_ptr(), buf.len(), l, WalkCb::F(f), fd_limit, FTW_PHYS_V, core::ptr::null_mut(), 0, 0)
+    nftw_do(buf.as_mut_ptr(), buf.len(), l, WalkCb::F(f), fd_limit, FTW_PHYS_V, core::ptr::null_mut(), 0)
 }
