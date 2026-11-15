@@ -2,7 +2,7 @@
 
 ## Mission
 
-`keel` is a Rust `no_std` musl-compatible libc plus a dynamic linker. Goal: run unmodified musl-linked x86_64/aarch64/riscv64 ELF binaries. Port behavior from `/home/root/musl`; validate against `/home/root/libc-test`.
+`keel` is a Rust `no_std` musl-compatible libc plus a dynamic linker. Goal: run unmodified musl-linked x86_64/aarch64/riscv64 ELF binaries. Port behavior from `~/musl`; validate against `~/libc-test`.
 
 ## Repo Layout
 
@@ -25,7 +25,7 @@
 
 **For local verification, run all tests in a container, not on the host.**
 The host `target/` in this lab may still contain artifacts from the
-pre-rename `/home/root/crabc` checkout, so `utils/tests/cli.rs` embeds the old
+pre-rename `crabc` checkout, so `utils/tests/cli.rs` embeds the old
 `CARGO_BIN_EXE_keel-utils` path and fails with `No such file or directory`.
 Use `./scripts/local-ci.sh` for the Ubuntu CI image, or
 `./scripts/alpine-ci.sh` for latest Alpine; if you reuse this checkout's
@@ -80,7 +80,7 @@ Pass extra compiler flags through the `extra` slice. Math adds
 `common::compile_static(src, bin)` builds a static fixture against `libc.a`
 with the host musl CRT objects; tests then run it directly and through the
 standalone `loader`. Tests that build DSOs or custom loader layouts still
-invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/wave4.rs` and `tests/wave5.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup. They skip when `LIBC_TEST_DIR` (default `/home/root/libc-test`) is absent, so set it to a nonexistent path when you only want the local fixtures.
+invoke the toolchain directly. `tests/crypt.rs` writes its C source inline, so edit the Rust string, not `tests/fixtures/crypt_test.c`. `tests/wave4.rs` and `tests/wave5.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup. They skip when `LIBC_TEST_DIR` (default `~/libc-test`) is absent, so set it to a nonexistent path when you only want the local fixtures.
 
 `libc` sets `test = false`; all coverage is through these root integration tests.
 
@@ -190,7 +190,7 @@ cd libc-test-harness
 ./run.sh all
 ```
 
-- Defaults to `LIBC_TEST_DIR=/home/root/libc-test`; override it for another checkout.
+- Defaults to `LIBC_TEST_DIR=~/libc-test`; override it for another checkout.
 - It symlinks `fake-libs/{libc,libpthread,libm,...}.so` to our `libc.so`, builds `runtest.exe`, and writes `reports/latest-summary.txt` / `latest-raw.txt`.
 - When a test exits 0, any non-empty stderr line not starting with `ldso:` or `JUMP ` is still treated as FAIL.
 - Its fallback build is `cargo build --workspace` when `libc.so` is missing, so the harness can be run standalone.
@@ -263,7 +263,7 @@ math / mm / sched / nptl / ipc  # failure lists identical to musl
 ```
 
 - `scripts/parity-check.sh` needs an x86_64 musl 1.2.6 build; the
-  `/home/root/musl` checkout in this lab is riscv64. Build an x86_64 tree
+  `~/musl` checkout in this lab is riscv64. Build an x86_64 tree
   under `/tmp/opencode` and point `MUSL_LIBC` at its `lib/libc.so`. Passing
   the riscv64 `libc.so` produces spurious "corrupted shared library" diffs.
 - LTP details, setup, and caveats are in `docs/ltp.md`. The full LTP tree must

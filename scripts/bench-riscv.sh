@@ -14,7 +14,7 @@
 #
 # Environment:
 #   MUSL_RISCV   riscv64 musl install with crt*.o and libc.so
-#                (default /home/root/musl/lib)
+#                (default ~/musl/lib)
 #   CC           cross compiler (default riscv64-linux-gnu-gcc)
 #   QEMU         qemu user binary (default qemu-riscv64)
 #   ROUNDS       interleaved rounds (default 3)
@@ -26,7 +26,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET=riscv64gc-unknown-linux-musl
 CC="${CC:-riscv64-linux-gnu-gcc}"
 QEMU="${QEMU:-qemu-riscv64}"
-MUSL_RISCV="${MUSL_RISCV:-/home/root/musl/lib}"
+MUSL_RISCV="${MUSL_RISCV:-$HOME/musl/lib}"
 ROUNDS="${ROUNDS:-3}"
 OUT="${BENCH_DIR:-$ROOT/target/bench-riscv}"
 TR="$ROOT/target/$TARGET/release"

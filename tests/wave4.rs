@@ -17,7 +17,8 @@ fn parse_count(stdout: &str, label: &str) -> i32 {
 
 #[test]
 fn wave4_libc_test_regression_zero_failures() {
-    let libc_test_dir = std::env::var("LIBC_TEST_DIR").unwrap_or_else(|_| "/home/root/libc-test".into());
+    let libc_test_dir = std::env::var("LIBC_TEST_DIR")
+        .unwrap_or_else(|_| format!("{}/libc-test", std::env::var("HOME").unwrap_or_default()));
     if !std::path::Path::new(&libc_test_dir).join("src").is_dir() {
         eprintln!(
             "skipping wave4_libc_test_regression_zero_failures: libc-test source not found at {}",

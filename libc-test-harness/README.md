@@ -26,7 +26,7 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
 
 - musl-gcc (`apt install musl-tools`)
 - Rust nightly toolchain (for building keel)
-- libc-test source at `/home/root/libc-test` (override with `LIBC_TEST_DIR` env var)
+- libc-test source at `~/libc-test` (override with `LIBC_TEST_DIR` env var)
 
 ## Known Limitations
 

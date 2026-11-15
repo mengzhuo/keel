@@ -17,7 +17,8 @@ fn parse_count(stdout: &str, label: &str) -> i32 {
 
 #[test]
 fn wave5_libc_test_functional_networking_and_fcntl() {
-    let libc_test_dir = std::env::var("LIBC_TEST_DIR").unwrap_or_else(|_| "/home/root/libc-test".into());
+    let libc_test_dir = std::env::var("LIBC_TEST_DIR")
+        .unwrap_or_else(|_| format!("{}/libc-test", std::env::var("HOME").unwrap_or_default()));
     if !std::path::Path::new(&libc_test_dir).join("src").is_dir() {
         eprintln!(
             "skipping wave5_libc_test_functional_networking_and_fcntl: libc-test source not found at {}",
