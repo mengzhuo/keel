@@ -2728,10 +2728,17 @@ extern "C" {
     ) -> i64;
 }
 
-static mut CREATE_THREAD_TLS_IMPL: usize = 0;
-static mut INIT_THREAD_TLS_IMPL: usize = 0;
-static mut TLS_BLOCK_SIZE_IMPL: usize = 0;
-static mut TLS_BASE_OFFSET_IMPL: usize = 0;
+#[derive(Copy, Clone)]
+struct TlsHooks {
+    create: unsafe extern "C" fn() -> *mut u8,
+    init: unsafe extern "C" fn(*mut u8) -> *mut u8,
+    block_size: extern "C" fn() -> usize,
+    base_offset: extern "C" fn() -> usize,
+}
+
+// Installed by the dynamic loader before any thread is created. A static
+// executable leaves this as None and uses the weak fallbacks.
+static mut TLS_HOOKS: Option<TlsHooks> = None;
 
 /// Called by the dynamic loader once it is self-relocated.  A static
 /// executable does not call this and keeps the fallback behaviour.
@@ -2742,58 +2749,52 @@ pub unsafe extern "C" fn __keel_set_thread_tls_hooks(
     block_size: usize,
     base_offset: usize,
 ) {
-    CREATE_THREAD_TLS_IMPL = create;
-    INIT_THREAD_TLS_IMPL = init;
-    TLS_BLOCK_SIZE_IMPL = block_size;
-    TLS_BASE_OFFSET_IMPL = base_offset;
+    TLS_HOOKS = Some(TlsHooks {
+        create: core::mem::transmute(create),
+        init: core::mem::transmute(init),
+        block_size: core::mem::transmute(block_size),
+        base_offset: core::mem::transmute(base_offset),
+    });
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
 pub extern "C" fn __keel_create_thread_tls() -> *mut u8 {
-    let f = unsafe { CREATE_THREAD_TLS_IMPL };
-    if f == 0 {
-        return core::ptr::null_mut();
+    match unsafe { TLS_HOOKS } {
+        Some(hooks) => unsafe { (hooks.create)() },
+        None => core::ptr::null_mut(),
     }
-    let f: unsafe extern "C" fn() -> *mut u8 = unsafe { core::mem::transmute(f) };
-    unsafe { f() }
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
 pub unsafe extern "C" fn __keel_init_thread_tls_at(block: *mut u8) -> *mut u8 {
-    let f = INIT_THREAD_TLS_IMPL;
-    if f == 0 {
-        return core::ptr::null_mut();
+    match TLS_HOOKS {
+        Some(hooks) => (hooks.init)(block),
+        None => core::ptr::null_mut(),
     }
-    let f: unsafe extern "C" fn(*mut u8) -> *mut u8 = core::mem::transmute(f);
-    f(block)
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
 pub extern "C" fn __keel_tls_block_size() -> usize {
-    let f = unsafe { TLS_BLOCK_SIZE_IMPL };
-    if f == 0 {
-        return 0;
+    match unsafe { TLS_HOOKS } {
+        Some(hooks) => (hooks.block_size)(),
+        None => 0,
     }
-    let f: extern "C" fn() -> usize = unsafe { core::mem::transmute(f) };
-    f()
 }
 
 #[inline(never)]
 #[linkage = "weak"]
 #[no_mangle]
 pub extern "C" fn __keel_tls_base_offset() -> usize {
-    let f = unsafe { TLS_BASE_OFFSET_IMPL };
-    if f == 0 {
-        return 0;
+    match unsafe { TLS_HOOKS } {
+        Some(hooks) => (hooks.base_offset)(),
+        None => 0,
     }
-    let f: extern "C" fn() -> usize = unsafe { core::mem::transmute(f) };
-    f()
 }
 
 #[inline]
