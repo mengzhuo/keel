@@ -4,6 +4,8 @@
 #include "stdio.h"
 #include "string.h"
 #include "stdlib.h"
+#include "fcntl.h"
+#include "unistd.h"
 
 static int test_fopen_fclose(void) {
     FILE *f = fopen("/tmp/test_stdio_fopen.txt", "w");
@@ -139,6 +141,10 @@ static int test_sscanf(void) {
     if (n != 3) return 1;
     if (a != 42 || b != 99) return 2;
     if (strcmp(s, "hello") != 0) return 3;
+    /* A literal directive cannot match at end of input. */
+    char empty[] = { 0 };
+    n = sscanf(empty, "a");
+    if (n != EOF) return 4;
     return 0;
 }
 
@@ -247,6 +253,24 @@ static int test_fdopen(void) {
     if (fd < 0) return 2;
     fclose(f);
     remove("/tmp/test_stdio_fd.txt");
+
+    /* Reopening a file in append mode must leave ftello at the end, even
+       before stdio flushes its buffer. */
+    char path[] = "/tmp/test_stdio_fdopen_XXXXXX";
+    fd = mkstemp(path);
+    if (fd < 0) return 3;
+    if (write(fd, "abcd", 4) != 4) return 4;
+    if (close(fd) != 0) return 5;
+    fd = open(path, O_WRONLY);
+    if (fd < 0) return 6;
+    f = fdopen(fd, "a");
+    if (!f) return 7;
+    if (fwrite("efg", 1, 3, f) != 3) return 8;
+    if (ftello(f) != 7) return 9;
+    if (fflush(f) != 0) return 10;
+    if (ftello(f) != 7) return 11;
+    if (fclose(f) != 0) return 12;
+    if (unlink(path) != 0) return 13;
     return 0;
 }
 

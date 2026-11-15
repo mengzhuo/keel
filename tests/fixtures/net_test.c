@@ -60,6 +60,14 @@ static void test_inet(void) {
     a.s_addr = htonl(0x0a00801f);
     p = inet_ntoa(a.s_addr);
     CHECK(p && strcmp(p, "10.0.128.31") == 0, "inet_ntoa");
+
+    unsigned char addr6[16];
+    const char *in6 = "::ffff:192.168.0.1";
+    r = inet_pton(AF_INET6, in6, addr6);
+    CHECK(r == 1, "inet_pton v4mapped");
+    p = inet_ntop(AF_INET6, addr6, buf, sizeof(buf));
+    CHECK(p && strchr(buf, '.') != NULL, "inet_ntop v4mapped dot");
+    CHECK(p && strcmp(buf, in6) == 0, "inet_ntop v4mapped exact");
 }
 
 static void test_fcntl_lock(void) {

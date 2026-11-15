@@ -73,6 +73,14 @@ int main(void) {
         if (!q || ((uintptr_t)q & 4095)) return 17;
         free(q);
     }
+    {
+        void *z1 = malloc(0);
+        void *z2 = malloc(0);
+        if (!z1 || !z2) return 24;
+        if (z1 == z2) return 25;
+        free(z1);
+        free(z2);
+    }
 
     pthread_t t[THREADS];
     for (long i = 0; i < THREADS; i++) {

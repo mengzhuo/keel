@@ -118,7 +118,8 @@ jobs:
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         run: ./scripts/riscv-smoke.sh
 
-      # regression/functional run inside cargo test via tests/wave4.rs and wave5.rs.
+      # regression/functional run inside cargo test via tests/libc_test_regression.rs
+      # and libc_test_functional.rs.
       - name: Run libc-test API suite
         run: |
           cd libc-test-harness
