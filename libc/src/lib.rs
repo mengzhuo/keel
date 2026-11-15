@@ -1355,15 +1355,13 @@ pub unsafe extern "C" fn signal(signum: c_int, handler: usize) -> usize {
 #[no_mangle]
 pub unsafe extern "C" fn kill(pid: c_int, sig: c_int) -> c_int {
     let r = sys_kill(pid, sig);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn tgkill(tgid: c_int, tid: c_int, sig: c_int) -> c_int {
     let r = sys_tgkill(tgid, tid, sig);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -1374,12 +1372,7 @@ pub unsafe extern "C" fn getpid() -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn raise(sig: c_int) -> c_int {
     let r = sys_tgkill(sys_getpid() as c_int, sys_gettid() as c_int, sig);
-    if r < 0 {
-        ERRNO!() = (-r) as c_int;
-        -1
-    } else {
-        0
-    }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -1439,11 +1432,7 @@ pub unsafe extern "C" fn sigismember(set: *const SigSetT, signum: c_int) -> c_in
 #[no_mangle]
 pub unsafe extern "C" fn sigpending(set: *mut SigSetT) -> c_int {
     let r = sys_rt_sigpending(set, core::mem::size_of::<SigSetT>());
-    if r < 0 {
-        ERRNO!() = (-r) as c_int;
-        return -1;
-    }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -1508,11 +1497,7 @@ pub unsafe extern "C" fn sigaltstack(ss: *const stack_t, old_ss: *mut stack_t) -
         }
     }
     let r = sys_sigaltstack(ss, old_ss);
-    if r < 0 {
-        ERRNO!() = (-r) as c_int;
-        return -1;
-    }
-    0
+    syscall_ret(r) as c_int
 }
 
 // ============================================================
@@ -1956,22 +1941,19 @@ pub unsafe extern "C" fn execve(
     envp: *const *const c_char,
 ) -> c_int {
     let r = sys_execve(path, argv, envp);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn wait(status: *mut c_int) -> c_int {
     let r = sys_wait4(-1, status, 0, core::ptr::null_mut());
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int {
     let r = sys_wait4(pid, status, options, core::ptr::null_mut());
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -2028,7 +2010,7 @@ pub unsafe extern "C" fn execl(path: *const c_char, arg: *const c_char, mut args
     *argv.add(n) = core::ptr::null();
     let r = sys_execve(path, argv, __environ as *const *const c_char);
     free(argv as *mut c_void);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // ============================================================
@@ -2170,14 +2152,13 @@ pub const AT_FDCWD: i32 = -100;
 #[no_mangle]
 pub unsafe extern "C" fn stat(path: *const c_char, buf: *mut Stat) -> c_int {
     let r = sys_newfstatat(AT_FDCWD, path, buf as *mut u8, 0);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn fstat(fd: c_int, buf: *mut Stat) -> c_int {
     let r = sys_fstat(fd, buf as *mut u8);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 // ============================================================
@@ -2211,13 +2192,13 @@ pub const RLIM_INFINITY: u64 = !0u64;
 #[no_mangle]
 pub unsafe extern "C" fn getrlimit(resource: c_int, rlim: *mut Rlimit) -> c_int {
     let r = sys_getrlimit(resource, rlim as *mut u8);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setrlimit(resource: c_int, rlim: *const Rlimit) -> c_int {
     let r = sys_setrlimit(resource, rlim as *const u8);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 // ============================================================
@@ -2227,13 +2208,13 @@ pub unsafe extern "C" fn setrlimit(resource: c_int, rlim: *const Rlimit) -> c_in
 #[no_mangle]
 pub unsafe extern "C" fn utimensat(dirfd: c_int, path: *const c_char, times: *const timespec, flags: c_int) -> c_int {
     let r = sys_utimensat(dirfd, path, times as *const u8, flags);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn futimens(fd: c_int, times: *const timespec) -> c_int {
     let r = sys_utimensat(fd, core::ptr::null(), times as *const u8, 0);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 // ============================================================
@@ -2332,43 +2313,37 @@ unsafe fn sys_getsockname(fd: c_int, addr: *mut sockaddr, len: *mut c_uint) -> i
 #[no_mangle]
 pub unsafe extern "C" fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int {
     let r = sys_socket(domain, ty, protocol);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn socketpair(domain: c_int, ty: c_int, protocol: c_int, sv: *mut c_int) -> c_int {
     let r = sys_socketpair(domain, ty, protocol, sv);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn bind(fd: c_int, addr: *const sockaddr, len: c_uint) -> c_int {
     let r = sys_bind(fd, addr, len);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn listen(fd: c_int, backlog: c_int) -> c_int {
     let r = sys_listen(fd, backlog);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn accept(fd: c_int, addr: *mut sockaddr, len: *mut c_uint) -> c_int {
     let r = sys_accept(fd, addr, len);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn connect(fd: c_int, addr: *const sockaddr, len: c_uint) -> c_int {
     let r = sys_connect(fd, addr, len);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -2416,8 +2391,7 @@ pub unsafe extern "C" fn recvfrom(
 #[no_mangle]
 pub unsafe extern "C" fn shutdown(fd: c_int, how: c_int) -> c_int {
     let r = sys_shutdown(fd, how);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -2429,15 +2403,13 @@ pub unsafe extern "C" fn setsockopt(
     optlen: c_uint,
 ) -> c_int {
     let r = sys_setsockopt(fd, level, optname, optval, optlen);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn getsockname(fd: c_int, addr: *mut sockaddr, len: *mut c_uint) -> c_int {
     let r = sys_getsockname(fd, addr, len);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -4232,8 +4204,7 @@ pub unsafe extern "C" fn shm_unlink(name: *const c_char) -> c_int {
     let mut buf = [0u8; 16 + NAME_MAX + 1];
     if shm_mapname(name, buf.as_mut_ptr()) < 0 { return -1; }
     let r = sys_unlink(buf.as_ptr());
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -11371,13 +11342,13 @@ unsafe fn sys_clock_nanosleep(clockid: c_int, flags: c_int, req: *const timespec
 #[no_mangle]
 pub unsafe extern "C" fn clock_getres(clockid: c_int, ts: *mut timespec) -> c_int {
     let r = sys_clock_getres(clockid, ts);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn clock_settime(clockid: c_int, ts: *const timespec) -> c_int {
     let r = sys_clock_settime(clockid, ts);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12502,22 +12473,19 @@ unsafe fn sys_mkdirat(dirfd: i32, path: *const u8, mode: u32) -> i64 {
 #[no_mangle]
 pub unsafe extern "C" fn pipe(fds: *mut c_int) -> c_int {
     let r = sys_pipe2(fds, 0);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn pipe2(fds: *mut c_int, flags: c_int) -> c_int {
     let r = sys_pipe2(fds, flags);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn dup(oldfd: c_int) -> c_int {
     let r = sys_dup(oldfd);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12530,15 +12498,13 @@ pub unsafe extern "C" fn dup2(oldfd: c_int, newfd: c_int) -> c_int {
         return newfd;
     }
     let r = sys_dup2(oldfd, newfd);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn dup3(oldfd: c_int, newfd: c_int, flags: c_int) -> c_int {
     let r = sys_dup3(oldfd, newfd, flags);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12554,36 +12520,31 @@ pub unsafe extern "C" fn fcntl(fd: c_int, cmd: c_int, mut args: ...) -> c_int {
         let arg = args.next_arg::<c_long>();
         sys_fcntl(fd, cmd, arg)
     };
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn access(path: *const c_char, mode: c_int) -> c_int {
     let r = sys_access(path as *const u8, mode);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn unlink(path: *const c_char) -> c_int {
     let r = sys_unlink(path as *const u8);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rmdir(path: *const c_char) -> c_int {
     let r = sys_rmdir(path as *const u8);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn chdir(path: *const c_char) -> c_int {
     let r = sys_chdir(path as *const u8);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12617,8 +12578,7 @@ pub unsafe extern "C" fn getcwd(buf: *mut c_char, size: usize) -> *mut c_char {
 #[no_mangle]
 pub unsafe extern "C" fn gethostname(name: *mut c_char, len: usize) -> c_int {
     let r = sys_gethostname(name as *mut u8, len);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 // Linux page size.  This is hardcoded to 4096 on every architecture; that
@@ -12632,15 +12592,13 @@ pub extern "C" fn getpagesize() -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn truncate(path: *const c_char, length: i64) -> c_int {
     let r = sys_truncate(path as *const u8, length);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn ftruncate(fd: c_int, length: i64) -> c_int {
     let r = sys_ftruncate(fd, length);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12648,8 +12606,7 @@ pub unsafe extern "C" fn nanosleep(req: *const timespec, rem: *mut timespec) -> 
     pthread_testcancel();
     let r = sys_nanosleep(req, rem);
     pthread_testcancel();
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12672,8 +12629,7 @@ pub unsafe extern "C" fn usleep(usec: c_uint) -> c_int {
     pthread_testcancel();
     let r = sys_nanosleep(&req, core::ptr::null_mut());
     pthread_testcancel();
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12696,15 +12652,13 @@ pub unsafe extern "C" fn pause() -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn fsync(fd: c_int) -> c_int {
     let r = sys_fsync(fd);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn fdatasync(fd: c_int) -> c_int {
     let r = sys_fdatasync(fd);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12715,8 +12669,7 @@ pub unsafe extern "C" fn sync() {
 #[no_mangle]
 pub unsafe extern "C" fn symlink(target: *const c_char, linkpath: *const c_char) -> c_int {
     let r = sys_symlinkat(target as *const u8, AT_FDCWD, linkpath as *const u8);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12729,22 +12682,19 @@ pub unsafe extern "C" fn readlink(path: *const c_char, buf: *mut c_char, bufsiz:
 #[no_mangle]
 pub unsafe extern "C" fn link(oldpath: *const c_char, newpath: *const c_char) -> c_int {
     let r = sys_linkat(AT_FDCWD, oldpath as *const u8, AT_FDCWD, newpath as *const u8, 0);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn chmod(path: *const c_char, mode: c_uint) -> c_int {
     let r = sys_fchmodat(AT_FDCWD, path as *const u8, mode, 0);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn fchmod(fd: c_int, mode: c_uint) -> c_int {
     let r = sys_fchmod(fd, mode);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12766,22 +12716,19 @@ pub unsafe extern "C" fn getlogin() -> *mut c_char {
 #[no_mangle]
 pub unsafe extern "C" fn getgroups(size: c_int, list: *mut c_uint) -> c_int {
     let r = sys_getgroups(size, list);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setuid(uid: c_uint) -> c_int {
     let r = sys_setuid(uid);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setgid(gid: c_uint) -> c_int {
     let r = sys_setgid(gid);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12800,7 +12747,7 @@ pub unsafe extern "C" fn setegid(egid: c_uint) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn setreuid(ruid: c_uint, euid: c_uint) -> c_int {
     let r = <Arch as Syscalls>::syscall2(sysno(113, 145), ruid as i64, euid as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 
@@ -12808,29 +12755,25 @@ pub unsafe extern "C" fn setreuid(ruid: c_uint, euid: c_uint) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn setsid() -> c_int {
     let r = sys_setsid();
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setpgid(pid: c_int, pgid: c_int) -> c_int {
     let r = sys_setpgid(pid, pgid);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn getpgid(pid: c_int) -> c_int {
     let r = sys_getpgid(pid);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn getsid(pid: c_int) -> c_int {
     let r = sys_getsid(pid);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    r as c_int
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -12899,8 +12842,7 @@ pub unsafe extern "C" fn mkstemp(template: *mut c_char) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn mkdir(path: *const c_char, mode: c_uint) -> c_int {
     let r = sys_mkdirat(AT_FDCWD, path as *const u8, mode);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 // ============================================================
@@ -15063,14 +15005,14 @@ pub unsafe extern "C" fn ftok(path: *const c_char, id: c_int) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn msgget(key: c_int, msgflg: c_int) -> c_int {
     let r = sys_msgget(key, msgflg);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // msgsnd
 #[no_mangle]
 pub unsafe extern "C" fn msgsnd(msqid: c_int, msgp: *const c_void, msgsz: usize, msgflg: c_int) -> c_int {
     let r = sys_msgsnd(msqid, msgp, msgsz, msgflg);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // msgrcv
@@ -15084,7 +15026,7 @@ pub unsafe extern "C" fn msgrcv(msqid: c_int, msgp: *mut c_void, msgsz: usize, m
 #[no_mangle]
 pub unsafe extern "C" fn msgctl(msqid: c_int, cmd: c_int, buf: *mut c_void) -> c_int {
     let r = sys_msgctl(msqid, cmd, buf);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // semget
@@ -15092,14 +15034,14 @@ pub unsafe extern "C" fn msgctl(msqid: c_int, cmd: c_int, buf: *mut c_void) -> c
 pub unsafe extern "C" fn semget(key: c_int, nsems: c_int, semflg: c_int) -> c_int {
     if nsems > 65535 { ERRNO!() = 22; return -1; }
     let r = sys_semget(key, nsems, semflg);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // semop
 #[no_mangle]
 pub unsafe extern "C" fn semop(semid: c_int, sops: *const c_void, nsops: usize) -> c_int {
     let r = sys_semop(semid, sops, nsops);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // semctl - C variadic
@@ -15117,14 +15059,14 @@ pub unsafe extern "C" fn semctl(semid: c_int, semnum: c_int, cmd: c_int, mut arg
         _ => {}
     }
     let r = sys_semctl(semid, semnum, cmd, arg);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // shmget
 #[no_mangle]
 pub unsafe extern "C" fn shmget(key: c_int, size: usize, shmflg: c_int) -> c_int {
     let r = sys_shmget(key, size, shmflg);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // shmat
@@ -15142,14 +15084,14 @@ pub unsafe extern "C" fn shmat(shmid: c_int, shmaddr: *const c_void, shmflg: c_i
 #[no_mangle]
 pub unsafe extern "C" fn shmdt(shmaddr: *const c_void) -> c_int {
     let r = sys_shmdt(shmaddr);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // shmctl
 #[no_mangle]
 pub unsafe extern "C" fn shmctl(shmid: c_int, cmd: c_int, buf: *mut c_void) -> c_int {
     let r = sys_shmctl(shmid, cmd, buf);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 // ============================================================
@@ -19140,11 +19082,7 @@ pub unsafe extern "C" fn lockf(fd: i32, cmd: i32, len: i64) -> i32 {
         if wait { F_SETLKW } else { F_SETLK },
         &fl as *const FlockArg as i64,
     );
-    if r < 0 {
-        ERRNO!() = (-r) as c_int;
-        return -1;
-    }
-    0
+    syscall_ret(r) as c_int
 }
 
 // ============================================================
@@ -20101,12 +20039,7 @@ pub unsafe extern "C" fn clone(
         ctid = args.next_arg::<*mut c_int>();
     }
     let r = __keel_clone(func, stack, flags as c_ulong, arg, ptid, tls, ctid);
-    if r < 0 {
-        ERRNO!() = (-r) as c_int;
-        -1
-    } else {
-        r as c_int
-    }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -20441,12 +20374,7 @@ pub unsafe extern "C" fn unlockpt(fd: i32) -> i32 {
         TIOCSPTLCK,
         &mut unlock as *mut i32 as i64,
     );
-    if r < 0 {
-        ERRNO!() = (-r) as c_int;
-        -1
-    } else {
-        0
-    }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -21095,12 +21023,7 @@ pub unsafe extern "C" fn quick_exit(status: i32) -> ! {
 #[no_mangle]
 pub unsafe extern "C" fn lstat(path: *const core::ffi::c_char, buf: *mut core::ffi::c_void) -> i32 {
     let r = <Arch as Syscalls>::syscall4(SYS_NEWFSTATAT, AT_FDCWD as i64, path as i64, buf as i64, 0x100);
-    if r < 0 {
-        ERRNO!() = (-r) as c_int;
-        -1
-    } else {
-        0
-    }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -21874,14 +21797,13 @@ pub unsafe extern "C" fn uname(buf: *mut c_void) -> c_int {
     // Let the kernel validate the user pointer: an invalid but non-null
     // address must produce EFAULT instead of a fault in a local copy.
     let r = <Arch as Syscalls>::syscall1(SYS_UNAME, buf as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; return -1; }
-    0
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn unshare(flags: i32) -> i32 {
     let r = <Arch as Syscalls>::syscall1(SYS_UNSHARE, flags as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -21912,7 +21834,7 @@ pub unsafe extern "C" fn utime(filename: *const c_char, times: *const Utimbuf) -
 #[no_mangle]
 pub unsafe extern "C" fn vhangup() -> c_int {
     let r = <Arch as Syscalls>::syscall0(SYS_VHANGUP);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -22360,7 +22282,7 @@ pub unsafe extern "C" fn strchrnul(s: *const c_char, c: c_int) -> *mut c_char {
 #[no_mangle]
 pub unsafe extern "C" fn fstatat(dirfd: c_int, path: *const c_char, buf: *mut Stat, flags: c_int) -> c_int {
     let r = sys_newfstatat(dirfd, path, buf as *mut u8, flags);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -22648,7 +22570,7 @@ pub unsafe extern "C" fn riscv_flush_icache(start: *mut c_void, end: *mut c_void
     #[cfg(target_arch = "riscv64")]
     {
         let r = <Arch as Syscalls>::syscall3(259, start as i64, end as i64, flags as i64);
-        if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+        syscall_ret(r) as c_int
     }
     #[cfg(not(target_arch = "riscv64"))]
     {
@@ -22670,19 +22592,19 @@ pub unsafe extern "C" fn mkostemps(template: *mut c_char, suffixlen: c_int, flag
 #[no_mangle]
 pub unsafe extern "C" fn statfs(path: *const c_char, buf: *mut c_void) -> c_int {
     let r = <Arch as Syscalls>::syscall2(SYS_STATFS, path as i64, buf as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn fstatfs(fd: c_int, buf: *mut c_void) -> c_int {
     let r = <Arch as Syscalls>::syscall2(SYS_FSTATFS, fd as i64, buf as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sysinfo(info: *mut c_void) -> c_int {
     let r = <Arch as Syscalls>::syscall1(SYS_SYSINFO, info as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -23454,7 +23376,7 @@ fn sysno(x86_64: i64, generic: i64) -> i64 {
 #[no_mangle]
 pub unsafe extern "C" fn settimeofday(tv: *const c_void, tz: *const c_void) -> c_int {
     let r = <Arch as Syscalls>::syscall2(sysno(164, 170), tv as i64, tz as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -23485,13 +23407,13 @@ pub unsafe extern "C" fn tee(fd_in: c_int, fd_out: c_int, len: usize, flags: u32
 #[no_mangle]
 pub unsafe extern "C" fn statx(dirfd: c_int, path: *const c_char, flags: c_int, mask: u32, buf: *mut c_void) -> c_int {
     let r = <Arch as Syscalls>::syscall5(sysno(332, 291), dirfd as i64, path as i64, flags as i64, mask as i64, buf as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setns(fd: c_int, nstype: c_int) -> c_int {
     let r = <Arch as Syscalls>::syscall2(SYS_SETNS, fd as i64, nstype as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -23507,7 +23429,7 @@ pub unsafe extern "C" fn setfsgid(gid: u32) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn setregid(rgid: u32, egid: u32) -> c_int {
     let r = <Arch as Syscalls>::syscall2(sysno(114, 143), rgid as i64, egid as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -23526,14 +23448,14 @@ pub unsafe extern "C" fn process_vm_writev(pid: c_int, local: *const c_void, lio
 pub unsafe extern "C" fn tcgetwinsize(fd: c_int, ws: *mut c_void) -> c_int {
     if fd < 0 || ws.is_null() { ERRNO!() = EINVAL; return -1; }
     let r = <Arch as Syscalls>::syscall3(SYS_IOCTL, fd as i64, 0x5413, ws as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn tcsetwinsize(fd: c_int, ws: *const c_void) -> c_int {
     if fd < 0 || ws.is_null() { ERRNO!() = EINVAL; return -1; }
     let r = <Arch as Syscalls>::syscall3(SYS_IOCTL, fd as i64, 0x5414, ws as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -23618,7 +23540,7 @@ pub unsafe extern "C" fn sigpause(sig: c_int) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn semtimedop(semid: c_int, sops: *mut c_void, nsops: usize, timeout: *const timespec) -> c_int {
     let r = <Arch as Syscalls>::syscall4(sysno(220, 192), semid as i64, sops as i64, nsops as i64, timeout as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
@@ -23676,13 +23598,13 @@ pub unsafe extern "C" fn __xmknodat(_ver: c_int, dirfd: c_int, path: *const c_ch
 #[no_mangle]
 pub unsafe extern "C" fn name_to_handle_at(dirfd: c_int, path: *const c_char, handle: *mut c_void, mount_id: *mut c_int, flags: c_int) -> c_int {
     let r = <Arch as Syscalls>::syscall5(sysno(303, 264), dirfd as i64, path as i64, handle as i64, mount_id as i64, flags as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn open_by_handle_at(mount_fd: c_int, handle: *mut c_void, flags: c_int) -> c_int {
     let r = <Arch as Syscalls>::syscall3(sysno(304, 265), mount_fd as i64, handle as i64, flags as i64);
-    if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { r as c_int }
+    syscall_ret(r) as c_int
 }
 
 #[no_mangle]
