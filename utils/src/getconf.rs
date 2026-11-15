@@ -7,6 +7,7 @@
 //! come from `sysconf`/`confstr`/`pathconf`; fixed POSIX minimums are
 //! compiled in as Rust constants.
 
+use crate::posix;
 use std::ffi::{CString, OsString};
 use std::process::ExitCode;
 use std::ptr;
@@ -33,60 +34,60 @@ macro_rules! vars {
 }
 
 static VARS: &[Var] = vars![
-    "PATH" => Kind::Str(libc::_CS_PATH),
-    "PAGESIZE" => Kind::Sys(libc::_SC_PAGESIZE),
-    "PAGE_SIZE" => Kind::Sys(libc::_SC_PAGESIZE),
-    "ARG_MAX" => Kind::Sys(libc::_SC_ARG_MAX),
-    "CHILD_MAX" => Kind::Sys(libc::_SC_CHILD_MAX),
-    "CLK_TCK" => Kind::Sys(libc::_SC_CLK_TCK),
-    "NGROUPS_MAX" => Kind::Sys(libc::_SC_NGROUPS_MAX),
-    "OPEN_MAX" => Kind::Sys(libc::_SC_OPEN_MAX),
-    "STREAM_MAX" => Kind::Sys(libc::_SC_STREAM_MAX),
-    "TZNAME_MAX" => Kind::Sys(libc::_SC_TZNAME_MAX),
-    "JOB_CONTROL" => Kind::Sys(libc::_SC_JOB_CONTROL),
-    "SAVED_IDS" => Kind::Sys(libc::_SC_SAVED_IDS),
-    "REALTIME_SIGNALS" => Kind::Sys(libc::_SC_REALTIME_SIGNALS),
-    "PRIORITY_SCHEDULING" => Kind::Sys(libc::_SC_PRIORITY_SCHEDULING),
-    "TIMERS" => Kind::Sys(libc::_SC_TIMERS),
-    "ASYNCHRONOUS_IO" => Kind::Sys(libc::_SC_ASYNCHRONOUS_IO),
-    "PRIORITIZED_IO" => Kind::Sys(libc::_SC_PRIORITIZED_IO),
-    "SYNCHRONIZED_IO" => Kind::Sys(libc::_SC_SYNCHRONIZED_IO),
-    "FSYNC" => Kind::Sys(libc::_SC_FSYNC),
-    "MAPPED_FILES" => Kind::Sys(libc::_SC_MAPPED_FILES),
-    "MEMLOCK" => Kind::Sys(libc::_SC_MEMLOCK),
-    "MEMLOCK_RANGE" => Kind::Sys(libc::_SC_MEMLOCK_RANGE),
-    "MEMORY_PROTECTION" => Kind::Sys(libc::_SC_MEMORY_PROTECTION),
-    "MESSAGE_PASSING" => Kind::Sys(libc::_SC_MESSAGE_PASSING),
-    "SEMAPHORES" => Kind::Sys(libc::_SC_SEMAPHORES),
-    "SHARED_MEMORY_OBJECTS" => Kind::Sys(libc::_SC_SHARED_MEMORY_OBJECTS),
-    "AIO_LISTIO_MAX" => Kind::Sys(libc::_SC_AIO_LISTIO_MAX),
-    "AIO_MAX" => Kind::Sys(libc::_SC_AIO_MAX),
-    "AIO_PRIO_DELTA_MAX" => Kind::Sys(libc::_SC_AIO_PRIO_DELTA_MAX),
-    "DELAYTIMER_MAX" => Kind::Sys(libc::_SC_DELAYTIMER_MAX),
-    "MQ_OPEN_MAX" => Kind::Sys(libc::_SC_MQ_OPEN_MAX),
-    "MQ_PRIO_MAX" => Kind::Sys(libc::_SC_MQ_PRIO_MAX),
-    "VERSION" => Kind::Sys(libc::_SC_VERSION),
-    "RTSIG_MAX" => Kind::Sys(libc::_SC_RTSIG_MAX),
-    "SEM_NSEMS_MAX" => Kind::Sys(libc::_SC_SEM_NSEMS_MAX),
-    "SEM_VALUE_MAX" => Kind::Sys(libc::_SC_SEM_VALUE_MAX),
-    "SIGQUEUE_MAX" => Kind::Sys(libc::_SC_SIGQUEUE_MAX),
-    "TIMER_MAX" => Kind::Sys(libc::_SC_TIMER_MAX),
-    "IOV_MAX" => Kind::Sys(libc::_SC_IOV_MAX),
-    "LOGIN_NAME_MAX" => Kind::Sys(libc::_SC_LOGIN_NAME_MAX),
-    "TTY_NAME_MAX" => Kind::Sys(libc::_SC_TTY_NAME_MAX),
-    "HOST_NAME_MAX" => Kind::Sys(libc::_SC_HOST_NAME_MAX),
-    "SYMLOOP_MAX" => Kind::Sys(libc::_SC_SYMLOOP_MAX),
-    "NPROCESSORS_CONF" => Kind::Sys(libc::_SC_NPROCESSORS_CONF),
-    "NPROCESSORS_ONLN" => Kind::Sys(libc::_SC_NPROCESSORS_ONLN),
-    "PHYS_PAGES" => Kind::Sys(libc::_SC_PHYS_PAGES),
-    "AVPHYS_PAGES" => Kind::Sys(libc::_SC_AVPHYS_PAGES),
-    "ATEXIT_MAX" => Kind::Sys(libc::_SC_ATEXIT_MAX),
-    "THREAD_DESTRUCTOR_ITERATIONS" => Kind::Sys(libc::_SC_THREAD_DESTRUCTOR_ITERATIONS),
-    "THREAD_KEYS_MAX" => Kind::Sys(libc::_SC_THREAD_KEYS_MAX),
-    "THREAD_STACK_MIN" => Kind::Sys(libc::_SC_THREAD_STACK_MIN),
-    "THREAD_THREADS_MAX" => Kind::Sys(libc::_SC_THREAD_THREADS_MAX),
-    "XOPEN_VERSION" => Kind::Sys(libc::_SC_XOPEN_VERSION),
-    "POSIX_VERSION" => Kind::Sys(libc::_SC_VERSION),
+    "PATH" => Kind::Str(posix::_CS_PATH),
+    "PAGESIZE" => Kind::Sys(posix::_SC_PAGESIZE),
+    "PAGE_SIZE" => Kind::Sys(posix::_SC_PAGESIZE),
+    "ARG_MAX" => Kind::Sys(posix::_SC_ARG_MAX),
+    "CHILD_MAX" => Kind::Sys(posix::_SC_CHILD_MAX),
+    "CLK_TCK" => Kind::Sys(posix::_SC_CLK_TCK),
+    "NGROUPS_MAX" => Kind::Sys(posix::_SC_NGROUPS_MAX),
+    "OPEN_MAX" => Kind::Sys(posix::_SC_OPEN_MAX),
+    "STREAM_MAX" => Kind::Sys(posix::_SC_STREAM_MAX),
+    "TZNAME_MAX" => Kind::Sys(posix::_SC_TZNAME_MAX),
+    "JOB_CONTROL" => Kind::Sys(posix::_SC_JOB_CONTROL),
+    "SAVED_IDS" => Kind::Sys(posix::_SC_SAVED_IDS),
+    "REALTIME_SIGNALS" => Kind::Sys(posix::_SC_REALTIME_SIGNALS),
+    "PRIORITY_SCHEDULING" => Kind::Sys(posix::_SC_PRIORITY_SCHEDULING),
+    "TIMERS" => Kind::Sys(posix::_SC_TIMERS),
+    "ASYNCHRONOUS_IO" => Kind::Sys(posix::_SC_ASYNCHRONOUS_IO),
+    "PRIORITIZED_IO" => Kind::Sys(posix::_SC_PRIORITIZED_IO),
+    "SYNCHRONIZED_IO" => Kind::Sys(posix::_SC_SYNCHRONIZED_IO),
+    "FSYNC" => Kind::Sys(posix::_SC_FSYNC),
+    "MAPPED_FILES" => Kind::Sys(posix::_SC_MAPPED_FILES),
+    "MEMLOCK" => Kind::Sys(posix::_SC_MEMLOCK),
+    "MEMLOCK_RANGE" => Kind::Sys(posix::_SC_MEMLOCK_RANGE),
+    "MEMORY_PROTECTION" => Kind::Sys(posix::_SC_MEMORY_PROTECTION),
+    "MESSAGE_PASSING" => Kind::Sys(posix::_SC_MESSAGE_PASSING),
+    "SEMAPHORES" => Kind::Sys(posix::_SC_SEMAPHORES),
+    "SHARED_MEMORY_OBJECTS" => Kind::Sys(posix::_SC_SHARED_MEMORY_OBJECTS),
+    "AIO_LISTIO_MAX" => Kind::Sys(posix::_SC_AIO_LISTIO_MAX),
+    "AIO_MAX" => Kind::Sys(posix::_SC_AIO_MAX),
+    "AIO_PRIO_DELTA_MAX" => Kind::Sys(posix::_SC_AIO_PRIO_DELTA_MAX),
+    "DELAYTIMER_MAX" => Kind::Sys(posix::_SC_DELAYTIMER_MAX),
+    "MQ_OPEN_MAX" => Kind::Sys(posix::_SC_MQ_OPEN_MAX),
+    "MQ_PRIO_MAX" => Kind::Sys(posix::_SC_MQ_PRIO_MAX),
+    "VERSION" => Kind::Sys(posix::_SC_VERSION),
+    "RTSIG_MAX" => Kind::Sys(posix::_SC_RTSIG_MAX),
+    "SEM_NSEMS_MAX" => Kind::Sys(posix::_SC_SEM_NSEMS_MAX),
+    "SEM_VALUE_MAX" => Kind::Sys(posix::_SC_SEM_VALUE_MAX),
+    "SIGQUEUE_MAX" => Kind::Sys(posix::_SC_SIGQUEUE_MAX),
+    "TIMER_MAX" => Kind::Sys(posix::_SC_TIMER_MAX),
+    "IOV_MAX" => Kind::Sys(posix::_SC_IOV_MAX),
+    "LOGIN_NAME_MAX" => Kind::Sys(posix::_SC_LOGIN_NAME_MAX),
+    "TTY_NAME_MAX" => Kind::Sys(posix::_SC_TTY_NAME_MAX),
+    "HOST_NAME_MAX" => Kind::Sys(posix::_SC_HOST_NAME_MAX),
+    "SYMLOOP_MAX" => Kind::Sys(posix::_SC_SYMLOOP_MAX),
+    "NPROCESSORS_CONF" => Kind::Sys(posix::_SC_NPROCESSORS_CONF),
+    "NPROCESSORS_ONLN" => Kind::Sys(posix::_SC_NPROCESSORS_ONLN),
+    "PHYS_PAGES" => Kind::Sys(posix::_SC_PHYS_PAGES),
+    "AVPHYS_PAGES" => Kind::Sys(posix::_SC_AVPHYS_PAGES),
+    "ATEXIT_MAX" => Kind::Sys(posix::_SC_ATEXIT_MAX),
+    "THREAD_DESTRUCTOR_ITERATIONS" => Kind::Sys(posix::_SC_THREAD_DESTRUCTOR_ITERATIONS),
+    "THREAD_KEYS_MAX" => Kind::Sys(posix::_SC_THREAD_KEYS_MAX),
+    "THREAD_STACK_MIN" => Kind::Sys(posix::_SC_THREAD_STACK_MIN),
+    "THREAD_THREADS_MAX" => Kind::Sys(posix::_SC_THREAD_THREADS_MAX),
+    "XOPEN_VERSION" => Kind::Sys(posix::_SC_XOPEN_VERSION),
+    "POSIX_VERSION" => Kind::Sys(posix::_SC_VERSION),
     "POSIX2_VERSION" => Kind::Num(200809),
     "POSIX2_BC_BASE_MAX" => Kind::Num(99),
     "POSIX2_BC_DIM_MAX" => Kind::Num(2048),
@@ -105,15 +106,15 @@ static VARS: &[Var] = vars![
     "POSIX2_LOCALEDEF" => Kind::Num(200809),
     "POSIX2_SW_DEV" => Kind::Num(200809),
     "POSIX2_UPE" => Kind::Num(200809),
-    "PATH_MAX" => Kind::Path(libc::_PC_PATH_MAX),
-    "LINK_MAX" => Kind::Path(libc::_PC_LINK_MAX),
-    "MAX_CANON" => Kind::Path(libc::_PC_MAX_CANON),
-    "MAX_INPUT" => Kind::Path(libc::_PC_MAX_INPUT),
-    "NAME_MAX" => Kind::Path(libc::_PC_NAME_MAX),
-    "PIPE_BUF" => Kind::Path(libc::_PC_PIPE_BUF),
-    "CHOWN_RESTRICTED" => Kind::Path(libc::_PC_CHOWN_RESTRICTED),
-    "NO_TRUNC" => Kind::Path(libc::_PC_NO_TRUNC),
-    "VDISABLE" => Kind::Path(libc::_PC_VDISABLE),
+    "PATH_MAX" => Kind::Path(posix::_PC_PATH_MAX),
+    "LINK_MAX" => Kind::Path(posix::_PC_LINK_MAX),
+    "MAX_CANON" => Kind::Path(posix::_PC_MAX_CANON),
+    "MAX_INPUT" => Kind::Path(posix::_PC_MAX_INPUT),
+    "NAME_MAX" => Kind::Path(posix::_PC_NAME_MAX),
+    "PIPE_BUF" => Kind::Path(posix::_PC_PIPE_BUF),
+    "CHOWN_RESTRICTED" => Kind::Path(posix::_PC_CHOWN_RESTRICTED),
+    "NO_TRUNC" => Kind::Path(posix::_PC_NO_TRUNC),
+    "VDISABLE" => Kind::Path(posix::_PC_VDISABLE),
     "_POSIX_ARG_MAX" => Kind::Num(4096),
     "_POSIX_CHILD_MAX" => Kind::Num(25),
     "_POSIX_LINK_MAX" => Kind::Num(8),
@@ -139,10 +140,10 @@ static VARS: &[Var] = vars![
     "_POSIX2_RE_DUP_MAX" => Kind::Num(255),
     "_POSIX2_C_BIND" => Kind::Num(200809),
 
-    "_AVPHYS_PAGES" => Kind::Sys(libc::_SC_AVPHYS_PAGES),
-    "_PHYS_PAGES" => Kind::Sys(libc::_SC_PHYS_PAGES),
-    "_NPROCESSORS_CONF" => Kind::Sys(libc::_SC_NPROCESSORS_CONF),
-    "_NPROCESSORS_ONLN" => Kind::Sys(libc::_SC_NPROCESSORS_ONLN),
+    "_AVPHYS_PAGES" => Kind::Sys(posix::_SC_AVPHYS_PAGES),
+    "_PHYS_PAGES" => Kind::Sys(posix::_SC_PHYS_PAGES),
+    "_NPROCESSORS_CONF" => Kind::Sys(posix::_SC_NPROCESSORS_CONF),
+    "_NPROCESSORS_ONLN" => Kind::Sys(posix::_SC_NPROCESSORS_ONLN),
     "BC_BASE_MAX" => Kind::Num(99),
     "BC_DIM_MAX" => Kind::Num(2048),
     "BC_SCALE_MAX" => Kind::Num(99),
@@ -281,7 +282,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
 fn query(var: &Var, path: Option<&str>) -> Result<Option<String>, String> {
     match var.kind {
         Kind::Sys(id) => {
-            let value = unsafe { libc::sysconf(id) };
+            let value = unsafe { posix::sysconf(id) };
             Ok(format_number(value))
         }
         Kind::Num(value) => Ok(Some(value.to_string())),
@@ -292,17 +293,17 @@ fn query(var: &Var, path: Option<&str>) -> Result<Option<String>, String> {
                 return Err("invalid variable type".into());
             };
             let cpath = CString::new(path).map_err(|_| "path contains a NUL byte".to_string())?;
-            let value = unsafe { libc::pathconf(cpath.as_ptr(), id) };
+            let value = unsafe { posix::pathconf(cpath.as_ptr(), id) };
             Ok(format_number(value))
         }
         Kind::Str(id) => {
-            let needed = unsafe { libc::confstr(id, ptr::null_mut(), 0) };
+            let needed = unsafe { posix::confstr(id, ptr::null_mut(), 0) };
             if needed == 0 {
                 return Ok(None);
             }
             let mut buf = vec![0u8; needed];
             let written =
-                unsafe { libc::confstr(id, buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
+                unsafe { posix::confstr(id, buf.as_mut_ptr() as *mut std::os::raw::c_char, buf.len()) };
             if written == 0 {
                 return Ok(None);
             }

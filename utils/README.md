@@ -8,10 +8,11 @@ and symlinks for the individual commands:
 getconf  getent  iconv  ldd  ldconfig
 ```
 
-Invoke it directly for a summary:
+Invoke it directly to print the command list, or run one command through
+the multicall interface (`keel-utils --help` prints the same list to stdout):
 
 ```sh
-keel-utils
+keel-utils            # usage summary on stderr; exits 1
 keel-utils getconf PAGESIZE
 keel-utils ldd /bin/sh
 ```

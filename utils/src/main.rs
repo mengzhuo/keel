@@ -13,6 +13,7 @@ mod getent;
 mod iconv_cmd;
 mod ldconfig;
 mod ldd;
+mod posix;
 
 use std::env;
 use std::path::Path;

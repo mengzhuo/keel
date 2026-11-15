@@ -3,6 +3,7 @@
 
 //! `iconv`: character-set conversion using keel/musl's iconv(3).
 
+use crate::posix;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -187,8 +188,8 @@ fn convert_buffer<W: Write>(
 
         let err = io::Error::last_os_error();
         match err.raw_os_error() {
-            Some(libc::E2BIG) => continue,
-            Some(libc::EILSEQ) if skip_invalid => {
+            Some(posix::E2BIG) => continue,
+            Some(posix::EILSEQ) if skip_invalid => {
                 // Skip one input byte and retry, matching iconv -c.
                 if consumed < pending.len() {
                     consumed += 1;
@@ -196,7 +197,7 @@ fn convert_buffer<W: Write>(
                     break;
                 }
             }
-            Some(libc::EINVAL) if at_eof => break,
+            Some(posix::EINVAL) if at_eof => break,
             _ => return Err(err),
         }
     }
