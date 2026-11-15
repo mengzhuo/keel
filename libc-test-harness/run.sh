@@ -11,7 +11,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 KEEL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIBC_TEST_DIR="${LIBC_TEST_DIR:-$HOME/libc-test}"
+LIBC_TEST_DIR="${LIBC_TEST_DIR:-$(dirname "$KEEL_DIR")/libc-test}"
 LIBC_SO="${KEEL_DIR}/target/debug/libc.so"
 LDSO_SO="$LIBC_SO"
 FAKE_LIBS="${SCRIPT_DIR}/fake-libs"

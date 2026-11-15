@@ -24,7 +24,7 @@
 # to be absent.
 #
 # Environment:
-#   LIBC_TEST_DIR  upstream libc-test checkout (default ~/libc-test)
+#   LIBC_TEST_DIR  upstream libc-test checkout (default: sibling libc-test)
 #   MUSL_LIBC      musl loader/libc used as baseline (auto-detected)
 #   TIMEOUT        per-test timeout in seconds (default 30)
 #   PARITY_RETRIES retries after a mismatching run (default 2)
@@ -35,7 +35,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LIBC_TEST_DIR="${LIBC_TEST_DIR:-$HOME/libc-test}"
+LIBC_TEST_DIR="${LIBC_TEST_DIR:-$(dirname "$ROOT")/libc-test}"
 PARITY_DIR="${PARITY_DIR:-$ROOT/libc-test-harness/parity}"
 CC="${CC:-musl-gcc}"
 TIMEOUT="${TIMEOUT:-30}"
