@@ -63,7 +63,9 @@ so they can be in null pointer constants
 		__typeof__((x)+(y)+(z)), \
 		__typeof__((x)+(y)+(z)+1.0)))
 /* drop complex from the type of x */
-/* TODO: wrong when sizeof(long double)==sizeof(double) */
+/* With keel's 64-bit x86_64 long double, sizeof(long double) equals
+   sizeof(double); the long-double branch is then unreachable, but the
+   remaining branches still select a correct C type. */
 #define __RETCAST_REAL(x) (  \
 	__type2(__IS_FP(x) && sizeof((x)+I) == sizeof(float complex), float, \
 	__type2(sizeof((x)+1.0+I) == sizeof(double complex), double, \

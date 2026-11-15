@@ -1,6 +1,6 @@
 [package]
 name = "keel-header-check"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Check that keel's C header macros agree with its Rust constants"
 license = "BSD-3-Clause"
