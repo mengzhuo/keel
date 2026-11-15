@@ -109,6 +109,17 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         }
     } else {
         for name in files {
+            // Reset the converter state between files, like a fresh
+            // descriptor per input in GNU iconv.
+            unsafe {
+                iconv(
+                    cd,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                );
+            }
             let result = if name == "-" {
                 convert_stream(
                     cd,

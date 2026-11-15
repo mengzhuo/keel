@@ -98,14 +98,19 @@ if [ "$SUBSET" = "symbols" ]; then
     report="$PARITY_DIR/report-symbols.txt"
     musl_syms="$PARITY_DIR/musl.syms"
     keel_syms="$PARITY_DIR/keel.syms"
-    nm -D --defined-only "$MUSL_LIBC" \
-        | awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' | sort -u > "$musl_syms"
+    if ! nm -D --defined-only "$MUSL_LIBC" > "$PARITY_DIR/musl.nm"; then
+        echo "FATAL: nm failed for $MUSL_LIBC" >&2
+        exit 1
+    fi
+    awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' "$PARITY_DIR/musl.nm" | sort -u > "$musl_syms"
     # musl's libc.so is also its loader. keel's combined libc.so contains
     # both, so loader symbols such as __tls_get_addr are present.
     # look missing.
-    {
-        nm -D --defined-only "$ROOT/target/debug/libc.so"
-    } | awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' | sort -u > "$keel_syms"
+    if ! nm -D --defined-only "$ROOT/target/debug/libc.so" > "$PARITY_DIR/keel.nm"; then
+        echo "FATAL: nm failed for target/debug/libc.so" >&2
+        exit 1
+    fi
+    awk '$2 ~ /^[TtWwDdBbRrVv]$/ {print $3}' "$PARITY_DIR/keel.nm" | sort -u > "$keel_syms"
     comm -23 "$musl_syms" "$keel_syms" > "$PARITY_DIR/missing.syms"
     comm -13 "$musl_syms" "$keel_syms" > "$PARITY_DIR/extra.syms"
     # _init/_fini are ELF entry stubs provided by crt; _dl_debug_addr and

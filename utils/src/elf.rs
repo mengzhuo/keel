@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-#![allow(dead_code)]
-
 //! Minimal 64-bit little-endian ELF reader used by `ldd` and `ldconfig`.
 //!
 //! This intentionally only implements the parts needed by the two commands:
@@ -26,6 +24,7 @@ const DT_RPATH: u64 = 15;
 const DT_RUNPATH: u64 = 29;
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // mirrors the ELF format; consumers read a subset
 pub struct Phdr {
     pub p_type: u32,
     pub p_flags: u32,
@@ -37,6 +36,7 @@ pub struct Phdr {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // mirrors the ELF format; consumers read a subset
 pub struct ElfFile {
     pub path: PathBuf,
     pub e_type: u16,
