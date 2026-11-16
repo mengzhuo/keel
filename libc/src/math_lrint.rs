@@ -14,11 +14,11 @@
 #[no_mangle]
 pub extern "C" fn rint(x: f64) -> f64 {
     let u = asuint64(x);
-    let e = ((u >> 52) & 0x7ff) as i32;
+    let e = ((u >> 52) & F64_EXP_MASK) as i32;
     let s = u >> 63;
 
     // Already an integer (exponent >= 52 means no fractional bits)
-    if e >= 0x3ff + 52 {
+    if e >= F64_EXP_BIAS + 52 {
         return x;
     }
 
@@ -41,11 +41,11 @@ pub extern "C" fn rint(x: f64) -> f64 {
 #[no_mangle]
 pub extern "C" fn rintf(x: f32) -> f32 {
     let u = asuint(x);
-    let e = ((u >> 23) & 0xff) as i32;
+    let e = ((u >> 23) & F32_EXP_MASK as u32) as i32;
     let s = u >> 31;
 
     // Already an integer (exponent >= 23 means no fractional bits)
-    if e >= 0x7f + 23 {
+    if e >= F32_EXP_BIAS + 23 {
         return x;
     }
 

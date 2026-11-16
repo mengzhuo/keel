@@ -976,7 +976,7 @@ pub unsafe extern "C" fn sigqueue(pid: c_int, sig: c_int, value: *mut c_void) ->
     *(si.as_mut_ptr().add(16) as *mut c_int) = crate::getpid();
     *(si.as_mut_ptr().add(20) as *mut u32) = crate::getuid();
     *(si.as_mut_ptr().add(24) as *mut *mut c_void) = value;
-    let r = <Arch as Syscalls>::syscall3(sysno(129, 138), pid as i64, sig as i64, si.as_ptr() as i64);
+    let r = <Arch as Syscalls>::syscall3(SYS_RT_SIGQUEUEINFO, pid as i64, sig as i64, si.as_ptr() as i64);
     if r < 0 { ERRNO!() = (-r) as c_int; -1 } else { 0 }
 }
 

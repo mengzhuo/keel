@@ -4,6 +4,12 @@
 // Shared bit, classification, fenv and gamma-sign helpers used by the local
 // math ports and the libm-backed wrappers.
 
+// IEEE-754 layout constants shared by the math wrappers.
+const F64_EXP_MASK: u64 = 0x7ff;
+const F32_EXP_MASK: u64 = 0xff;
+const F64_EXP_BIAS: i32 = 0x3ff;
+const F32_EXP_BIAS: i32 = 0x7f;
+
 #[inline]
 const fn asuint(f: f32) -> u32 {
     f.to_bits()
@@ -211,16 +217,16 @@ pub const FP_ZERO: c_int = 2;
 pub const FP_SUBNORMAL: c_int = 3;
 pub const FP_NORMAL: c_int = 4;
 
-pub const FP_ILOGB0: c_int = -2147483648i32;
-pub const FP_ILOGBNAN: c_int = 2147483647i32;
+pub const FP_ILOGB0: c_int = c_int::MIN;
+pub const FP_ILOGBNAN: c_int = c_int::MAX;
 
 #[no_mangle]
 pub unsafe extern "C" fn __fpclassify(x: f64) -> c_int {
     let u = asuint64(x);
-    let e = (u >> 52) & 0x7ff;
+    let e = (u >> 52) & F64_EXP_MASK;
     if e == 0 {
         if (u << 1) != 0 { FP_SUBNORMAL } else { FP_ZERO }
-    } else if e == 0x7ff {
+    } else if e == F64_EXP_MASK {
         if (u << 12) != 0 { FP_NAN } else { FP_INFINITE }
     } else {
         FP_NORMAL
@@ -230,10 +236,10 @@ pub unsafe extern "C" fn __fpclassify(x: f64) -> c_int {
 #[no_mangle]
 pub unsafe extern "C" fn __fpclassifyf(x: f32) -> c_int {
     let u = asuint(x);
-    let e = (u >> 23) & 0xff;
+    let e = (u >> 23) & F32_EXP_MASK as u32;
     if e == 0 {
         if (u << 1) != 0 { FP_SUBNORMAL } else { FP_ZERO }
-    } else if e == 0xff {
+    } else if e == F32_EXP_MASK as u32 {
         if (u << 9) != 0 { FP_NAN } else { FP_INFINITE }
     } else {
         FP_NORMAL
@@ -253,17 +259,17 @@ pub extern "C" fn __signbitf(x: f32) -> c_int {
 #[inline]
 pub fn is_nan(x: f64) -> bool {
     let u = asuint64(x);
-    ((u >> 52) & 0x7ff) == 0x7ff && (u << 12) != 0
+    ((u >> 52) & F64_EXP_MASK) == F64_EXP_MASK && (u << 12) != 0
 }
 
 #[inline]
 pub fn is_nanf(x: f32) -> bool {
     let u = asuint(x);
-    ((u >> 23) & 0xff) == 0xff && (u << 9) != 0
+    ((u >> 23) & F32_EXP_MASK as u32) == F32_EXP_MASK as u32 && (u << 9) != 0
 }
 
 #[inline]
 pub fn is_finite(x: f64) -> bool {
     let u = asuint64(x);
-    ((u >> 52) & 0x7ff) != 0x7ff
+    ((u >> 52) & F64_EXP_MASK) != F64_EXP_MASK
 }

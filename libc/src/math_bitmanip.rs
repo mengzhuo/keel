@@ -68,17 +68,17 @@ pub extern "C" fn ceilf(x: f32) -> f32 {
 #[no_mangle]
 pub extern "C" fn round(x: f64) -> f64 {
     let ix = x.to_bits();
-    let e = ((ix >> 52) & 0x7ff) as i32;
+    let e = ((ix >> 52) & F64_EXP_MASK) as i32;
     let mut ax = x;
 
-    if e >= 0x3ff + 52 {
+    if e >= F64_EXP_BIAS + 52 {
         return x;
     }
     let neg = ix >> 63 != 0;
     if neg {
         ax = -ax;
     }
-    if e < 0x3ff - 1 {
+    if e < F64_EXP_BIAS - 1 {
         force_eval(ax + p2d(52));
         return 0.0 * x;
     }
@@ -96,17 +96,17 @@ pub extern "C" fn round(x: f64) -> f64 {
 #[no_mangle]
 pub extern "C" fn roundf(x: f32) -> f32 {
     let ix = x.to_bits();
-    let e = ((ix >> 23) & 0xff) as i32;
+    let e = ((ix >> 23) & F32_EXP_MASK as u32) as i32;
     let mut ax = x;
 
-    if e >= 0x7f + 23 {
+    if e >= F32_EXP_BIAS + 23 {
         return x;
     }
     let neg = ix >> 31 != 0;
     if neg {
         ax = -ax;
     }
-    if e < 0x7f - 1 {
+    if e < F32_EXP_BIAS - 1 {
         force_eval(ax + p2f(23));
         return 0.0f32 * x;
     }

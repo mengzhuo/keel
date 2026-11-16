@@ -386,7 +386,7 @@ unsafe fn vgetrandom_thread_state() -> *mut u8 {
         // kernel's generation check to reseed instead of reusing the parent's
         // buffered bytes.  Without this guarantee, do not use the vDSO.
         let advice = <Arch as Syscalls>::syscall3(
-            sysno(28, 233),
+            SYS_MADVISE,
             mapped as i64,
             page as i64,
             MADV_WIPEONFORK as i64,
