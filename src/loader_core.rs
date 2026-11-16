@@ -6,7 +6,11 @@
 
 use crate::arch::sys_mmap;
 
-include!("../libc/src/ldso/elf_common.rs");
+#[allow(dead_code)] // the shared file also serves the in-libc loader
+pub mod elf_common {
+    include!("../libc/src/ldso/elf_common.rs");
+}
+pub use elf_common::*;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -45,9 +49,6 @@ pub const EM_X86_64: u16 = 62;
 pub const EM_AARCH64: u16 = 183;
 pub const EM_RISCV: u16 = 243;
 
-#[allow(dead_code)] // selected only on x86_64
-#[allow(dead_code)] // selected only on aarch64
-#[allow(dead_code)] // selected only on riscv64
 pub const MAP_FAILED: *mut u8 = !0 as *mut u8;
 
 pub const PAGE_SIZE: usize = 4096;

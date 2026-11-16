@@ -8,6 +8,47 @@ pub const PT_LOAD: u32 = 1;
 pub const PT_DYNAMIC: u32 = 2;
 pub const PT_PHDR: u32 = 6;
 
+// ELF64 program-header layout.  Both loaders parse phdrs from raw bytes
+// because the executable's phdrs are already mapped by the kernel.
+pub const PHDR_SIZE: usize = 56;
+pub const PH_TYPE: usize = 0;
+pub const PH_FLAGS: usize = 4;
+pub const PH_OFFSET: usize = 8;
+pub const PH_VADDR: usize = 16;
+pub const PH_FILESZ: usize = 32;
+pub const PH_MEMSZ: usize = 40;
+pub const PH_ALIGN: usize = 48;
+
+// ELF64 executable-header offsets used by the loader.
+pub const EH_PHOFF: usize = 32;
+pub const EH_PHENTSIZE: usize = 54;
+pub const EH_PHNUM: usize = 56;
+
+#[inline]
+pub unsafe fn ehdr_u16(eh: *const u8, off: usize) -> u16 {
+    u16::from_le_bytes(core::ptr::read_unaligned(eh.add(off) as *const [u8; 2]))
+}
+
+#[inline]
+pub unsafe fn ehdr_u64(eh: *const u8, off: usize) -> u64 {
+    u64::from_le_bytes(core::ptr::read_unaligned(eh.add(off) as *const [u8; 8]))
+}
+
+#[inline]
+pub unsafe fn phdr_u32(ph: *const u8, off: usize) -> u32 {
+    u32::from_le_bytes(core::ptr::read_unaligned(ph.add(off) as *const [u8; 4]))
+}
+
+#[inline]
+pub unsafe fn phdr_u64(ph: *const u8, off: usize) -> u64 {
+    u64::from_le_bytes(core::ptr::read_unaligned(ph.add(off) as *const [u8; 8]))
+}
+
+#[inline]
+pub unsafe fn phdr_type(ph: *const u8) -> u32 {
+    phdr_u32(ph, PH_TYPE)
+}
+
 pub const PF_R: u32 = 4;
 pub const PF_W: u32 = 2;
 pub const PF_X: u32 = 1;
