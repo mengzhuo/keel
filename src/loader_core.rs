@@ -48,29 +48,24 @@ pub fn apply_relocations_from_dynamic(
 
     let mut rela_off = 0u64;
     let mut rela_sz = 0u64;
-    let mut rela_ent = 24u64;
+    let mut rela_ent = RELA_ENT_SIZE as u64;
+    let mut relr_off = 0u64;
+    let mut relr_sz = 0u64;
 
-    let mut pos = dyn_off;
-    loop {
-        let next = match pos.checked_add(16) {
-            Some(next) => next,
-            None => break,
-        };
-        if next > data.len() {
-            break;
-        }
-        let d_tag = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
-        let d_val = u64::from_le_bytes(data[pos + 8..pos + 16].try_into().unwrap());
-        if d_tag == DT_NULL {
-            break;
-        }
-        match d_tag {
-            DT_RELA => rela_off = d_val,
-            DT_RELASZ => rela_sz = d_val,
-            DT_RELAENT => rela_ent = d_val,
+    let mut dyns = DynRange::new(data.as_ptr() as usize + dyn_off, dyn_filesz);
+    while let Some((tag, val)) = unsafe { dyns.next() } {
+        match tag {
+            DT_RELA => rela_off = val,
+            DT_RELASZ => rela_sz = val,
+            DT_RELAENT => rela_ent = val,
+            DT_RELR => relr_off = val,
+            DT_RELRSZ => relr_sz = val,
             _ => {}
         }
-        pos = next;
+    }
+
+    if relr_sz != 0 {
+        unsafe { apply_relr(base_addr, relr_off, relr_sz) };
     }
 
     if rela_sz == 0 {
@@ -100,16 +95,17 @@ pub fn apply_relocations_from_dynamic(
             Some(v) => v,
             None => return Err("relocation offset overflow"),
         };
-        let end = match off.checked_add(24) {
+        let end = match off.checked_add(RELA_ENT_SIZE) {
             Some(v) => v,
             None => return Err("relocation entry overflow"),
         };
         if end > data.len() {
             return Err("relocation entry extends past EOF");
         }
-        let r_offset = u64::from_le_bytes(data[off..off + 8].try_into().unwrap());
-        let r_info = u64::from_le_bytes(data[off + 8..off + 16].try_into().unwrap());
-        let r_addend = i64::from_le_bytes(data[off + 16..off + 24].try_into().unwrap());
+        let rela = unsafe { read_rela(data.as_ptr().add(off)) };
+        let r_offset = rela.r_offset;
+        let r_info = rela.r_info;
+        let r_addend = rela.r_addend;
 
         if r_info & 0xffffffff == R_RELATIVE {
             let writable = phdrs.iter().any(|p| {
@@ -134,6 +130,4 @@ pub fn apply_relocations_from_dynamic(
     Ok(())
 }
 
-// Self-relocate: read DT_RELA/DT_RELASZ from in-memory PT_DYNAMIC, apply RELATIVE entries.
-// Only stack-local variables and raw pointer writes before this returns.
 

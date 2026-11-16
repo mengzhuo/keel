@@ -36,9 +36,6 @@ const DT_INIT_ARRAYSZ: u64 = 27;
 const DT_FINI_ARRAYSZ: u64 = 28;
 const DT_RUNPATH: u64 = 29;
 const DT_GNU_HASH: u64 = 0x6ffffef5;
-const DT_RELRSZ: u64 = 35;
-const DT_RELR: u64 = 36;
-const DT_RELRENT: u64 = 37;
 
 const R_X86_64_64: u64 = 1;
 const R_X86_64_COPY: u64 = 5;
@@ -847,32 +844,6 @@ unsafe fn find_env(sp: usize, prefix: &[u8]) -> Option<*const u8> {
 
 const AT_FDCWD: i64 = -100;
 
-/// Iterate a `{ d_tag, d_val }` array in memory, stopping at DT_NULL.
-struct DynRange {
-    p: usize,
-    end: usize,
-}
-
-impl DynRange {
-    #[inline]
-    fn new(start: usize, size: usize) -> Self {
-        Self { p: start, end: start.saturating_add(size) }
-    }
-
-    #[inline]
-    unsafe fn next(&mut self) -> Option<(u64, u64)> {
-        if self.p.saturating_add(16) > self.end {
-            return None;
-        }
-        let tag = u64::from_le_bytes(core::ptr::read_unaligned(self.p as *const [u8; 8]));
-        let val = u64::from_le_bytes(core::ptr::read_unaligned((self.p + 8) as *const [u8; 8]));
-        self.p += 16;
-        if tag == DT_NULL {
-            return None;
-        }
-        Some((tag, val))
-    }
-}
 
 // ============================================================
 // Syscall wrappers (raw, no_std)
@@ -2071,39 +2042,6 @@ unsafe fn relocation_info(i: usize) -> (u64, u64, u64, u64, u64, u64, u64) {
     (base, rela_off, rela_sz, jmprel_off, jmprel_sz, relr_off, relr_sz)
 }
 
-/// Apply packed relative relocations (DT_RELR): entries are either an
-/// address or a bitmap of the 63 words following the previous address.
-unsafe fn apply_relr(base: u64, relr_off: u64, relr_sz: u64) {
-    if relr_sz == 0 {
-        return;
-    }
-    let table = (base + relr_off) as *const u8;
-    let count = (relr_sz / 8) as usize;
-    let mut where_: u64 = 0;
-    let mut i = 0usize;
-    while i < count {
-        let e = u64::from_le_bytes(core::ptr::read_unaligned(table.add(i * 8) as *const [u8; 8]));
-        if e & 1 == 0 {
-            where_ = e;
-            let slot = (base + where_) as *mut u64;
-            *slot = (*slot).wrapping_add(base);
-            where_ += 8;
-        } else {
-            let mut bits = e >> 1;
-            let mut off = where_;
-            while bits != 0 {
-                if bits & 1 != 0 {
-                    let slot = (base + off) as *mut u64;
-                    *slot = (*slot).wrapping_add(base);
-                }
-                bits >>= 1;
-                off += 8;
-            }
-            where_ += 63 * 8;
-        }
-        i += 1;
-    }
-}
 
 /// Apply entries from one relocation table.
 unsafe fn apply_rela_table(
@@ -2117,14 +2055,13 @@ unsafe fn apply_rela_table(
         return;
     }
     let table = (base + table_off) as *const u8;
-    let count = table_sz as usize / 24;
+    let count = table_sz as usize / RELA_ENT_SIZE;
 
     for i in 0..count {
-        let entry = table.add(i * 24);
-        let r_offset = u64::from_le_bytes(core::ptr::read_unaligned(entry as *const [u8; 8]));
-        let r_info = u64::from_le_bytes(core::ptr::read_unaligned(entry.add(8) as *const [u8; 8]));
-        let r_addend =
-            i64::from_le_bytes(core::ptr::read_unaligned(entry.add(16) as *const [u8; 8]));
+        let rela = read_rela(table.add(i * RELA_ENT_SIZE));
+        let r_offset = rela.r_offset;
+        let r_info = rela.r_info;
+        let r_addend = rela.r_addend;
 
         let r_type = r_info & 0xffffffff;
         let r_sym_idx = (r_info >> 32) as usize;
@@ -2154,7 +2091,7 @@ unsafe fn apply_rela_table(
 
         match r_type {
             R_X86_64_RELATIVE | R_AARCH64_RELATIVE | R_RISCV_RELATIVE => {
-                *slot = (base as i64 + r_addend) as u64;
+                apply_relative(base, r_offset, r_addend);
             }
             R_X86_64_64 | R_AARCH64_ABS64 | R_RISCV_64 => {
                 let sym_value = resolve_symbol_from_index(obj_idx, r_sym_idx);

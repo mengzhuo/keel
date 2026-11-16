@@ -66,6 +66,11 @@ pub const DT_NULL: u64 = 0;
 pub const DT_RELA: u64 = 7;
 pub const DT_RELAENT: u64 = 9;
 pub const DT_RELASZ: u64 = 8;
+pub const DT_RELRSZ: u64 = 35;
+pub const DT_RELR: u64 = 36;
+pub const DT_RELRENT: u64 = 37;
+
+pub const RELA_ENT_SIZE: usize = 24;
 
 #[allow(dead_code)] // selected only on x86_64
 pub const R_X86_64_RELATIVE: u64 = 8;
@@ -99,6 +104,93 @@ pub const AT_EGID: u64 = 14;
 pub const AT_SECURE: u64 = 23;
 pub const AT_RANDOM: u64 = 25;
 pub const AT_SYSINFO_EHDR: u64 = 33;
+
+/// Iterate a `{ d_tag, d_val }` array in memory, stopping at DT_NULL.
+pub struct DynRange {
+    p: usize,
+    end: usize,
+}
+
+impl DynRange {
+    #[inline]
+    pub fn new(start: usize, size: usize) -> Self {
+        Self { p: start, end: start.saturating_add(size) }
+    }
+
+    #[inline]
+    pub unsafe fn next(&mut self) -> Option<(u64, u64)> {
+        if self.p.saturating_add(16) > self.end {
+            return None;
+        }
+        let tag = u64::from_le_bytes(core::ptr::read_unaligned(self.p as *const [u8; 8]));
+        let val = u64::from_le_bytes(core::ptr::read_unaligned((self.p + 8) as *const [u8; 8]));
+        self.p += 16;
+        if tag == DT_NULL {
+            return None;
+        }
+        Some((tag, val))
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Rela {
+    pub r_offset: u64,
+    pub r_info: u64,
+    pub r_addend: i64,
+}
+
+#[inline]
+pub unsafe fn read_rela(entry: *const u8) -> Rela {
+    Rela {
+        r_offset: u64::from_le_bytes(core::ptr::read_unaligned(entry as *const [u8; 8])),
+        r_info: u64::from_le_bytes(core::ptr::read_unaligned(entry.add(8) as *const [u8; 8])),
+        r_addend: i64::from_le_bytes(core::ptr::read_unaligned(entry.add(16) as *const [u8; 8])),
+    }
+}
+
+/// Apply one R_*_RELATIVE relocation and return the written address.
+#[inline]
+pub unsafe fn apply_relative(base: u64, r_offset: u64, r_addend: i64) -> u64 {
+    let addr = base.wrapping_add(r_offset);
+    let val = (base as i64).wrapping_add(r_addend) as u64;
+    *(addr as *mut u64) = val;
+    addr
+}
+
+/// Apply packed RELR relocations: entries are either an address or a bitmap
+/// of the 63 words following the previous address.
+pub unsafe fn apply_relr(base: u64, relr_off: u64, relr_sz: u64) {
+    if relr_sz == 0 {
+        return;
+    }
+    let table = (base + relr_off) as *const u8;
+    let count = (relr_sz / 8) as usize;
+    let mut where_: u64 = 0;
+    let mut i = 0usize;
+    while i < count {
+        let e = u64::from_le_bytes(core::ptr::read_unaligned(table.add(i * 8) as *const [u8; 8]));
+        if e & 1 == 0 {
+            where_ = e;
+            let slot = (base + where_) as *mut u64;
+            *slot = (*slot).wrapping_add(base);
+            where_ += 8;
+        } else {
+            let mut bits = e >> 1;
+            let mut off = where_;
+            while bits != 0 {
+                if bits & 1 != 0 {
+                    let slot = (base + off) as *mut u64;
+                    *slot = (*slot).wrapping_add(base);
+                }
+                bits >>= 1;
+                off += 8;
+            }
+            where_ += 63 * 8;
+        }
+        i += 1;
+    }
+}
 
 pub fn prot_from_flags(flags: u32) -> i32 {
     let mut prot = 0;
