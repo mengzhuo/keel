@@ -41,17 +41,6 @@ fn get_low_word(d: f64) -> u32 {
 }
 
 #[inline]
-unsafe fn insert_words(d: *mut f64, hi: u32, lo: u32) {
-    *d = asdouble(((hi as u64) << 32) | (lo as u64));
-}
-
-#[inline]
-unsafe fn set_high_word(d: *mut f64, hi: u32) {
-    let lo = asuint64(*d) as u32;
-    *d = asdouble(((hi as u64) << 32) | (lo as u64));
-}
-
-#[inline]
 unsafe fn set_low_word(d: *mut f64, lo: u32) {
     let hi = asuint64(*d) >> 32;
     *d = asdouble((hi << 32) | (lo as u64));
@@ -60,11 +49,6 @@ unsafe fn set_low_word(d: *mut f64, lo: u32) {
 #[inline]
 unsafe fn get_float_word(f: f32) -> u32 {
     asuint(f)
-}
-
-#[inline]
-unsafe fn set_float_word(f: *mut f32, w: u32) {
-    *f = asfloat(w);
 }
 
 #[inline]
@@ -102,13 +86,6 @@ fn fp_force_eval(x: f64) {
 }
 
 #[inline]
-fn fp_force_evall(x: f64) {
-    unsafe {
-        core::ptr::read_volatile(&x);
-    }
-}
-
-#[inline]
 fn force_eval<T: Copy>(x: T) {
     unsafe {
         core::ptr::read_volatile(&x);
@@ -116,15 +93,30 @@ fn force_eval<T: Copy>(x: T) {
 }
 
 #[inline]
-fn predict_true(x: bool) -> bool {
-    x
-}
-
-#[inline]
 fn predict_false(x: bool) -> bool {
     x
 }
 
+
+const SIN_PI_PI: f64 = asdouble(0x400921FB54442D18);
+
+/// sin(pi*x) for x > 2^-100.  If the result is zero its sign is unspecified,
+/// matching musl's lgamma/tgamma helper.
+#[inline]
+fn sin_pi(x: f64) -> f64 {
+    // Reduce x modulo 2; a spurious inexact is raised for odd integers.
+    let x = 2.0 * (x * 0.5 - floor(x * 0.5));
+    let mut n = (x * 4.0) as i32;
+    n = (n + 1) / 2;
+    let x = x - n as f64 * 0.5;
+    let x = x * SIN_PI_PI;
+    match n {
+        1 => __cos(x, 0.0),
+        2 => __sin(-x, 0.0, 0),
+        3 => -__cos(x, 0.0),
+        _ => __sin(x, 0.0, 0),
+    }
+}
 
 #[inline]
 pub fn __math_invalid(x: f64) -> f64 {
@@ -248,12 +240,12 @@ pub unsafe extern "C" fn __fpclassifyf(x: f32) -> c_int {
 }
 
 #[no_mangle]
-pub fn __signbit(x: f64) -> c_int {
+pub extern "C" fn __signbit(x: f64) -> c_int {
     ((asuint64(x) >> 63) & 1) as c_int
 }
 
 #[no_mangle]
-pub fn __signbitf(x: f32) -> c_int {
+pub extern "C" fn __signbitf(x: f32) -> c_int {
     ((asuint(x) >> 31) & 1) as c_int
 }
 
@@ -270,35 +262,7 @@ pub fn is_nanf(x: f32) -> bool {
 }
 
 #[inline]
-pub fn is_inf(x: f64) -> bool {
-    let u = asuint64(x);
-    ((u >> 52) & 0x7ff) == 0x7ff && (u << 12) == 0
-}
-
-#[inline]
-pub fn is_inff(x: f32) -> bool {
-    let u = asuint(x);
-    ((u >> 23) & 0xff) == 0xff && (u << 9) == 0
-}
-
-#[inline]
 pub fn is_finite(x: f64) -> bool {
     let u = asuint64(x);
     ((u >> 52) & 0x7ff) != 0x7ff
-}
-
-#[inline]
-pub fn is_finitef(x: f32) -> bool {
-    let u = asuint(x);
-    ((u >> 23) & 0xff) != 0xff
-}
-
-#[inline]
-pub fn toint_value() -> f64 {
-    4503599627370496.0
-}
-
-#[inline]
-pub fn tointf_value() -> f32 {
-    8388608.0f32
 }

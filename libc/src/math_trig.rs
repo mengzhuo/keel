@@ -209,7 +209,6 @@ fn __rem_pio2_large(x: &[f64], y: &mut [f64], e0: i32, nx: i32, prec: i32) -> i3
             for idx in (0..=(jz as usize)).rev() {
                 fw += fq[idx];
             }
-            fw = fw; // double_t = f64 when FLT_EVAL_METHOD==0
             y[0] = if ih_val == 0 { fw } else { -fw };
             fw = fq[0] - fw;
             for idx in 1..=(jz as usize) {
@@ -252,6 +251,23 @@ const REM_PIO2_PIO2_2T: f64 = asdouble(0x3BA3198A2E037073);
 const REM_PIO2_PIO2_3: f64 = asdouble(0x3BA3198A2E000000);
 const REM_PIO2_PIO2_3T: f64 = asdouble(0x397B839A252049C1);
 
+/// Reduce x by n*pi/2 when |x| is small enough that two-word subtraction is
+/// exact enough.  Keeps the original operation order.
+#[inline]
+fn rem_pio2_small(x: f64, sign: i32, n: f64, y: &mut [f64; 2]) -> i32 {
+    if sign == 0 {
+        let z = x - n * REM_PIO2_PIO2_1;
+        y[0] = z - n * REM_PIO2_PIO2_1T;
+        y[1] = (z - y[0]) - n * REM_PIO2_PIO2_1T;
+        n as i32
+    } else {
+        let z = x + n * REM_PIO2_PIO2_1;
+        y[0] = z + n * REM_PIO2_PIO2_1T;
+        y[1] = (z - y[0]) + n * REM_PIO2_PIO2_1T;
+        -(n as i32)
+    }
+}
+
 fn __rem_pio2(x: f64, y: &mut [f64; 2]) -> i32 {
     let ix64 = asuint64(x);
     let sign = (ix64 >> 63) as i32;
@@ -260,69 +276,29 @@ fn __rem_pio2(x: f64, y: &mut [f64; 2]) -> i32 {
     if ix <= 0x400f6a7a {
         if (ix & 0xfffff) == 0x921fb {
             // cancellation -- use medium case
-            return rem_pio2_medium(x, sign, ix, y);
+            return rem_pio2_medium(x, ix, y);
         }
         if ix <= 0x4002d97c {
-            if sign == 0 {
-                let z = x - REM_PIO2_PIO2_1;
-                y[0] = z - REM_PIO2_PIO2_1T;
-                y[1] = (z - y[0]) - REM_PIO2_PIO2_1T;
-                return 1;
-            } else {
-                let z = x + REM_PIO2_PIO2_1;
-                y[0] = z + REM_PIO2_PIO2_1T;
-                y[1] = (z - y[0]) + REM_PIO2_PIO2_1T;
-                return -1;
-            }
+            return rem_pio2_small(x, sign, 1.0, y);
         } else {
-            if sign == 0 {
-                let z = x - 2.0 * REM_PIO2_PIO2_1;
-                y[0] = z - 2.0 * REM_PIO2_PIO2_1T;
-                y[1] = (z - y[0]) - 2.0 * REM_PIO2_PIO2_1T;
-                return 2;
-            } else {
-                let z = x + 2.0 * REM_PIO2_PIO2_1;
-                y[0] = z + 2.0 * REM_PIO2_PIO2_1T;
-                y[1] = (z - y[0]) + 2.0 * REM_PIO2_PIO2_1T;
-                return -2;
-            }
+            return rem_pio2_small(x, sign, 2.0, y);
         }
     }
     if ix <= 0x401c463b {
         if ix <= 0x4015fdbc {
             if ix == 0x4012d97c {
-                return rem_pio2_medium(x, sign, ix, y);
+                return rem_pio2_medium(x, ix, y);
             }
-            if sign == 0 {
-                let z = x - 3.0 * REM_PIO2_PIO2_1;
-                y[0] = z - 3.0 * REM_PIO2_PIO2_1T;
-                y[1] = (z - y[0]) - 3.0 * REM_PIO2_PIO2_1T;
-                return 3;
-            } else {
-                let z = x + 3.0 * REM_PIO2_PIO2_1;
-                y[0] = z + 3.0 * REM_PIO2_PIO2_1T;
-                y[1] = (z - y[0]) + 3.0 * REM_PIO2_PIO2_1T;
-                return -3;
-            }
+            return rem_pio2_small(x, sign, 3.0, y);
         } else {
             if ix == 0x401921fb {
-                return rem_pio2_medium(x, sign, ix, y);
+                return rem_pio2_medium(x, ix, y);
             }
-            if sign == 0 {
-                let z = x - 4.0 * REM_PIO2_PIO2_1;
-                y[0] = z - 4.0 * REM_PIO2_PIO2_1T;
-                y[1] = (z - y[0]) - 4.0 * REM_PIO2_PIO2_1T;
-                return 4;
-            } else {
-                let z = x + 4.0 * REM_PIO2_PIO2_1;
-                y[0] = z + 4.0 * REM_PIO2_PIO2_1T;
-                y[1] = (z - y[0]) + 4.0 * REM_PIO2_PIO2_1T;
-                return -4;
-            }
+            return rem_pio2_small(x, sign, 4.0, y);
         }
     }
     if ix < 0x413921fb {
-        return rem_pio2_medium(x, sign, ix, y);
+        return rem_pio2_medium(x, ix, y);
     }
     // all other (large) arguments
     if ix >= 0x7ff00000 {
@@ -354,7 +330,7 @@ fn __rem_pio2(x: f64, y: &mut [f64; 2]) -> i32 {
     n as i32
 }
 
-fn rem_pio2_medium(x: f64, _sign: i32, ix: u32, y: &mut [f64; 2]) -> i32 {
+fn rem_pio2_medium(x: f64, ix: u32, y: &mut [f64; 2]) -> i32 {
     let mut fn_val = x as f64 * REM_PIO2_INVPIO2 + REM_PIO2_TOINT - REM_PIO2_TOINT;
     let mut n = fn_val as i32;
     let mut r = x - fn_val * REM_PIO2_PIO2_1;

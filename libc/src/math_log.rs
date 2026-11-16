@@ -632,20 +632,51 @@ fn log_near1(x: f64) -> f64 {
     eval_as_double(y)
 }
 
+/// Shared log/log2 argument reduction for doubles.  Returns (r, k, logc).
+#[inline]
+fn log_reduce64(
+    ix: u64,
+    off: u64,
+    bits: u32,
+    n: u64,
+    tab: &[(u64, u64)],
+    tab2: &[(u64, u64)],
+) -> (f64, f64, f64) {
+    let tmp = ix - off;
+    let i = ((tmp >> (52 - bits)) % n) as usize;
+    let k = (tmp as i64 >> 52) as i32;
+    let iz = ix - (tmp & (0xfffu64 << 52));
+    let invc = asdouble(tab[i].0);
+    let logc = asdouble(tab[i].1);
+    let z = asdouble(iz);
+    let r = (z - asdouble(tab2[i].0) - asdouble(tab2[i].1)) * invc;
+    (r, k as f64, logc)
+}
+
+/// Shared logf/log2f argument reduction.  Returns (r, k, logc).
+#[inline]
+fn log_reduce32(
+    ix: u32,
+    off: u32,
+    bits: u32,
+    n: u32,
+    tab: &[(f64, f64)],
+) -> (f64, f64, f64) {
+    let tmp = ix - off;
+    let i = ((tmp >> (23 - bits)) % n) as usize;
+    let k = (tmp as i32 >> 23) as i32;
+    let iz = ix - (tmp & 0xff800000);
+    let invc = tab[i].0;
+    let logc = tab[i].1;
+    let z = asfloat(iz) as f64;
+    let r = z * invc - 1.0;
+    (r, k as f64, logc)
+}
+
 #[inline]
 fn log_main(ix: u64) -> f64 {
     const OFF: u64 = 0x3fe6000000000000;
-
-    let tmp = ix - OFF;
-    let i = ((tmp >> (52 - LOG_TABLE_BITS)) % LOG_N as u64) as usize;
-    let k = (tmp as i64 >> 52) as i32;
-    let iz = ix - (tmp & (0xfffu64 << 52));
-    let invc = asdouble(LOG_TAB[i].0);
-    let logc = asdouble(LOG_TAB[i].1);
-    let z = asdouble(iz);
-
-    let r = (z - asdouble(LOG_TAB2[i].0) - asdouble(LOG_TAB2[i].1)) * invc;
-    let kd = k as f64;
+    let (r, kd, logc) = log_reduce64(ix, OFF, LOG_TABLE_BITS, LOG_N as u64, &LOG_TAB, &LOG_TAB2);
 
     let w = kd * LN2HI + logc;
     let hi = w + r;
@@ -691,18 +722,9 @@ pub extern "C" fn logf(x: f32) -> f32 {
 #[inline]
 fn logf_main(ix: u32) -> f32 {
     const OFF: u32 = 0x3f330000;
+    let (r, kd, logc) = log_reduce32(ix, OFF, LOGF_TABLE_BITS, LOGF_N as u32, &LOGF_TAB);
 
-    let tmp = ix - OFF;
-    let i = ((tmp >> (23 - LOGF_TABLE_BITS)) % LOGF_N as u32) as usize;
-    let k = (tmp as i32 >> 23) as i32;
-    let iz = ix - (tmp & 0xff800000);
-    let invc = LOGF_TAB[i].0;
-    let logc = LOGF_TAB[i].1;
-    let z = asfloat(iz) as f64;
-
-    let r = z * invc - 1.0;
-    let y0 = logc + k as f64 * LOGF_LN2;
-
+    let y0 = logc + kd * LOGF_LN2;
     let r2 = r * r;
     let y = LOGF_POLY[1] * r + LOGF_POLY[2];
     let y = LOGF_POLY[0] * r2 + y;
@@ -770,17 +792,8 @@ pub extern "C" fn log2(x: f64) -> f64 {
 #[inline]
 fn log2_main(ix: u64) -> f64 {
     const OFF: u64 = 0x3fe6000000000000;
+    let (r, kd, logc) = log_reduce64(ix, OFF, LOG2_TABLE_BITS, LOG2_N as u64, &LOG2_TAB, &LOG2_TAB2);
 
-    let tmp = ix - OFF;
-    let i = ((tmp >> (52 - LOG2_TABLE_BITS)) % LOG2_N as u64) as usize;
-    let k = (tmp as i64 >> 52) as i32;
-    let iz = ix - (tmp & (0xfffu64 << 52));
-    let invc = asdouble(LOG2_TAB[i].0);
-    let logc = asdouble(LOG2_TAB[i].1);
-    let z = asdouble(iz);
-    let kd = k as f64;
-
-    let r = (z - asdouble(LOG2_TAB2[i].0) - asdouble(LOG2_TAB2[i].1)) * invc;
     let rhi = asdouble(asuint64(r) & (0xFFFFFFFFu64 << 32));
     let rlo = r - rhi;
     let t1 = rhi * INVLN2HI;
@@ -832,19 +845,9 @@ pub extern "C" fn log2f(x: f32) -> f32 {
 #[inline]
 fn log2f_main(ix: u32) -> f32 {
     const OFF: u32 = 0x3f330000;
+    let (r, kd, logc) = log_reduce32(ix, OFF, LOG2F_TABLE_BITS, LOG2F_N as u32, &LOG2F_TAB);
 
-    let tmp = ix - OFF;
-    let i = ((tmp >> (23 - LOG2F_TABLE_BITS)) % LOG2F_N as u32) as usize;
-    let top = tmp & 0xff800000;
-    let iz = ix - top;
-    let k = (tmp as i32 >> 23) as i32;
-    let invc = LOG2F_TAB[i].0;
-    let logc = LOG2F_TAB[i].1;
-    let z = asfloat(iz) as f64;
-
-    let r = z * invc - 1.0;
-    let y0 = logc + k as f64;
-
+    let y0 = logc + kd;
     let r2 = r * r;
     let y = LOG2F_POLY[1] * r + LOG2F_POLY[2];
     let y = LOG2F_POLY[0] * r2 + y;

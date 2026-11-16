@@ -67,22 +67,6 @@ const LG_W4: f64 = asdouble(0xBF4380CB8C0FE741);
 const LG_W5: f64 = asdouble(0x3F4B67BA4CDAD5D1);
 const LG_W6: f64 = asdouble(0xBF5AB89D0B9E43E4);
 
-// sin(pi*x) assuming x > 2^-100, if sin(pi*x)==0 the sign is arbitrary.
-#[inline]
-fn lg_sin_pi(x: f64) -> f64 {
-    // spurious inexact if odd int
-    let x = 2.0 * (x * 0.5 - floor(x * 0.5)); // x mod 2.0
-    let mut n = (x * 4.0) as i32;
-    n = (n + 1) / 2;
-    let x = x - n as f64 * 0.5;
-    let x = x * LG_PI;
-    match n {
-        1 => __cos(x, 0.0),
-        2 => __sin(-x, 0.0, 0),
-        3 => -__cos(x, 0.0),
-        _ => __sin(x, 0.0, 0),
-    }
-}
 
 pub(crate) unsafe fn lgamma_r_impl(x: f64, signgamp: *mut i32) -> f64 {
     let u = x.to_bits();
@@ -107,7 +91,7 @@ pub(crate) unsafe fn lgamma_r_impl(x: f64, signgamp: *mut i32) -> f64 {
     let mut nadj = 0.0;
     if sign != 0 {
         x = -x;
-        let mut t = lg_sin_pi(x);
+        let mut t = sin_pi(x);
         if t == 0.0 {
             // -integer
             return 1.0 / (x - x);

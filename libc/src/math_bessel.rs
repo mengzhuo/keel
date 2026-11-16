@@ -289,35 +289,39 @@ const PS2: [f64; 5] = [
     1.46576176948256193810e+01, /* 0x402D50B3, 0x44391809 */
 ];
 
-fn pzero(x: f64) -> f64 {
-    let p: &[f64; 6];
-    let q: &[f64; 5];
-    let z: f64;
-    let r: f64;
-    let s: f64;
-    let mut ix: u32;
-
-    ix = get_high_word(x);
-    ix &= 0x7fffffff;
+fn select_rat<'a>(ix: u32, tables: [(&'a [f64], &'a [f64]); 4]) -> (&'a [f64], &'a [f64]) {
     if ix >= 0x40200000 {
-        p = &PR8;
-        q = &PS8;
+        tables[0]
     } else if ix >= 0x40122E8B {
-        p = &PR5;
-        q = &PS5;
+        tables[1]
     } else if ix >= 0x4006DB6D {
-        p = &PR3;
-        q = &PS3;
-    } else
-    /*ix >= 0x40000000*/
-    {
-        p = &PR2;
-        q = &PS2;
+        tables[2]
+    } else {
+        tables[3]
     }
-    z = 1.0 / (x * x);
-    r = p[0] + z * (p[1] + z * (p[2] + z * (p[3] + z * (p[4] + z * p[5]))));
-    s = 1.0 + z * (q[0] + z * (q[1] + z * (q[2] + z * (q[3] + z * q[4]))));
-    return 1.0 + r / s;
+}
+
+/// Evaluate p(z)/s(z) where s has an implicit leading 1.
+fn eval_rat(p: &[f64], q: &[f64], z: f64) -> f64 {
+    let mut r = p[p.len() - 1];
+    for i in (0..p.len() - 1).rev() {
+        r = p[i] + z * r;
+    }
+    let mut s = q[q.len() - 1];
+    for i in (0..q.len() - 1).rev() {
+        s = q[i] + z * s;
+    }
+    r / (1.0 + z * s)
+}
+
+fn pzero(x: f64) -> f64 {
+    let ix = get_high_word(x) & 0x7fffffff;
+    let (p, q) = select_rat(
+        ix,
+        [(&PR8[..], &PS8[..]), (&PR5[..], &PS5[..]), (&PR3[..], &PS3[..]), (&PR2[..], &PS2[..])],
+    );
+    let z = 1.0 / (x * x);
+    1.0 + eval_rat(p, q, z)
 }
 
 /* For x >= 8, the asymptotic expansions of qzero is
@@ -402,32 +406,11 @@ const QS2: [f64; 6] = [
 ];
 
 fn qzero(x: f64) -> f64 {
-    let p: &[f64; 6];
-    let q: &[f64; 6];
-    let s: f64;
-    let r: f64;
-    let z: f64;
-    let mut ix: u32;
-
-    ix = get_high_word(x);
-    ix &= 0x7fffffff;
-    if ix >= 0x40200000 {
-        p = &QR8;
-        q = &QS8;
-    } else if ix >= 0x40122E8B {
-        p = &QR5;
-        q = &QS5;
-    } else if ix >= 0x4006DB6D {
-        p = &QR3;
-        q = &QS3;
-    } else
-    /*ix >= 0x40000000*/
-    {
-        p = &QR2;
-        q = &QS2;
-    }
-    z = 1.0 / (x * x);
-    r = p[0] + z * (p[1] + z * (p[2] + z * (p[3] + z * (p[4] + z * p[5]))));
-    s = 1.0 + z * (q[0] + z * (q[1] + z * (q[2] + z * (q[3] + z * (q[4] + z * q[5])))));
-    return (-0.125 + r / s) / x;
+    let ix = get_high_word(x) & 0x7fffffff;
+    let (p, q) = select_rat(
+        ix,
+        [(&QR8[..], &QS8[..]), (&QR5[..], &QS5[..]), (&QR3[..], &QS3[..]), (&QR2[..], &QS2[..])],
+    );
+    let z = 1.0 / (x * x);
+    (-0.125 + eval_rat(p, q, z)) / x
 }

@@ -105,6 +105,14 @@ fn erfc2(ix: u32, x: f64) -> f64 {
     exp(-z * z - 0.5625) * exp((z - x) * (z + x) + r / q) / x
 }
 
+#[inline]
+fn erf_small(x: f64) -> f64 {
+    let z = x * x;
+    let r = PP0 + z * (PP1 + z * (PP2 + z * (PP3 + z * PP4)));
+    let s = 1.0 + z * (QQ1 + z * (QQ2 + z * (QQ3 + z * (QQ4 + z * QQ5))));
+    r / s
+}
+
 pub(crate) fn erf_impl(x: f64) -> f64 {
     let bits = x.to_bits();
     let mut ix = (bits >> 32) as u32;
@@ -120,10 +128,7 @@ pub(crate) fn erf_impl(x: f64) -> f64 {
             // |x| < 2**-28, avoid underflow
             return 0.125 * (8.0 * x + EFX8 * x);
         }
-        let z = x * x;
-        let r = PP0 + z * (PP1 + z * (PP2 + z * (PP3 + z * PP4)));
-        let s = 1.0 + z * (QQ1 + z * (QQ2 + z * (QQ3 + z * (QQ4 + z * QQ5))));
-        let y = r / s;
+        let y = erf_small(x);
         return x + x * y;
     }
     let y = if ix < 0x40180000 {
@@ -149,10 +154,7 @@ pub(crate) fn erfc_impl(x: f64) -> f64 {
             // |x| < 2**-56
             return 1.0 - x;
         }
-        let z = x * x;
-        let r = PP0 + z * (PP1 + z * (PP2 + z * (PP3 + z * PP4)));
-        let s = 1.0 + z * (QQ1 + z * (QQ2 + z * (QQ3 + z * (QQ4 + z * QQ5))));
-        let y = r / s;
+        let y = erf_small(x);
         if sign != 0 || ix < 0x3fd00000 {
             // x < 1/4
             return 1.0 - (x + x * y);

@@ -258,7 +258,7 @@ pub unsafe extern "C" fn atan2(y: f64, x: f64) -> f64 {
             0 | 1 => return y,              // atan(+-0,+anything)=+-0
             2 => return INVTRIG_PI,          // atan(+0,-anything) = pi
             3 => return -INVTRIG_PI,         // atan(-0,-anything) =-pi
-            _ => core::hint::unreachable_unchecked(),
+            _ => unreachable!(),
         }
     }
     // when x = 0
@@ -273,7 +273,7 @@ pub unsafe extern "C" fn atan2(y: f64, x: f64) -> f64 {
                 1 => return -INVTRIG_PI / 4.0,          // atan(-INF,+INF)
                 2 => return 3.0 * INVTRIG_PI / 4.0,     // atan(+INF,-INF)
                 3 => return -3.0 * INVTRIG_PI / 4.0,    // atan(-INF,-INF)
-                _ => core::hint::unreachable_unchecked(),
+                _ => unreachable!(),
             }
         } else {
             match m {
@@ -281,7 +281,7 @@ pub unsafe extern "C" fn atan2(y: f64, x: f64) -> f64 {
                 1 => return -0.0,               // atan(-...,+INF)
                 2 => return INVTRIG_PI,          // atan(+...,-INF)
                 3 => return -INVTRIG_PI,         // atan(-...,-INF)
-                _ => core::hint::unreachable_unchecked(),
+                _ => unreachable!(),
             }
         }
     }
@@ -530,7 +530,7 @@ pub unsafe extern "C" fn atan2f(y: f32, x: f32) -> f32 {
             0 | 1 => return y,              // atan(+-0,+anything)=+-0
             2 => return INVTRIG_PI_F,        // atan(+0,-anything) = pi
             3 => return -INVTRIG_PI_F,       // atan(-0,-anything) =-pi
-            _ => core::hint::unreachable_unchecked(),
+            _ => unreachable!(),
         }
     }
     // when x = 0
@@ -545,7 +545,7 @@ pub unsafe extern "C" fn atan2f(y: f32, x: f32) -> f32 {
                 1 => return -INVTRIG_PI_F / 4.0,          // atan(-INF,+INF)
                 2 => return 3.0 * INVTRIG_PI_F / 4.0,     // atan(+INF,-INF)
                 3 => return -3.0 * INVTRIG_PI_F / 4.0,    // atan(-INF,-INF)
-                _ => core::hint::unreachable_unchecked(),
+                _ => unreachable!(),
             }
         } else {
             match m {
@@ -553,7 +553,7 @@ pub unsafe extern "C" fn atan2f(y: f32, x: f32) -> f32 {
                 1 => return -0.0f32,            // atan(-...,+INF)
                 2 => return INVTRIG_PI_F,        // atan(+...,-INF)
                 3 => return -INVTRIG_PI_F,       // atan(-...,-INF)
-                _ => core::hint::unreachable_unchecked(),
+                _ => unreachable!(),
             }
         }
     }

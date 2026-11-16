@@ -53,7 +53,7 @@ macro_rules! ld_wrapper {
     };
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 macro_rules! ld_wrapper {
     ($name:ident, $base:path, f64_ret) => {
         #[no_mangle]
@@ -105,57 +105,6 @@ macro_rules! ld_wrapper {
     };
 }
 
-#[cfg(target_arch = "riscv64")]
-macro_rules! ld_wrapper {
-    ($name:ident, $base:path, f64_ret) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $name(x: f128) -> f128 {
-            f64_to_f128($base(f128_to_f64(x)))
-        }
-    };
-    ($name:ident, $base:path, f64_f64_ret) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $name(x: f128, y: f128) -> f128 {
-            f64_to_f128($base(f128_to_f64(x), f128_to_f64(y)))
-        }
-    };
-    ($name:ident, $base:path, f64_int_ret) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $name(x: f128, n: i32) -> f128 {
-            f64_to_f128($base(f128_to_f64(x), n))
-        }
-    };
-    ($name:ident, $base:path, f64_long_ret) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $name(x: f128, n: core::ffi::c_long) -> f128 {
-            f64_to_f128($base(f128_to_f64(x), n))
-        }
-    };
-    ($name:ident, $base:path, f64_f64_f64_ret) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $name(x: f128, y: f128, z: f128) -> f128 {
-            f64_to_f128($base(f128_to_f64(x), f128_to_f64(y), f128_to_f64(z)))
-        }
-    };
-    ($name:ident, $base:path, int_f64_ret) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $name(x: f128) -> i32 {
-            $base(f128_to_f64(x))
-        }
-    };
-    ($name:ident, $base:path, long_f64_ret) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $name(x: f128) -> core::ffi::c_long {
-            $base(f128_to_f64(x))
-        }
-    };
-    ($name:ident, $base:path, longlong_f64_ret) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $name(x: f128) -> i64 {
-            $base(f128_to_f64(x))
-        }
-    };
-}
 
 ld_wrapper!(acosl, crate::acos, f64_ret);
 ld_wrapper!(asinl, crate::asin, f64_ret);
@@ -250,26 +199,6 @@ pub unsafe extern "C" fn remquol(x: f128, y: f128, quo: *mut i32) -> f128 {
     f64_to_f128(crate::remquo(f128_to_f64(x), f128_to_f64(y), quo))
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn a64l(s: *const core::ffi::c_char) -> i64 {
-    let mut result: i64 = 0;
-    let mut i = 0;
-    while i < 6 {
-        let c = *s.add(i) as u8;
-        if c == 0 { break; }
-        let val = match c {
-            b'.' => 0,
-            b'/' => 1,
-            b'0'..=b'9' => c - b'/' + 1,
-            b'A'..=b'Z' => c - b'A' + 12,
-            b'a'..=b'z' => c - b'a' + 38,
-            _ => 0,
-        };
-        result |= (val as i64) << (i * 6);
-        i += 1;
-    }
-    result
-}
 
 #[no_mangle]
 pub unsafe extern "C" fn exp10l(x: f64) -> f64 {

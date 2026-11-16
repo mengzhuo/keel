@@ -21258,19 +21258,38 @@ pub unsafe extern "C" fn nice(inc: i32) -> i32 {
 // misc functions
 // ============================================================
 
+const A64L_DIGITS: &[u8; 64] =
+    b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
 #[no_mangle]
 pub unsafe extern "C" fn l64a(value: i64) -> *mut core::ffi::c_char {
     static mut BUF: [core::ffi::c_char; 7] = [0; 7];
-    let mut v = value as u64;
+    let mut v = value as u32;
     let mut i = 0;
     while v > 0 && i < 6 {
-        let c = (v & 0x3f) as u8;
-        BUF[i] = if c < 26 { c + b'A' } else if c < 52 { c - 26 + b'a' } else if c < 62 { c - 52 + b'0' } else if c == 62 { b'.' } else { b'/' } as core::ffi::c_char;
+        BUF[i] = A64L_DIGITS[(v & 0x3f) as usize] as core::ffi::c_char;
         v >>= 6;
         i += 1;
     }
     BUF[i] = 0;
     BUF.as_mut_ptr()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn a64l(s: *const core::ffi::c_char) -> i64 {
+    let mut x: u32 = 0;
+    let mut e = 0u32;
+    while e < 36 {
+        let c = *s.add((e / 6) as usize) as u8;
+        if c == 0 { break; }
+        let d = match A64L_DIGITS.iter().position(|&d| d == c) {
+            Some(d) => d as u32,
+            None => break,
+        };
+        x |= d << e;
+        e += 6;
+    }
+    x as i32 as i64
 }
 
 #[no_mangle]

@@ -12,7 +12,7 @@
 
 // musl rint: rounds f64 to integer using current FP rounding mode
 #[no_mangle]
-pub fn rint(x: f64) -> f64 {
+pub extern "C" fn rint(x: f64) -> f64 {
     let u = asuint64(x);
     let e = ((u >> 52) & 0x7ff) as i32;
     let s = u >> 63;
@@ -39,7 +39,7 @@ pub fn rint(x: f64) -> f64 {
 
 // musl rintf: rounds f32 to integer using current FP rounding mode
 #[no_mangle]
-pub fn rintf(x: f32) -> f32 {
+pub extern "C" fn rintf(x: f32) -> f32 {
     let u = asuint(x);
     let e = ((u >> 23) & 0xff) as i32;
     let s = u >> 31;
@@ -70,24 +70,43 @@ pub fn rintf(x: f32) -> f32 {
 // representable as f64 is 2^53 which fits in i64, (3) for |x| >= 2^52 rint
 // returns x unchanged and the saturating `as` cast handles overflow.
 
+const LRINT_TWO63: f64 = 9223372036854775808.0;
+
+/// Round with the current FP mode and convert to i64.  Rust's saturating cast
+/// does not raise FE_INVALID, so check the representable range explicitly.
+#[inline]
+unsafe fn lrint_i64(x: f64) -> i64 {
+    let r = rint(x);
+    if r.is_nan() || r >= LRINT_TWO63 || r < -LRINT_TWO63 {
+        feraiseexcept(FE_INVALID);
+        return i64::MIN;
+    }
+    r as i64
+}
+
+#[inline]
+unsafe fn lrintf_i64(x: f32) -> i64 {
+    lrint_i64(rintf(x) as f64)
+}
+
 #[no_mangle]
 pub extern "C" fn lrint(x: f64) -> c_long {
-    rint(x) as c_long
+    unsafe { lrint_i64(x) }
 }
 
 #[no_mangle]
 pub extern "C" fn llrint(x: f64) -> c_longlong {
-    rint(x) as c_longlong
+    unsafe { lrint_i64(x) }
 }
 
 #[no_mangle]
 pub extern "C" fn lrintf(x: f32) -> c_long {
-    rintf(x) as c_long
+    unsafe { lrintf_i64(x) }
 }
 
 #[no_mangle]
 pub extern "C" fn llrintf(x: f32) -> c_longlong {
-    rintf(x) as c_longlong
+    unsafe { lrintf_i64(x) }
 }
 
 // On x86_64 with -mlong-double-64: long double = f64, delegate to lrint/llrint.

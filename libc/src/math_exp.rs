@@ -163,12 +163,6 @@ const EXP_TAB: [u64; 256] = [
 const EXP2F_TABLE_BITS: u32 = 5;
 const EXP2F_N: u64 = 1 << EXP2F_TABLE_BITS;
 
-const EXP2F_SHIFT_SCALED: f64 = asdouble(0x42E8000000000000);
-const EXP2F_POLY: [f64; 3] = [
-    asdouble(0x3FAC6AF84B912394),
-    asdouble(0x3FCEBFCE50FAC4F3),
-    asdouble(0x3FE62E42FF0C52D6),
-];
 const EXP2F_SHIFT: f64 = asdouble(0x4338000000000000);
 const EXP2F_INVLN2_SCALED: f64 = asdouble(0x40471547652B82FE);
 const EXP2F_POLY_SCALED: [f64; 3] = [
@@ -229,29 +223,25 @@ fn exp_specialcase(tmp: f64, sbits: u64, ki: u64) -> f64 {
     eval_as_double(y)
 }
 
-#[no_mangle]
-pub extern "C" fn exp(x: f64) -> f64 {
+/// Shared exp kernel for exp() and pow()'s exp(log(x)*y) tail.
+/// `sign_bias` is 0 for exp and POW_SIGN_BIAS for negative pow results.
+#[inline]
+fn exp_core(x: f64, xtail: f64, sign_bias: u64, pow_mode: bool) -> f64 {
     let mut abstop = exp_top12(x) & 0x7ff;
 
     if predict_false(abstop.wrapping_sub(0x3C9) >= 0x408 - 0x3C9) {
         if abstop.wrapping_sub(0x3C9) >= 0x80000000 {
-            // tiny x (including 0): avoid spurious underflow
-            return 1.0 + x;
+            // Avoid spurious underflow for tiny x. Note: 0 is common input.
+            let one = 1.0 + x;
+            return if sign_bias != 0 { -one } else { one };
         }
         if abstop >= 0x409 {
-            if x == f64::NEG_INFINITY {
-                return 0.0;
-            }
-            if abstop >= 0x7FF {
-                return 1.0 + x; // inf or nan
-            }
             if asuint64(x) >> 63 != 0 {
-                return __math_uflow(0);
-            } else {
-                return __math_oflow(0);
+                return __math_uflow(sign_bias as u32);
             }
+            return __math_oflow(sign_bias as u32);
         }
-        // large but finite: force specialcase below
+        // Large finite x is special cased below.
         abstop = 0;
     }
 
@@ -259,19 +249,39 @@ pub extern "C" fn exp(x: f64) -> f64 {
     let kd = eval_as_double(z + EXP_SHIFT);
     let ki = asuint64(kd);
     let kd = kd - EXP_SHIFT;
-    let r = x + kd * EXP_NEGLN2HI_N + kd * EXP_NEGLN2LO_N;
+    let mut r = x + kd * EXP_NEGLN2HI_N + kd * EXP_NEGLN2LO_N;
+    r += xtail;
     let idx = (2 * (ki % EXP_N)) as usize;
-    let top = ki << (52 - EXP_TABLE_BITS);
+    let top = (ki.wrapping_add(sign_bias)) << (52 - EXP_TABLE_BITS);
     let tail = asdouble(EXP_TAB[idx]);
     let sbits = EXP_TAB[idx + 1].wrapping_add(top);
     let r2 = r * r;
     let tmp = tail + r + r2 * (EXP_C2 + r * EXP_C3) + r2 * r2 * (EXP_C4 + r * EXP_C5);
 
     if predict_false(abstop == 0) {
-        return exp_specialcase(tmp, sbits, ki);
+        return if pow_mode {
+            pow_exp_specialcase(tmp, sbits, ki)
+        } else {
+            exp_specialcase(tmp, sbits, ki)
+        };
     }
     let scale = asdouble(sbits);
     eval_as_double(scale + scale * tmp)
+}
+
+#[no_mangle]
+pub extern "C" fn exp(x: f64) -> f64 {
+    let top = exp_top12(x) & 0x7ff;
+    if predict_false(top.wrapping_sub(0x3C9) >= 0x408 - 0x3C9) {
+        if x == f64::NEG_INFINITY {
+            return 0.0;
+        }
+        if top >= 0x7ff {
+            return 1.0 + x; // inf or nan
+        }
+    }
+    exp_core(x, 0.0, 0, false)
+
 }
 
 // ============================================================

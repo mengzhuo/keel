@@ -281,59 +281,25 @@ fn pow_exp_specialcase(tmp: f64, sbits: u64, ki: u64) -> f64 {
     eval_as_double(y)
 }
 
+/// Finish `pow` from the reduced log product: split y, hi and lo into
+/// high/low halves so the final exp kernel sees ~2^-27 tails.
+#[inline]
+fn pow_finish(iy: u64, y: f64, hi: f64, lo: f64, sign_bias: u64) -> f64 {
+    let yhi = asdouble(iy & (!0u64 << 27));
+    let ylo = y - yhi;
+    let lhi = asdouble(asuint64(hi) & (!0u64 << 27));
+    let llo = hi - lhi + lo;
+    let ehi = yhi * lhi;
+    let elo = ylo * lhi + y * llo;
+    pow_exp_inline(ehi, elo, sign_bias)
+}
+
 /// Computes sign*exp(x+xtail) where |xtail| < 2^-8/N and |xtail| <= |x|.
 /// The sign_bias argument is POW_SIGN_BIAS or 0 and sets the sign to -1 or 1.
 #[inline]
 fn pow_exp_inline(x: f64, xtail: f64, sign_bias: u64) -> f64 {
-    let mut abstop = pow_top12(x) & 0x7ff;
+    exp_core(x, xtail, sign_bias, true)
 
-    if predict_false(
-        abstop.wrapping_sub(0x3C9) >= 0x408 - 0x3C9,
-    ) {
-        if abstop.wrapping_sub(0x3C9) >= 0x80000000 {
-            // Avoid spurious underflow for tiny x. Note: 0 is common input.
-            let one: f64 = 1.0 + x;
-            return if sign_bias != 0 { -one } else { one };
-        }
-        if abstop >= 0x409 {
-            // Note: inf and nan are already handled.
-            if asuint64(x) >> 63 != 0 {
-                return __math_uflow(sign_bias as u32);
-            } else {
-                return __math_oflow(sign_bias as u32);
-            }
-        }
-        // Large x is special cased below.
-        abstop = 0;
-    }
-
-    // exp(x) = 2^(k/N) * exp(r), with exp(r) in [2^(-1/2N),2^(1/2N)].
-    // x = ln2/N*k + r, with int k and r in [-ln2/2N, ln2/2N].
-    let z = POW_INVLN2N * x;
-    // z - kd is in [-1, 1] in non-nearest rounding modes.
-    let kd = eval_as_double(z + POW_SHIFT);
-    let ki = asuint64(kd);
-    let kd = kd - POW_SHIFT;
-    let mut r = x + kd * POW_NEGLN2HI_N + kd * POW_NEGLN2LO_N;
-    // The code assumes 2^-200 < |xtail| < 2^-8/N.
-    r += xtail;
-    // 2^(k/N) ~= scale * (1 + tail).
-    let idx = (2 * (ki % POW_EXP_N)) as usize;
-    let top = (ki.wrapping_add(sign_bias)) << (52 - EXP_TABLE_BITS);
-    let tail = asdouble(EXP_TAB[idx]);
-    // This is only a valid scale when -1023*N < k < 1024*N.
-    let sbits = EXP_TAB[idx + 1].wrapping_add(top);
-    // exp(x) = 2^(k/N) * exp(r) ~= scale + scale * (tail + exp(r) - 1).
-    let r2 = r * r;
-    // Worst case error is less than 0.5+1.11/N+(abs poly error * 2^53) ulp.
-    let tmp = tail + r + r2 * (POW_EXP_C2 + r * POW_EXP_C3) + r2 * r2 * (POW_EXP_C4 + r * POW_EXP_C5);
-    if predict_false(abstop == 0) {
-        return pow_exp_specialcase(tmp, sbits, ki);
-    }
-    let scale = asdouble(sbits);
-    // Note: tmp == 0 or |tmp| > 2^-200 and scale > 2^-739, so there
-    // is no spurious underflow here even without fma.
-    eval_as_double(scale + scale * tmp)
 }
 
 /// Returns 0 if not int, 1 if odd int, 2 if even int.
@@ -370,7 +336,11 @@ fn pow_zeroinfnan(i: u64) -> bool {
 // Kept out of line: every path in here returns, and it is only entered for
 // subnormal/non-finite inputs or extreme exponents.
 #[inline(never)]
-fn pow_special(x: f64, y: f64, ix: u64, iy: u64, mut topx: u32, topy: u32) -> f64 {
+fn pow_special(x: f64, y: f64) -> f64 {
+    let ix = asuint64(x);
+    let iy = asuint64(y);
+    let mut topx = pow_top12(x);
+    let topy = pow_top12(y);
     let mut sign_bias: u64 = 0;
 
     // Note: if |y| > 1075*ln2*2^53 then pow(x,y) = inf/0
@@ -455,24 +425,12 @@ fn pow_special(x: f64, y: f64, ix: u64, iy: u64, mut topx: u32, topy: u32) -> f6
         // Fall through to log_inline/exp_inline with normalized ix.
         let mut lo: f64 = 0.0;
         let hi = pow_log_inline(ix, &mut lo);
-        let yhi = asdouble(iy & (!0u64 << 27));
-        let ylo = y - yhi;
-        let lhi = asdouble(asuint64(hi) & (!0u64 << 27));
-        let llo = hi - lhi + lo;
-        let ehi = yhi * lhi;
-        let elo = ylo * lhi + y * llo;
-        return pow_exp_inline(ehi, elo, sign_bias);
+        return pow_finish(iy, y, hi, lo, sign_bias);
     }
     // Non-subnormal, non-special x.
     let mut lo: f64 = 0.0;
     let hi = pow_log_inline(ix, &mut lo);
-    let yhi = asdouble(iy & (!0u64 << 27));
-    let ylo = y - yhi;
-    let lhi = asdouble(asuint64(hi) & (!0u64 << 27));
-    let llo = hi - lhi + lo;
-    let ehi = yhi * lhi;
-    let elo = ylo * lhi + y * llo;
-    return pow_exp_inline(ehi, elo, sign_bias);
+    return pow_finish(iy, y, hi, lo, sign_bias);
 
 }
 
@@ -497,19 +455,13 @@ pub extern "C" fn pow(x: f64, y: f64) -> f64 {
         topx.wrapping_sub(0x001) >= 0x7ff - 0x001
             || (topy & 0x7ff).wrapping_sub(0x3be) >= 0x43e - 0x3be,
     ) {
-        return pow_special(x, y, ix, iy, topx, topy);
+        return pow_special(x, y);
     }
 
     // Fast path: both x and y are normal, non-special.
     let mut lo: f64 = 0.0;
     let hi = pow_log_inline(ix, &mut lo);
-    let yhi = asdouble(iy & (!0u64 << 27));
-    let ylo = y - yhi;
-    let lhi = asdouble(asuint64(hi) & (!0u64 << 27));
-    let llo = hi - lhi + lo;
-    let ehi = yhi * lhi;
-    let elo = ylo * lhi + y * llo;
-    pow_exp_inline(ehi, elo, sign_bias)
+    pow_finish(iy, y, hi, lo, sign_bias)
 }
 
 // ============================================================
@@ -550,8 +502,8 @@ const POWF_EXP2F_POLY: [f64; 3] = [
 fn powf_log2_inline(ix: u32) -> f64 {
     let tmp = ix.wrapping_sub(POWF_OFF);
     let i = ((tmp >> (23 - LOG2F_TABLE_BITS)) % (POWF_N as u32)) as usize;
-    let _top = tmp & 0xff800000;
-    let iz = ix - _top;
+    let top = tmp & 0xff800000;
+    let iz = ix - top;
     let k = (tmp as i32 >> 23) as i32;
     let invc = LOG2F_TAB[i].0;
     let logc = LOG2F_TAB[i].1;

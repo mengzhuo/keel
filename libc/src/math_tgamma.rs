@@ -54,27 +54,6 @@ const TG_FACT: [f64; 23] = [
     1124000727777607680000.0,
 ];
 
-// sin(pi*x) with x > 0x1p-100, if sin(pi*x)==0 the sign is arbitrary.
-#[inline]
-fn tg_sinpi(mut x: f64) -> f64 {
-    // argument reduction: x = |x| mod 2
-    // spurious inexact when x is odd int
-    x *= 0.5;
-    x = 2.0 * (x - floor(x));
-
-    // reduce x into [-.25,.25]
-    let mut n = (4.0 * x) as i32;
-    n = (n + 1) / 2;
-    x -= n as f64 * 0.5;
-
-    let x = x * TG_PI;
-    match n {
-        1 => __cos(x, 0.0),
-        2 => __sin(-x, 0.0, 0),
-        3 => -__cos(x, 0.0),
-        _ => __sin(x, 0.0, 0),
-    }
-}
 
 // S(x) rational function for positive x.
 #[inline]
@@ -156,7 +135,7 @@ pub(crate) unsafe fn tgamma_impl(x: f64) -> f64 {
     if x < 0.0 {
         // reflection formula for negative x
         // sinpi(absx) is not 0, integers are already handled
-        r = -TG_PI / (tg_sinpi(absx) * absx * r);
+        r = -TG_PI / (sin_pi(absx) * absx * r);
         dy = -dy;
         z = -z;
     }
