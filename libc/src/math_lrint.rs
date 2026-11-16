@@ -133,13 +133,13 @@ pub extern "C" fn llrintl(x: f128) -> c_longlong {
     llrint(f128_to_f64(x))
 }
 
-#[cfg(target_arch = "riscv64")]
+#[cfg(any(target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 #[no_mangle]
 pub extern "C" fn lrintl(x: f128) -> c_long {
     lrint(f128_to_f64(x))
 }
 
-#[cfg(target_arch = "riscv64")]
+#[cfg(any(target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 #[no_mangle]
 pub extern "C" fn llrintl(x: f128) -> c_longlong {
     llrint(f128_to_f64(x))

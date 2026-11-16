@@ -10,6 +10,12 @@ pub type fexcept_t = u32;
 #[cfg(target_arch = "riscv64")]
 pub type fexcept_t = u32;
 
+#[cfg(target_arch = "powerpc64")]
+pub type fexcept_t = u32;
+
+#[cfg(target_arch = "loongarch64")]
+pub type fexcept_t = u32;
+
 // x87 fnstenv/fldenv (28 bytes) + stmxcsr/ldmxcsr (4 bytes) = 32 bytes
 #[cfg(target_arch = "x86_64")]
 #[repr(C)]
@@ -28,11 +34,23 @@ pub struct fenv_t {
 #[cfg(target_arch = "riscv64")]
 pub type fenv_t = u32;
 
+#[cfg(target_arch = "powerpc64")]
+pub type fenv_t = f64;
+
+#[cfg(target_arch = "loongarch64")]
+#[repr(C)]
+pub struct fenv_t {
+    __cw: u32,
+}
+
 #[cfg(target_arch = "x86_64")]
 const FE_DFL_ENV: *const fenv_t = -1isize as *const fenv_t;
 #[cfg(target_arch = "aarch64")]
 const FE_DFL_ENV: *const fenv_t = -1isize as *const fenv_t;
 #[cfg(target_arch = "riscv64")]
+const FE_DFL_ENV: *const fenv_t = -1isize as *const fenv_t;
+
+#[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
 const FE_DFL_ENV: *const fenv_t = -1isize as *const fenv_t;
 
 #[cfg(target_arch = "x86_64")]
@@ -81,6 +99,39 @@ mod feconst {
     pub const FE_DOWNWARD: c_int = 2;
     pub const FE_UPWARD: c_int = 3;
     pub const FE_TOWARDZERO: c_int = 1;
+}
+
+#[cfg(target_arch = "powerpc64")]
+mod feconst {
+    use super::*;
+    pub const FE_INEXACT: c_int = 0x0200_0000;
+    pub const FE_DIVBYZERO: c_int = 0x0400_0000;
+    pub const FE_UNDERFLOW: c_int = 0x0800_0000;
+    pub const FE_OVERFLOW: c_int = 0x1000_0000;
+    pub const FE_INVALID: c_int = 0x2000_0000;
+    pub const FE_ALL_EXCEPT: c_int = 0x3e00_0000;
+    pub const FE_TONEAREST: c_int = 0;
+    pub const FE_TOWARDZERO: c_int = 1;
+    pub const FE_UPWARD: c_int = 2;
+    pub const FE_DOWNWARD: c_int = 3;
+
+    pub const FE_INVALID_SOFTWARE: c_int = 0x0000_0400;
+    pub const FE_ALL_INVALID: c_int = 0x01f8_0700;
+}
+
+#[cfg(target_arch = "loongarch64")]
+mod feconst {
+    use super::*;
+    pub const FE_INEXACT: c_int = 0x010000;
+    pub const FE_UNDERFLOW: c_int = 0x020000;
+    pub const FE_OVERFLOW: c_int = 0x040000;
+    pub const FE_DIVBYZERO: c_int = 0x080000;
+    pub const FE_INVALID: c_int = 0x100000;
+    pub const FE_ALL_EXCEPT: c_int = 0x1f0000;
+    pub const FE_TONEAREST: c_int = 0x000;
+    pub const FE_TOWARDZERO: c_int = 0x100;
+    pub const FE_UPWARD: c_int = 0x200;
+    pub const FE_DOWNWARD: c_int = 0x300;
 }
 
 use feconst::*;
@@ -375,6 +426,147 @@ mod riscv64_imp {
 
 #[cfg(target_arch = "riscv64")]
 use riscv64_imp::*;
+
+#[cfg(target_arch = "powerpc64")]
+mod powerpc64_imp {
+    use super::*;
+
+    #[inline]
+    unsafe fn get_fpscr() -> u64 {
+        let d: f64;
+        core::arch::asm!("mffs {}", out(freg) d, options(nostack));
+        d.to_bits()
+    }
+
+    #[inline]
+    unsafe fn set_fpscr(v: u64) {
+        core::arch::asm!(
+            "mtfsf 255, {}",
+            in(freg) f64::from_bits(v),
+            options(nostack),
+        );
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn feclearexcept(e: c_int) -> c_int {
+        let mut mask = e & FE_ALL_EXCEPT;
+        if mask & FE_INVALID != 0 {
+            mask |= FE_ALL_INVALID;
+        }
+        set_fpscr(get_fpscr() & !(mask as u64));
+        0
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn feraiseexcept(e: c_int) -> c_int {
+        let mut mask = e & FE_ALL_EXCEPT;
+        if mask & FE_INVALID != 0 {
+            mask |= FE_INVALID_SOFTWARE;
+        }
+        set_fpscr(get_fpscr() | mask as u64);
+        0
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fetestexcept(e: c_int) -> c_int {
+        get_fpscr() as c_int & e & FE_ALL_EXCEPT
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fegetround() -> c_int {
+        (get_fpscr() & 3) as c_int
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fesetround(r: c_int) -> c_int {
+        if r != FE_TONEAREST && r != FE_DOWNWARD && r != FE_UPWARD && r != FE_TOWARDZERO {
+            return -1;
+        }
+        set_fpscr((get_fpscr() & !3) | (r as u64 & 3));
+        0
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fegetenv(envp: *mut fenv_t) -> c_int {
+        *envp = f64::from_bits(get_fpscr());
+        0
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fesetenv(envp: *const fenv_t) -> c_int {
+        let v = if envp == FE_DFL_ENV { 0.0 } else { *envp };
+        set_fpscr(v.to_bits());
+        0
+    }
+}
+
+#[cfg(target_arch = "powerpc64")]
+use powerpc64_imp::*;
+
+#[cfg(target_arch = "loongarch64")]
+mod loongarch64_imp {
+    use super::*;
+
+    #[inline]
+    unsafe fn get_fcsr() -> u64 {
+        let v: u64;
+        core::arch::asm!("movfcsr2gr {v}, $fcsr0", v = out(reg) v, options(nostack));
+        v
+    }
+
+    #[inline]
+    unsafe fn set_fcsr(v: u64) {
+        core::arch::asm!("movgr2fcsr $fcsr0, {v}", v = in(reg) v, options(nostack));
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn feclearexcept(e: c_int) -> c_int {
+        let mask = (e & FE_ALL_EXCEPT) as u64;
+        set_fcsr(get_fcsr() & !mask);
+        0
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn feraiseexcept(e: c_int) -> c_int {
+        set_fcsr(get_fcsr() | (e & FE_ALL_EXCEPT) as u64);
+        0
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fetestexcept(e: c_int) -> c_int {
+        get_fcsr() as c_int & e & FE_ALL_EXCEPT
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fegetround() -> c_int {
+        (get_fcsr() & 0x300) as c_int
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fesetround(r: c_int) -> c_int {
+        if r != FE_TONEAREST && r != FE_DOWNWARD && r != FE_UPWARD && r != FE_TOWARDZERO {
+            return -1;
+        }
+        set_fcsr((get_fcsr() & !0x300) | (r as u64 & 0x300));
+        0
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fegetenv(envp: *mut fenv_t) -> c_int {
+        (*envp).__cw = get_fcsr() as u32;
+        0
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn fesetenv(envp: *const fenv_t) -> c_int {
+        let v = if envp == FE_DFL_ENV { 0 } else { (*envp).__cw as u64 };
+        set_fcsr(v);
+        0
+    }
+}
+
+#[cfg(target_arch = "loongarch64")]
+use loongarch64_imp::*;
 
 #[no_mangle]
 pub unsafe extern "C" fn fegetexceptflag(fp: *mut fexcept_t, mask: c_int) -> c_int {

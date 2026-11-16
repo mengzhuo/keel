@@ -277,6 +277,8 @@ impl Syscalls for Aarch64 {
 
 #[cfg(target_arch = "riscv64")]
 pub struct Riscv64;
+pub struct PowerPc64;
+pub struct LoongArch64;
 
 // riscv64
 #[cfg(target_arch = "riscv64")]
@@ -388,6 +390,173 @@ impl Syscalls for Riscv64 {
 // Selected architecture
 // ============================================================
 
+// powerpc64
+#[cfg(target_arch = "powerpc64")]
+impl Syscalls for PowerPc64 {
+    #[inline(always)]
+    unsafe fn syscall0(n: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!(
+            "sc", "bns+ 1f", "neg 3, 3", "1:",
+            inlateout("r0") n => _, lateout("r3") result,
+            lateout("r4") _, lateout("r5") _, lateout("r6") _, lateout("r7") _,
+            lateout("r8") _, lateout("r9") _, lateout("r10") _, lateout("r11") _, lateout("r12") _,
+            out("cr0") _, out("ctr") _, out("xer") _, options(nostack),
+        );
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall1(n: i64, a1: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!(
+            "sc", "bns+ 1f", "neg 3, 3", "1:",
+            inlateout("r0") n => _, inlateout("r3") a1 => result,
+            lateout("r4") _, lateout("r5") _, lateout("r6") _, lateout("r7") _,
+            lateout("r8") _, lateout("r9") _, lateout("r10") _, lateout("r11") _, lateout("r12") _,
+            out("cr0") _, out("ctr") _, out("xer") _, options(nostack),
+        );
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall2(n: i64, a1: i64, a2: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!(
+            "sc", "bns+ 1f", "neg 3, 3", "1:",
+            inlateout("r0") n => _, inlateout("r3") a1 => result, inlateout("r4") a2 => _,
+            lateout("r5") _, lateout("r6") _, lateout("r7") _, lateout("r8") _,
+            lateout("r9") _, lateout("r10") _, lateout("r11") _, lateout("r12") _,
+            out("cr0") _, out("ctr") _, out("xer") _, options(nostack),
+        );
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall3(n: i64, a1: i64, a2: i64, a3: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!(
+            "sc", "bns+ 1f", "neg 3, 3", "1:",
+            inlateout("r0") n => _, inlateout("r3") a1 => result, inlateout("r4") a2 => _, inlateout("r5") a3 => _,
+            lateout("r6") _, lateout("r7") _, lateout("r8") _, lateout("r9") _,
+            lateout("r10") _, lateout("r11") _, lateout("r12") _,
+            out("cr0") _, out("ctr") _, out("xer") _, options(nostack),
+        );
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall4(n: i64, a1: i64, a2: i64, a3: i64, a4: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!(
+            "sc", "bns+ 1f", "neg 3, 3", "1:",
+            inlateout("r0") n => _, inlateout("r3") a1 => result, inlateout("r4") a2 => _,
+            inlateout("r5") a3 => _, inlateout("r6") a4 => _,
+            lateout("r7") _, lateout("r8") _, lateout("r9") _, lateout("r10") _,
+            lateout("r11") _, lateout("r12") _,
+            out("cr0") _, out("ctr") _, out("xer") _, options(nostack),
+        );
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall5(n: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!(
+            "sc", "bns+ 1f", "neg 3, 3", "1:",
+            inlateout("r0") n => _, inlateout("r3") a1 => result, inlateout("r4") a2 => _,
+            inlateout("r5") a3 => _, inlateout("r6") a4 => _, inlateout("r7") a5 => _,
+            lateout("r8") _, lateout("r9") _, lateout("r10") _, lateout("r11") _, lateout("r12") _,
+            out("cr0") _, out("ctr") _, out("xer") _, options(nostack),
+        );
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall6(n: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64, a6: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!(
+            "sc", "bns+ 1f", "neg 3, 3", "1:",
+            inlateout("r0") n => _, inlateout("r3") a1 => result, inlateout("r4") a2 => _,
+            inlateout("r5") a3 => _, inlateout("r6") a4 => _, inlateout("r7") a5 => _, inlateout("r8") a6 => _,
+            lateout("r9") _, lateout("r10") _, lateout("r11") _, lateout("r12") _,
+            out("cr0") _, out("ctr") _, out("xer") _, options(nostack),
+        );
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall_noreturn1(n: i64, a1: i64) -> ! {
+        core::arch::asm!("sc", in("r0") n, in("r3") a1, options(noreturn, nostack));
+    }
+}
+
+// loongarch64
+#[cfg(target_arch = "loongarch64")]
+impl Syscalls for LoongArch64 {
+    #[inline(always)]
+    unsafe fn syscall0(n: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!("syscall 0", inlateout("$a0") 0i64 => result, in("$a7") n,
+            lateout("$t0") _, lateout("$t1") _, lateout("$t2") _, lateout("$t3") _,
+            lateout("$t4") _, lateout("$t5") _, lateout("$t6") _, lateout("$t7") _, lateout("$t8") _,
+            options(nostack));
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall1(n: i64, a1: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!("syscall 0", inlateout("$a0") a1 => result, in("$a7") n,
+            lateout("$t0") _, lateout("$t1") _, lateout("$t2") _, lateout("$t3") _,
+            lateout("$t4") _, lateout("$t5") _, lateout("$t6") _, lateout("$t7") _, lateout("$t8") _,
+            options(nostack));
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall2(n: i64, a1: i64, a2: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!("syscall 0", inlateout("$a0") a1 => result, in("$a1") a2, in("$a7") n,
+            lateout("$t0") _, lateout("$t1") _, lateout("$t2") _, lateout("$t3") _,
+            lateout("$t4") _, lateout("$t5") _, lateout("$t6") _, lateout("$t7") _, lateout("$t8") _,
+            options(nostack));
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall3(n: i64, a1: i64, a2: i64, a3: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!("syscall 0", inlateout("$a0") a1 => result, in("$a1") a2, in("$a2") a3, in("$a7") n,
+            lateout("$t0") _, lateout("$t1") _, lateout("$t2") _, lateout("$t3") _,
+            lateout("$t4") _, lateout("$t5") _, lateout("$t6") _, lateout("$t7") _, lateout("$t8") _,
+            options(nostack));
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall4(n: i64, a1: i64, a2: i64, a3: i64, a4: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!("syscall 0", inlateout("$a0") a1 => result, in("$a1") a2, in("$a2") a3, in("$a3") a4, in("$a7") n,
+            lateout("$t0") _, lateout("$t1") _, lateout("$t2") _, lateout("$t3") _,
+            lateout("$t4") _, lateout("$t5") _, lateout("$t6") _, lateout("$t7") _, lateout("$t8") _,
+            options(nostack));
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall5(n: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!("syscall 0", inlateout("$a0") a1 => result, in("$a1") a2, in("$a2") a3, in("$a3") a4, in("$a4") a5, in("$a7") n,
+            lateout("$t0") _, lateout("$t1") _, lateout("$t2") _, lateout("$t3") _,
+            lateout("$t4") _, lateout("$t5") _, lateout("$t6") _, lateout("$t7") _, lateout("$t8") _,
+            options(nostack));
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall6(n: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64, a6: i64) -> i64 {
+        let result: i64;
+        core::arch::asm!("syscall 0", inlateout("$a0") a1 => result, in("$a1") a2, in("$a2") a3, in("$a3") a4, in("$a4") a5, in("$a5") a6, in("$a7") n,
+            lateout("$t0") _, lateout("$t1") _, lateout("$t2") _, lateout("$t3") _,
+            lateout("$t4") _, lateout("$t5") _, lateout("$t6") _, lateout("$t7") _, lateout("$t8") _,
+            options(nostack));
+        result
+    }
+    #[inline(always)]
+    unsafe fn syscall_noreturn1(n: i64, a1: i64) -> ! {
+        core::arch::asm!("syscall 0", in("$a0") a1, in("$a7") n, options(noreturn, nostack));
+    }
+}
+
+
 // x86_64
 #[cfg(target_arch = "x86_64")]
 pub type Arch = X86_64;
@@ -397,6 +566,12 @@ pub type Arch = Aarch64;
 // riscv64
 #[cfg(target_arch = "riscv64")]
 pub type Arch = Riscv64;
+// powerpc64
+#[cfg(target_arch = "powerpc64")]
+pub type Arch = PowerPc64;
+// loongarch64
+#[cfg(target_arch = "loongarch64")]
+pub type Arch = LoongArch64;
 
 // ============================================================
 // Syscall numbers
@@ -416,6 +591,26 @@ mod sysnr {
 #[cfg(target_arch = "riscv64")]
 mod sysnr {
     pub const SYS_MMAP: i64 = 222;
+}
+// powerpc64
+#[cfg(target_arch = "powerpc64")]
+mod sysnr {
+    pub const SYS_MMAP: i64 = 90;
+    pub const SYS_MUNMAP: i64 = 91;
+    pub const SYS_OPENAT: i64 = 286;
+    pub const SYS_READ: i64 = 3;
+    pub const SYS_CLOSE: i64 = 6;
+    pub const SYS_EXIT: i64 = 1;
+}
+// loongarch64
+#[cfg(target_arch = "loongarch64")]
+mod sysnr {
+    pub const SYS_MMAP: i64 = 222;
+    pub const SYS_MUNMAP: i64 = 215;
+    pub const SYS_OPENAT: i64 = 56;
+    pub const SYS_READ: i64 = 63;
+    pub const SYS_CLOSE: i64 = 57;
+    pub const SYS_EXIT: i64 = 93;
 }
 pub use sysnr::*;
 

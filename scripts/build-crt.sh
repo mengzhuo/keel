@@ -29,3 +29,5 @@ build_arch() {
 build_arch x86_64 x86_64-unknown-linux-gnu
 build_arch aarch64 aarch64-unknown-linux-gnu
 build_arch riscv64 riscv64gc-unknown-linux-musl
+build_arch powerpc64le powerpc64le-unknown-linux-musl
+build_arch loongarch64 loongarch64-unknown-linux-musl

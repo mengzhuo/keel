@@ -37,6 +37,10 @@ const R_RELATIVE: u64 = 8;
 const R_RELATIVE: u64 = 1027;
 #[cfg(target_arch = "riscv64")]
 const R_RELATIVE: u64 = 3;
+#[cfg(target_arch = "powerpc64")]
+const R_RELATIVE: u64 = 22;
+#[cfg(target_arch = "loongarch64")]
+const R_RELATIVE: u64 = 3;
 
 #[cfg(target_arch = "x86_64")]
 core::arch::global_asm!(
@@ -91,6 +95,46 @@ _start:
     lla a1, _DYNAMIC
     andi sp, t0, -16
     tail keel_rcrt1_start
+    .size _start, .-_start
+    .section .note.GNU-stack,"",@progbits
+"#
+);
+
+// _DYNAMIC is PC-relative in the ELFv2 startup; the 32-bit offset keeps the
+// object free of TOC dependencies before relocations have been applied.
+#[cfg(target_arch = "powerpc64")]
+core::arch::global_asm!(
+    r#"
+    .text
+    .global _start
+    .type _start,@function
+_start:
+    addis 2, 12, .TOC.-_start@ha
+    addi  2, 2, .TOC.-_start@l
+    mr    3, 1
+    lwz   4, 1f-_start(12)
+    add   4, 4, 12
+    clrrdi 1, 1, 4
+    bl    keel_rcrt1_start
+    trap
+1:  .long _DYNAMIC-_start
+    .size _start, .-_start
+    .section .note.GNU-stack,"",@progbits
+"#
+);
+
+#[cfg(target_arch = "loongarch64")]
+core::arch::global_asm!(
+    r#"
+    .text
+    .global _start
+    .type _start,@function
+_start:
+    move  $fp, $zero
+    move  $a0, $sp
+    la.local $a1, _DYNAMIC
+    bstrins.d $sp, $zero, 3, 0
+    b     keel_rcrt1_start
     .size _start, .-_start
     .section .note.GNU-stack,"",@progbits
 "#

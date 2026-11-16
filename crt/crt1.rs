@@ -80,3 +80,58 @@ _start:
     .section .note.GNU-stack,"",@progbits
 "#
 );
+
+// ELFv2 enters with r12 holding the entry point, which is what the TOC setup
+// needs. The kernel stack is preserved in r9 so argc/argv can still be read
+// after r1 is aligned; r10 carries the seventh argument (stack_end).
+#[cfg(target_arch = "powerpc64")]
+core::arch::global_asm!(
+    r#"
+    .text
+    .global _start
+    .type _start,@function
+_start:
+    addis 2, 12, .TOC.-_start@ha
+    addi  2, 2, .TOC.-_start@l
+    mr    9, 1
+    clrrdi 1, 1, 4
+    li    0, 0
+    stdu  1, -32(1)
+    std   0, 0(1)
+    ld    4, 0(9)
+    addi  5, 9, 8
+    addis 3, 2, main@toc@ha
+    addi  3, 3, main@toc@l
+    li    6, 0
+    li    7, 0
+    li    8, 0
+    mr    10, 9
+    bl    __libc_start_main
+    trap
+    .size _start, .-_start
+    .section .note.GNU-stack,"",@progbits
+"#
+);
+
+#[cfg(target_arch = "loongarch64")]
+core::arch::global_asm!(
+    r#"
+    .text
+    .global _start
+    .type _start,@function
+_start:
+    move $fp, $zero
+    move $s0, $sp
+    ld.d $a1, $sp, 0
+    addi.d $a2, $sp, 8
+    la.local $a0, main
+    move $a3, $zero
+    move $a4, $zero
+    move $a5, $zero
+    move $a6, $s0
+    bstrins.d $sp, $zero, 3, 0
+    b __libc_start_main
+    .size _start, .-_start
+    .section .note.GNU-stack,"",@progbits
+"#
+);

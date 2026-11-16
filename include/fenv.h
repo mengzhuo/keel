@@ -43,6 +43,40 @@ typedef struct {
 typedef unsigned int fexcept_t;
 
 typedef unsigned int fenv_t;
+#elif defined(__powerpc64__)
+#define FE_INVALID    0x20000000
+#define FE_DIVBYZERO  0x04000000
+#define FE_OVERFLOW   0x10000000
+#define FE_UNDERFLOW  0x08000000
+#define FE_INEXACT    0x02000000
+#define FE_ALL_EXCEPT 0x3e000000
+
+#define FE_TONEAREST  0
+#define FE_TOWARDZERO 1
+#define FE_UPWARD     2
+#define FE_DOWNWARD   3
+
+typedef unsigned int fexcept_t;
+
+typedef double fenv_t;
+#elif defined(__loongarch__)
+#define FE_INEXACT    0x010000
+#define FE_UNDERFLOW  0x020000
+#define FE_OVERFLOW   0x040000
+#define FE_DIVBYZERO  0x080000
+#define FE_INVALID    0x100000
+#define FE_ALL_EXCEPT 0x1f0000
+
+#define FE_TONEAREST  0x000
+#define FE_TOWARDZERO 0x100
+#define FE_UPWARD     0x200
+#define FE_DOWNWARD   0x300
+
+typedef unsigned int fexcept_t;
+
+typedef struct {
+	unsigned int __cw;
+} fenv_t;
 #else
 #define FE_INVALID    1
 #define __FE_DENORM   2

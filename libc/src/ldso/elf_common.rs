@@ -86,6 +86,10 @@ pub const RELA_ENT_SIZE: usize = 24;
 pub const R_X86_64_RELATIVE: u64 = 8;
 #[allow(dead_code)] // selected only on aarch64
 pub const R_AARCH64_RELATIVE: u64 = 1027;
+#[allow(dead_code)] // selected only on powerpc64
+pub const R_PPC64_RELATIVE: u64 = 22;
+#[allow(dead_code)] // selected only on loongarch64
+pub const R_LARCH_RELATIVE: u64 = 3;
 #[allow(dead_code)] // selected only on riscv64
 pub const R_RISCV_RELATIVE: u64 = 3;
 
@@ -98,6 +102,12 @@ pub const R_RELATIVE: u64 = R_AARCH64_RELATIVE;
 #[cfg(target_arch = "riscv64")]
 #[allow(dead_code)]
 pub const R_RELATIVE: u64 = R_RISCV_RELATIVE;
+#[cfg(target_arch = "powerpc64")]
+#[allow(dead_code)]
+pub const R_RELATIVE: u64 = R_PPC64_RELATIVE;
+#[cfg(target_arch = "loongarch64")]
+#[allow(dead_code)]
+pub const R_RELATIVE: u64 = R_LARCH_RELATIVE;
 
 pub const AT_NULL: u64 = 0;
 pub const AT_PHDR: u64 = 3;

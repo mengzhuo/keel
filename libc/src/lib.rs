@@ -19,7 +19,7 @@ use core::ffi::{c_char, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong,
 #[cfg(target_arch = "aarch64")]
 pub type f128 = core::arch::aarch64::float64x2_t;
 
-#[cfg(target_arch = "riscv64")]
+#[cfg(any(target_arch = "riscv64", target_arch = "loongarch64"))]
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct f128 {
@@ -27,25 +27,40 @@ pub struct f128 {
     hi: u64,
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+// powerpc64 uses the IBM double-double format: two doubles, high part first.
+// Passing it as a two-f64 aggregate reproduces the ELFv2 register pair.
+#[cfg(target_arch = "powerpc64")]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct f128 {
+    hi: f64,
+    lo: f64,
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
 #[inline]
 fn f128_from_bits(bits: u128) -> f128 {
     unsafe { core::mem::transmute::<u128, f128>(bits) }
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
 #[inline]
 fn f128_to_bits(x: f128) -> u128 {
     unsafe { core::mem::transmute::<f128, u128>(x) }
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
 fn f128_is_nan(x: f128) -> bool {
     let bits = f128_to_bits(x);
     ((bits >> 112) & 0x7fff) == 0x7fff && (bits & ((1u128 << 112) - 1)) != 0
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(target_arch = "powerpc64")]
+fn f128_is_nan(x: f128) -> bool {
+    x.hi.is_nan() || x.lo.is_nan()
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
 fn f128_to_f64(x: f128) -> f64 {
     let bits = f128_to_bits(x);
     let sign = (bits >> 127) as u64;
@@ -80,6 +95,11 @@ fn f128_to_f64(x: f128) -> f64 {
         return f64::from_bits(signbit | (1u64 << 52));
     }
     f64::from_bits(signbit | m)
+}
+
+#[cfg(target_arch = "powerpc64")]
+fn f128_to_f64(x: f128) -> f64 {
+    x.hi + x.lo
 }
 
 #[cfg(target_arch = "riscv64")]
@@ -119,7 +139,12 @@ unsafe fn valist_read_f128(args: &mut VaList<'_>) -> f128 {
     f128_from_bits(core::ptr::read_unaligned(addr as *const u128))
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(target_arch = "powerpc64")]
+fn f64_to_f128(v: f64) -> f128 {
+    f128 { hi: v, lo: 0.0 }
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
 fn f64_to_f128(v: f64) -> f128 {
     let bits = v.to_bits();
     let sign = (bits >> 63) as u128;
@@ -251,7 +276,7 @@ unsafe fn errno_init() {
     let tp = arch_get_tp();
     #[cfg(target_arch = "x86_64")]
     let tcb = tp;
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
     let tcb = tp.wrapping_sub(256);
     if tp != 0 && core::ptr::read(tcb as *const usize) == tcb {
         ERRNO_TLS_ACTIVE.store(1, Ordering::Relaxed);
@@ -1945,6 +1970,395 @@ pub unsafe extern "C" fn siglongjmp(env: *const c_ulong, val: c_int) -> ! {
     longjmp(env, val);
 }
 
+// Adapted from musl's powerpc64 setjmp.s / longjmp.s / sigsetjmp.s.
+// The save body is local to libc; the exported entry points are naked Rust
+// functions so rustc's cdylib export list includes them.
+#[cfg(target_arch = "powerpc64")]
+core::arch::global_asm!(
+    ".globl __keel_setjmp_toc",
+    ".hidden __keel_setjmp_toc",
+    ".type __keel_setjmp_toc,@function",
+    "__keel_setjmp_toc:",
+    "mflr 0",
+    "std 0, 0(3)",
+    "mfcr 0",
+    "std 0, 8(3)",
+    "std 1, 16(3)",
+    "std 5, 24(3)",
+    "std 14, 32(3)",
+    "std 15, 40(3)",
+    "std 16, 48(3)",
+    "std 17, 56(3)",
+    "std 18, 64(3)",
+    "std 19, 72(3)",
+    "std 20, 80(3)",
+    "std 21, 88(3)",
+    "std 22, 96(3)",
+    "std 23, 104(3)",
+    "std 24, 112(3)",
+    "std 25, 120(3)",
+    "std 26, 128(3)",
+    "std 27, 136(3)",
+    "std 28, 144(3)",
+    "std 29, 152(3)",
+    "std 30, 160(3)",
+    "std 31, 168(3)",
+    "stfd 14, 176(3)",
+    "stfd 15, 184(3)",
+    "stfd 16, 192(3)",
+    "stfd 17, 200(3)",
+    "stfd 18, 208(3)",
+    "stfd 19, 216(3)",
+    "stfd 20, 224(3)",
+    "stfd 21, 232(3)",
+    "stfd 22, 240(3)",
+    "stfd 23, 248(3)",
+    "stfd 24, 256(3)",
+    "stfd 25, 264(3)",
+    "stfd 26, 272(3)",
+    "stfd 27, 280(3)",
+    "stfd 28, 288(3)",
+    "stfd 29, 296(3)",
+    "stfd 30, 304(3)",
+    "stfd 31, 312(3)",
+    "addi 3, 3, 320",
+    "stvx 20, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 21, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 22, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 23, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 24, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 25, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 26, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 27, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 28, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 29, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 30, 0, 3",
+    "addi 3, 3, 16",
+    "stvx 31, 0, 3",
+    "li 3, 0",
+    "blr",
+);
+
+#[cfg(target_arch = "powerpc64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn setjmp(_env: *mut c_ulong) -> c_int {
+    core::arch::naked_asm!(
+        "addis 2, 12, .TOC.-setjmp@ha",
+        "addi 2, 2, .TOC.-setjmp@l",
+        "ld 5, 24(1)",
+        "b __keel_setjmp_toc",
+    );
+}
+
+#[cfg(target_arch = "powerpc64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn _setjmp(_env: *mut c_ulong) -> c_int {
+    core::arch::naked_asm!(
+        "addis 2, 12, .TOC.-_setjmp@ha",
+        "addi 2, 2, .TOC.-_setjmp@l",
+        "ld 5, 24(1)",
+        "b __keel_setjmp_toc",
+    );
+}
+
+#[cfg(target_arch = "powerpc64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn __setjmp(_env: *mut c_ulong) -> c_int {
+    core::arch::naked_asm!(
+        "addis 2, 12, .TOC.-__setjmp@ha",
+        "addi 2, 2, .TOC.-__setjmp@l",
+        "ld 5, 24(1)",
+        "b __keel_setjmp_toc",
+    );
+}
+
+#[cfg(target_arch = "powerpc64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn longjmp(_env: *const c_ulong, _val: c_int) -> ! {
+    core::arch::naked_asm!(
+        "ld 0, 0(3)",
+        "mtlr 0",
+        "ld 0, 8(3)",
+        "mtcr 0",
+        "ld 1, 16(3)",
+        "ld 2, 24(3)",
+        "std 2, 24(1)",
+        "ld 14, 32(3)",
+        "ld 15, 40(3)",
+        "ld 16, 48(3)",
+        "ld 17, 56(3)",
+        "ld 18, 64(3)",
+        "ld 19, 72(3)",
+        "ld 20, 80(3)",
+        "ld 21, 88(3)",
+        "ld 22, 96(3)",
+        "ld 23, 104(3)",
+        "ld 24, 112(3)",
+        "ld 25, 120(3)",
+        "ld 26, 128(3)",
+        "ld 27, 136(3)",
+        "ld 28, 144(3)",
+        "ld 29, 152(3)",
+        "ld 30, 160(3)",
+        "ld 31, 168(3)",
+        "lfd 14, 176(3)",
+        "lfd 15, 184(3)",
+        "lfd 16, 192(3)",
+        "lfd 17, 200(3)",
+        "lfd 18, 208(3)",
+        "lfd 19, 216(3)",
+        "lfd 20, 224(3)",
+        "lfd 21, 232(3)",
+        "lfd 22, 240(3)",
+        "lfd 23, 248(3)",
+        "lfd 24, 256(3)",
+        "lfd 25, 264(3)",
+        "lfd 26, 272(3)",
+        "lfd 27, 280(3)",
+        "lfd 28, 288(3)",
+        "lfd 29, 296(3)",
+        "lfd 30, 304(3)",
+        "lfd 31, 312(3)",
+        "addi 3, 3, 320",
+        "lvx 20, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 21, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 22, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 23, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 24, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 25, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 26, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 27, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 28, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 29, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 30, 0, 3",
+        "addi 3, 3, 16",
+        "lvx 31, 0, 3",
+        "mr 3, 4",
+        "cmpwi cr7, 4, 0",
+        "bne cr7, 1f",
+        "li 3, 1",
+        "1:",
+        "blr",
+    );
+}
+
+#[cfg(target_arch = "powerpc64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn sigsetjmp(_env: *mut c_ulong, _savemask: c_int) -> c_int {
+    core::arch::naked_asm!(
+        "addis 2, 12, .TOC.-sigsetjmp@ha",
+        "addi 2, 2, .TOC.-sigsetjmp@l",
+        "cmpwi cr7, 4, 0",
+        "beq- cr7, 2f",
+        "ld 5, 24(1)",
+        "mflr 6",
+        "std 6, 512(3)",
+        "std 2, 528(3)",
+        "std 16, 536(3)",
+        "mr 16, 3",
+        "bl __keel_setjmp_toc",
+        "mr 4, 3",
+        "mr 3, 16",
+        "ld 5, 512(3)",
+        "mtlr 5",
+        "ld 2, 528(3)",
+        "ld 16, 536(3)",
+        "b __sigsetjmp_tail",
+        "2:",
+        "ld 5, 24(1)",
+        "b __keel_setjmp_toc",
+    );
+}
+
+#[cfg(target_arch = "powerpc64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn __sigsetjmp(_env: *mut c_ulong, _savemask: c_int) -> c_int {
+    core::arch::naked_asm!(
+        "addis 2, 12, .TOC.-__sigsetjmp@ha",
+        "addi 2, 2, .TOC.-__sigsetjmp@l",
+        "cmpwi cr7, 4, 0",
+        "beq- cr7, 2f",
+        "ld 5, 24(1)",
+        "mflr 6",
+        "std 6, 512(3)",
+        "std 2, 528(3)",
+        "std 16, 536(3)",
+        "mr 16, 3",
+        "bl __keel_setjmp_toc",
+        "mr 4, 3",
+        "mr 3, 16",
+        "ld 5, 512(3)",
+        "mtlr 5",
+        "ld 2, 528(3)",
+        "ld 16, 536(3)",
+        "b __sigsetjmp_tail",
+        "2:",
+        "ld 5, 24(1)",
+        "b __keel_setjmp_toc",
+    );
+}
+
+#[cfg(target_arch = "powerpc64")]
+#[no_mangle]
+pub unsafe extern "C" fn __sigsetjmp_tail(env: *mut c_ulong, ret: c_int) -> c_int {
+    const SIG_SETMASK: c_int = 2;
+    let ss = env.add(65) as *mut SigSetT;
+    let set = if ret != 0 { ss as *const SigSetT } else { core::ptr::null() };
+    let old = if ret != 0 { core::ptr::null_mut() } else { ss };
+    let _ = sys_rt_sigprocmask(SIG_SETMASK, set, old, core::mem::size_of::<SigSetT>());
+    ret
+}
+
+// Adapted from musl's loongarch64 setjmp.S / longjmp.S / sigsetjmp.s.
+#[cfg(target_arch = "loongarch64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn setjmp(_env: *mut c_ulong) -> c_int {
+    core::arch::naked_asm!(
+        "st.d $ra, $a0, 0",
+        "st.d $sp, $a0, 8",
+        "st.d $r21, $a0, 16",
+        "st.d $fp, $a0, 24",
+        "st.d $s0, $a0, 32",
+        "st.d $s1, $a0, 40",
+        "st.d $s2, $a0, 48",
+        "st.d $s3, $a0, 56",
+        "st.d $s4, $a0, 64",
+        "st.d $s5, $a0, 72",
+        "st.d $s6, $a0, 80",
+        "st.d $s7, $a0, 88",
+        "st.d $s8, $a0, 96",
+        "fst.d $fs0, $a0, 104",
+        "fst.d $fs1, $a0, 112",
+        "fst.d $fs2, $a0, 120",
+        "fst.d $fs3, $a0, 128",
+        "fst.d $fs4, $a0, 136",
+        "fst.d $fs5, $a0, 144",
+        "fst.d $fs6, $a0, 152",
+        "fst.d $fs7, $a0, 160",
+        "move $a0, $zero",
+        "jr $ra",
+    );
+}
+
+#[cfg(target_arch = "loongarch64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn _setjmp(_env: *mut c_ulong) -> c_int {
+    core::arch::naked_asm!(
+        "b setjmp",
+    );
+}
+
+#[cfg(target_arch = "loongarch64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn __setjmp(_env: *mut c_ulong) -> c_int {
+    core::arch::naked_asm!(
+        "b setjmp",
+    );
+}
+
+#[cfg(target_arch = "loongarch64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn longjmp(_env: *const c_ulong, _val: c_int) -> ! {
+    core::arch::naked_asm!(
+        "ld.d $ra, $a0, 0",
+        "ld.d $sp, $a0, 8",
+        "ld.d $r21, $a0, 16",
+        "ld.d $fp, $a0, 24",
+        "ld.d $s0, $a0, 32",
+        "ld.d $s1, $a0, 40",
+        "ld.d $s2, $a0, 48",
+        "ld.d $s3, $a0, 56",
+        "ld.d $s4, $a0, 64",
+        "ld.d $s5, $a0, 72",
+        "ld.d $s6, $a0, 80",
+        "ld.d $s7, $a0, 88",
+        "ld.d $s8, $a0, 96",
+        "fld.d $fs0, $a0, 104",
+        "fld.d $fs1, $a0, 112",
+        "fld.d $fs2, $a0, 120",
+        "fld.d $fs3, $a0, 128",
+        "fld.d $fs4, $a0, 136",
+        "fld.d $fs5, $a0, 144",
+        "fld.d $fs6, $a0, 152",
+        "fld.d $fs7, $a0, 160",
+        "sltui $a0, $a1, 1",
+        "add.d $a0, $a0, $a1",
+        "jr $ra",
+    );
+}
+
+#[cfg(target_arch = "loongarch64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn sigsetjmp(_env: *mut c_ulong, _savemask: c_int) -> c_int {
+    core::arch::naked_asm!(
+        "beq $a1, $zero, 2f",
+        "st.d $ra, $a0, 184",
+        "st.d $s0, $a0, 200",
+        "move $s0, $a0",
+        "la.local $t0, setjmp",
+        "jirl $ra, $t0, 0",
+        "move $a1, $a0",
+        "move $a0, $s0",
+        "ld.d $ra, $a0, 184",
+        "ld.d $s0, $a0, 200",
+        "b __sigsetjmp_tail",
+        "2:",
+        "la.local $t0, setjmp",
+        "jr $t0",
+    );
+}
+
+#[cfg(target_arch = "loongarch64")]
+#[no_mangle]
+#[unsafe(naked)]
+pub unsafe extern "C" fn __sigsetjmp(_env: *mut c_ulong, _savemask: c_int) -> c_int {
+    core::arch::naked_asm!(
+        "b sigsetjmp",
+    );
+}
+
+#[cfg(target_arch = "loongarch64")]
+#[no_mangle]
+pub unsafe extern "C" fn __sigsetjmp_tail(env: *mut c_ulong, ret: c_int) -> c_int {
+    const SIG_SETMASK: c_int = 2;
+    let ss = env.add(24) as *mut SigSetT;
+    let set = if ret != 0 { ss as *const SigSetT } else { core::ptr::null() };
+    let old = if ret != 0 { core::ptr::null_mut() } else { ss };
+    let _ = sys_rt_sigprocmask(SIG_SETMASK, set, old, core::mem::size_of::<SigSetT>());
+    ret
+}
+
 // ============================================================
 // syscall wrappers: fstat/newfstatat/getrlimit/setrlimit/utimensat
 // ============================================================
@@ -1985,6 +2399,10 @@ unsafe fn sys_fork() -> i64 {
     #[cfg(target_arch = "aarch64")]
     { <Arch as Syscalls>::syscall2(SYS_CLONE, 17, 0) }
     #[cfg(target_arch = "riscv64")]
+    { <Arch as Syscalls>::syscall2(SYS_CLONE, 17, 0) }
+    #[cfg(target_arch = "powerpc64")]
+    { <Arch as Syscalls>::syscall0(SYS_FORK) }
+    #[cfg(target_arch = "loongarch64")]
     { <Arch as Syscalls>::syscall2(SYS_CLONE, 17, 0) }
 }
 
@@ -2209,7 +2627,7 @@ pub unsafe extern "C" fn posix_spawn(
 // sys/stat.h: stat / fstat / utimensat / futimens
 // ============================================================
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "powerpc64"))]
 #[repr(C)]
 pub struct Stat {
     pub st_dev: u64,
@@ -2229,7 +2647,7 @@ pub struct Stat {
     _unused: [i64; 3],
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
 #[repr(C)]
 pub struct Stat {
     pub st_dev: u64,
@@ -2787,6 +3205,81 @@ pub unsafe extern "C" fn __keel_clone(
         "jalr a1",
         "li a7, 93",
         "ecall",
+    );
+}
+
+// Adapted from musl's powerpc64 clone.s.
+#[no_mangle]
+#[unsafe(naked)]
+#[cfg(target_arch = "powerpc64")]
+pub unsafe extern "C" fn __keel_clone(
+    fn_: usize,
+    stack: *mut u8,
+    flags: c_ulong,
+    arg: *mut c_void,
+    ptid: *mut c_int,
+    tls: c_ulong,
+    ctid: *mut c_int,
+) -> i64 {
+    core::arch::naked_asm!(
+        "clrrdi 4, 4, 4",
+        "li 0, 0",
+        "stdu 0, -32(4)",
+        "std 3, 8(4)",
+        "std 6, 16(4)",
+        "mr 3, 5",
+        "mr 5, 7",
+        "mr 6, 8",
+        "mr 7, 9",
+        "li 0, 120",
+        "sc",
+        "bns+ 1f",
+        "neg 3, 3",
+        "1:",
+        "cmpwi cr7, 3, 0",
+        "bnelr cr7",
+        "ld 3, 16(1)",
+        "ld 12, 8(1)",
+        "mtctr 12",
+        "bctrl",
+        "li 0, 1",
+        "sc",
+    );
+}
+
+// Adapted from musl's loongarch64 clone.s.
+#[no_mangle]
+#[unsafe(naked)]
+#[cfg(target_arch = "loongarch64")]
+pub unsafe extern "C" fn __keel_clone(
+    fn_: usize,
+    stack: *mut u8,
+    flags: c_ulong,
+    arg: *mut c_void,
+    ptid: *mut c_int,
+    tls: c_ulong,
+    ctid: *mut c_int,
+) -> i64 {
+    core::arch::naked_asm!(
+        "bstrins.d $a1, $zero, 3, 0",
+        "addi.d $a1, $a1, -16",
+        "st.d $a0, $a1, 0",
+        "st.d $a3, $a1, 8",
+        "or $a0, $a2, $zero",
+        "or $a2, $a4, $zero",
+        "or $a3, $a6, $zero",
+        "or $a4, $a5, $zero",
+        "ori $a7, $zero, 220",
+        "syscall 0",
+        "beqz $a0, 1f",
+        "jirl $zero, $ra, 0",
+        "1:",
+        "move $fp, $zero",
+        "ld.d $t8, $sp, 0",
+        "ld.d $a0, $sp, 8",
+        "jirl $ra, $t8, 0",
+        "ori $a7, $zero, 93",
+        "syscall 0",
     );
 }
 
@@ -6894,7 +7387,7 @@ macro_rules! impl_format {
                         | (b'L', b'g') | (b'L', b'G') | (b'L', b'a') | (b'L', b'A') => {
                             #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
                             let val = f128_to_f64(valist_read_f128(args));
-                            #[cfg(target_arch = "x86_64")]
+                            #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64", target_arch = "loongarch64"))]
                             let val = args.next_arg::<f64>();
                             let mut wbuf = [0u8; FMT_FLOAT_BUF];
                             let total = format_float_into(wbuf.as_mut_ptr(), val, spec, precision, width, flags);
@@ -8265,7 +8758,7 @@ unsafe fn do_vsscanf(
                     if _real_len == LEN_LONG {
                         let out = args.next_arg::<*mut f64>(); if !out.is_null() { *out = val; }
                     } else if _real_len == LEN_LONG_DOUBLE {
-                        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+                        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
                         { let out = args.next_arg::<*mut f128>(); if !out.is_null() { *out = f64_to_f128(val); } }
                         #[cfg(target_arch = "x86_64")]
                         { let out = args.next_arg::<*mut f64>(); if !out.is_null() { *out = val; } }
@@ -10139,7 +10632,7 @@ pub unsafe extern "C" fn wcstold(s: *const wchar_t, endptr: *mut *mut wchar_t) -
 pub unsafe extern "C" fn wcstold(s: *const wchar_t, endptr: *mut *mut wchar_t) -> f128 { f64_to_f128(wcstod(s, endptr)) }
 
 #[no_mangle]
-#[cfg(target_arch = "riscv64")]
+#[cfg(any(target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 pub unsafe extern "C" fn wcstold(s: *const wchar_t, endptr: *mut *mut wchar_t) -> f128 { f64_to_f128(wcstod(s, endptr)) }
 
 #[no_mangle]
@@ -10727,7 +11220,7 @@ unsafe fn vswprintf_impl(
                     | (b'L', b'g') | (b'L', b'G') | (b'L', b'a') | (b'L', b'A') => {
                         #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
                         let val = f128_to_f64(valist_read_f128(&mut args));
-                        #[cfg(target_arch = "x86_64")]
+                        #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64", target_arch = "loongarch64"))]
                         let val = args.next_arg::<f64>();
                         let mut wbuf = [0u8; FMT_FLOAT_BUF];
                         let wlen = format_float_into(wbuf.as_mut_ptr(), val, spec, precision, width, flags);
@@ -12379,6 +12872,10 @@ unsafe fn sys_pause() -> i64 {
     { <Arch as Syscalls>::syscall4(SYS_PPOLL, 0, 0, 0, 0) }
     #[cfg(target_arch = "riscv64")]
     { <Arch as Syscalls>::syscall4(SYS_PPOLL, 0, 0, 0, 0) }
+    #[cfg(target_arch = "powerpc64")]
+    { <Arch as Syscalls>::syscall0(SYS_PAUSE) }
+    #[cfg(target_arch = "loongarch64")]
+    { <Arch as Syscalls>::syscall4(SYS_PPOLL, 0, 0, 0, 0) }
 }
 
 unsafe fn sys_fsync(fd: i32) -> i64 {
@@ -13572,7 +14069,7 @@ pub unsafe extern "C" fn strtold(s: *const c_char, endptr: *mut *mut c_char) -> 
 }
 
 #[no_mangle]
-#[cfg(target_arch = "riscv64")]
+#[cfg(any(target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 pub unsafe extern "C" fn strtold(s: *const c_char, endptr: *mut *mut c_char) -> f128 {
     f64_to_f128(strtod(s, endptr))
 }
@@ -14948,6 +15445,13 @@ unsafe fn sys_semget(key: c_int, nsems: c_int, semflg: c_int) -> i64 {
     <Arch as Syscalls>::syscall3(SYS_SEMGET, key as i64, nsems as i64, semflg as i64)
 }
 
+#[cfg(target_arch = "powerpc64")]
+#[inline]
+unsafe fn sys_semop(semid: c_int, sops: *const c_void, nsops: usize) -> i64 {
+    <Arch as Syscalls>::syscall4(SYS_SEMTIMEDOP, semid as i64, sops as i64, nsops as i64, 0)
+}
+
+#[cfg(not(target_arch = "powerpc64"))]
 #[inline]
 unsafe fn sys_semop(semid: c_int, sops: *const c_void, nsops: usize) -> i64 {
     <Arch as Syscalls>::syscall3(SYS_SEMOP, semid as i64, sops as i64, nsops as i64)
@@ -15209,6 +15713,30 @@ unsafe fn static_tls_tp() -> usize {
     tp
 }
 
+#[cfg(target_arch = "powerpc64")]
+unsafe fn static_tls_tp() -> usize {
+    let tp: usize;
+    core::arch::asm!("mr {}, 13", out(reg) tp, options(nostack));
+    tp
+}
+
+#[cfg(target_arch = "powerpc64")]
+unsafe fn set_static_tls_tp(tp: usize) {
+    core::arch::asm!("mr 13, {}", in(reg) tp, options(nostack));
+}
+
+#[cfg(target_arch = "loongarch64")]
+unsafe fn static_tls_tp() -> usize {
+    let tp: usize;
+    core::arch::asm!("move {}, $tp", out(reg) tp, options(nostack));
+    tp
+}
+
+#[cfg(target_arch = "loongarch64")]
+unsafe fn set_static_tls_tp(tp: usize) {
+    core::arch::asm!("move $tp, {}", in(reg) tp, options(nostack));
+}
+
 #[cfg(target_arch = "riscv64")]
 unsafe fn set_static_tls_tp(tp: usize) {
     core::arch::asm!("mv tp, {}", in(reg) tp, options(nostack));
@@ -15367,6 +15895,8 @@ unsafe fn init_static_tls() {
     let gap = 0usize;
     #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     let gap = if cfg!(target_arch = "aarch64") { 16usize } else { 0usize };
+    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+    let gap = 0usize;
 
     let tls_size = if tls_align > 1 {
         (tls_memsz + tls_align - 1) & !(tls_align - 1)
@@ -15576,6 +16106,20 @@ pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> 
 #[cfg(target_arch = "riscv64")]
 pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> *mut c_void {
     core::arch::naked_asm!("mv a2, ra", "la t0, dlsym_impl", "jr t0");
+}
+
+#[no_mangle]
+#[unsafe(naked)]
+#[cfg(target_arch = "powerpc64")]
+pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> *mut c_void {
+    core::arch::naked_asm!("mflr 5", "b dlsym_impl");
+}
+
+#[no_mangle]
+#[unsafe(naked)]
+#[cfg(target_arch = "loongarch64")]
+pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> *mut c_void {
+    core::arch::naked_asm!("move $a2, $ra", "b dlsym_impl");
 }
 
 #[no_mangle]
@@ -16493,7 +17037,7 @@ pub unsafe extern "C" fn nexttowardf(x: f32, y: f64) -> f32 {
 }
 
 #[no_mangle]
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 pub unsafe extern "C" fn nexttowardf(x: f32, y: f128) -> f32 {
     if f128_is_nan(y) { return f32::NAN; }
     let yf = f128_to_f64(y);
@@ -17112,9 +17656,9 @@ pub unsafe extern "C" fn accept4(fd: i32, addr: *mut core::ffi::c_void, addrlen:
 
 #[no_mangle]
 pub unsafe extern "C" fn epoll_create(size: i32) -> i32 {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64"))]
     { syscall_ret(<Arch as Syscalls>::syscall1(SYS_EPOLL_CREATE, size as i64)) as i32 }
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
     {
         if size < 1 {
             ERRNO!() = EINVAL;
@@ -17136,7 +17680,7 @@ pub unsafe extern "C" fn epoll_ctl(epfd: i32, op: i32, fd: i32, event: *mut core
 
 #[no_mangle]
 pub unsafe extern "C" fn epoll_wait(epfd: i32, events: *mut core::ffi::c_void, maxevents: i32, timeout: i32) -> i32 {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64"))]
     {
         syscall_ret(<Arch as Syscalls>::syscall4(
             SYS_EPOLL_WAIT,
@@ -17146,7 +17690,7 @@ pub unsafe extern "C" fn epoll_wait(epfd: i32, events: *mut core::ffi::c_void, m
             timeout as i64,
         )) as i32
     }
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
     {
         epoll_pwait(epfd, events, maxevents, timeout, core::ptr::null())
     }
@@ -17345,7 +17889,10 @@ pub unsafe extern "C" fn syncfs(fd: i32) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn sync_file_range(fd: i32, offset: i64, nbytes: u64, flags: u32) -> i32 {
-    syscall_ret(<Arch as Syscalls>::syscall4(SYS_SYNC_FILE_RANGE, fd as i64, offset, nbytes as i64, flags as i64)) as i32
+    #[cfg(target_arch = "powerpc64")]
+    { syscall_ret(<Arch as Syscalls>::syscall4(SYS_SYNC_FILE_RANGE2, fd as i64, flags as i64, offset, nbytes as i64)) as i32 }
+    #[cfg(not(target_arch = "powerpc64"))]
+    { syscall_ret(<Arch as Syscalls>::syscall4(SYS_SYNC_FILE_RANGE, fd as i64, offset, nbytes as i64, flags as i64)) as i32 }
 }
 
 #[no_mangle]
@@ -20931,9 +21478,9 @@ struct PollTimespec {
 
 #[no_mangle]
 pub unsafe extern "C" fn poll(fds: *mut core::ffi::c_void, nfds: u32, timeout: i32) -> i32 {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64"))]
     { syscall_ret(<Arch as Syscalls>::syscall3(SYS_POLL, fds as i64, nfds as i64, timeout as i64)) as i32 }
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
     {
         // poll(2) does not exist on these architectures.  ppoll(2) takes a
         // struct timespec, not a millisecond count; passing the integer
@@ -21346,9 +21893,9 @@ pub unsafe extern "C" fn lutimes(filename: *const core::ffi::c_char, times: *con
 
 #[no_mangle]
 pub unsafe extern "C" fn mknod(pathname: *const core::ffi::c_char, mode: u32, dev: u64) -> i32 {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64"))]
     { syscall_ret(<Arch as Syscalls>::syscall3(SYS_MKNOD, pathname as i64, mode as i64, dev as i64)) as i32 }
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
     {
         syscall_ret(<Arch as Syscalls>::syscall4(SYS_MKNODAT, AT_FDCWD as i64, pathname as i64, mode as i64, dev as i64)) as i32
     }
@@ -21563,11 +22110,13 @@ pub unsafe extern "C" fn sendfile(out_fd: i32, in_fd: i32, offset: *mut i64, cou
 
 
 #[no_mangle]
+#[cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64")))]
 pub unsafe extern "C" fn __setjmp(env: *mut core::ffi::c_void) -> i32 {
     crate::setjmp(env as *mut u64)
 }
 
 #[no_mangle]
+#[cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64")))]
 pub unsafe extern "C" fn _setjmp(env: *mut core::ffi::c_void) -> i32 {
     crate::setjmp(env as *mut u64)
 }

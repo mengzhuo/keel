@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-// long-double ABI entry points.  x86_64 uses a 64-bit long double; aarch64
-// and riscv64 use f128 signatures but currently convert through f64.
+// long-double ABI entry points.  x86_64 uses a 64-bit long double; the other
+// 64-bit targets use f128 signatures but currently convert through f64.
 
 #[cfg(target_arch = "x86_64")]
 macro_rules! ld_wrapper {
@@ -56,7 +56,7 @@ macro_rules! ld_wrapper {
     };
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 macro_rules! ld_wrapper {
     ($name:ident, $base:path, f64_ret) => {
         #[no_mangle]

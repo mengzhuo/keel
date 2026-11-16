@@ -131,6 +131,26 @@ pub unsafe fn jump_to_entry(entry: u64, sp: usize) -> ! {
         options(noreturn)
     );
 
+    #[cfg(target_arch = "powerpc64")]
+    core::arch::asm!(
+        "mr 1, {sp}",
+        "mr 12, {entry}",
+        "mtctr 12",
+        "bctr",
+        sp = in(reg) sp,
+        entry = in(reg) entry,
+        options(noreturn)
+    );
+
+    #[cfg(target_arch = "loongarch64")]
+    core::arch::asm!(
+        "move $sp, {sp}",
+        "jr {entry}",
+        sp = in(reg) sp,
+        entry = in(reg) entry,
+        options(noreturn)
+    );
+
     #[cfg(target_arch = "riscv64")]
     {
         // The compiler reuses the entry register during address computation;

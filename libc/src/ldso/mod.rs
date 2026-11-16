@@ -68,16 +68,49 @@ const R_RISCV_TLS_TPREL64: u64 = 11;
 const R_AARCH64_COPY: u64 = 1024;
 
 #[cfg(target_arch = "x86_64")]
+const R_ABS64: u64 = R_X86_64_64;
+#[cfg(target_arch = "aarch64")]
+const R_ABS64: u64 = R_AARCH64_ABS64;
+#[cfg(target_arch = "riscv64")]
+const R_ABS64: u64 = R_RISCV_64;
+#[cfg(target_arch = "powerpc64")]
+const R_ABS64: u64 = R_PPC64_ADDR64;
+#[cfg(target_arch = "loongarch64")]
+const R_ABS64: u64 = R_LARCH_64;
+
+const R_PPC64_ADDR64: u64 = 38;
+const R_PPC64_COPY: u64 = 19;
+const R_PPC64_GLOB_DAT: u64 = 20;
+const R_PPC64_JUMP_SLOT: u64 = 21;
+const R_PPC64_DTPMOD64: u64 = 68;
+const R_PPC64_TPREL64: u64 = 73;
+const R_PPC64_DTPREL64: u64 = 78;
+
+const R_LARCH_64: u64 = 2;
+const R_LARCH_COPY: u64 = 4;
+const R_LARCH_JUMP_SLOT: u64 = 5;
+const R_LARCH_TLS_DTPMOD64: u64 = 7;
+const R_LARCH_TLS_DTPREL64: u64 = 9;
+const R_LARCH_TLS_TPREL64: u64 = 11;
+const R_LARCH_TLS_DESC64: u64 = 14;
+
+#[cfg(target_arch = "x86_64")]
 const R_COPY: u64 = R_X86_64_COPY;
 #[cfg(target_arch = "aarch64")]
 const R_COPY: u64 = R_AARCH64_COPY;
 #[cfg(target_arch = "riscv64")]
 const R_COPY: u64 = R_RISCV_COPY;
+#[cfg(target_arch = "powerpc64")]
+const R_COPY: u64 = R_PPC64_COPY;
+#[cfg(target_arch = "loongarch64")]
+const R_COPY: u64 = R_LARCH_COPY;
 
 #[cfg(target_arch = "x86_64")]
 const R_GLOB_DAT: u64 = R_X86_64_GLOB_DAT;
 #[cfg(target_arch = "aarch64")]
 const R_GLOB_DAT: u64 = R_AARCH64_GLOB_DAT;
+#[cfg(target_arch = "powerpc64")]
+const R_GLOB_DAT: u64 = R_PPC64_GLOB_DAT;
 
 #[cfg(target_arch = "x86_64")]
 const R_JUMP_SLOT: u64 = R_X86_64_JUMP_SLOT;
@@ -85,6 +118,10 @@ const R_JUMP_SLOT: u64 = R_X86_64_JUMP_SLOT;
 const R_JUMP_SLOT: u64 = R_AARCH64_JUMP_SLOT;
 #[cfg(target_arch = "riscv64")]
 const R_JUMP_SLOT: u64 = R_RISCV_JUMP_SLOT;
+#[cfg(target_arch = "powerpc64")]
+const R_JUMP_SLOT: u64 = R_PPC64_JUMP_SLOT;
+#[cfg(target_arch = "loongarch64")]
+const R_JUMP_SLOT: u64 = R_LARCH_JUMP_SLOT;
 
 #[cfg(target_arch = "x86_64")]
 const R_DTPMOD64: u64 = R_X86_64_DTPMOD64;
@@ -92,6 +129,10 @@ const R_DTPMOD64: u64 = R_X86_64_DTPMOD64;
 const R_DTPMOD64: u64 = R_AARCH64_TLS_DTPMOD64;
 #[cfg(target_arch = "riscv64")]
 const R_DTPMOD64: u64 = R_RISCV_TLS_DTPMOD64;
+#[cfg(target_arch = "powerpc64")]
+const R_DTPMOD64: u64 = R_PPC64_DTPMOD64;
+#[cfg(target_arch = "loongarch64")]
+const R_DTPMOD64: u64 = R_LARCH_TLS_DTPMOD64;
 
 #[cfg(target_arch = "x86_64")]
 const R_DTPREL64: u64 = R_X86_64_DTPOFF64;
@@ -99,6 +140,10 @@ const R_DTPREL64: u64 = R_X86_64_DTPOFF64;
 const R_DTPREL64: u64 = R_AARCH64_TLS_DTPREL64;
 #[cfg(target_arch = "riscv64")]
 const R_DTPREL64: u64 = R_RISCV_TLS_DTPREL64;
+#[cfg(target_arch = "powerpc64")]
+const R_DTPREL64: u64 = R_PPC64_DTPREL64;
+#[cfg(target_arch = "loongarch64")]
+const R_DTPREL64: u64 = R_LARCH_TLS_DTPREL64;
 
 #[cfg(target_arch = "x86_64")]
 const R_TPREL64: u64 = R_X86_64_TPOFF64;
@@ -106,6 +151,10 @@ const R_TPREL64: u64 = R_X86_64_TPOFF64;
 const R_TPREL64: u64 = R_AARCH64_TLS_TPREL64;
 #[cfg(target_arch = "riscv64")]
 const R_TPREL64: u64 = R_RISCV_TLS_TPREL64;
+#[cfg(target_arch = "powerpc64")]
+const R_TPREL64: u64 = R_PPC64_TPREL64;
+#[cfg(target_arch = "loongarch64")]
+const R_TPREL64: u64 = R_LARCH_TLS_TPREL64;
 const R_RISCV_TLSDESC: u64 = 12;
 const R_RISCV_COPY: u64 = 4;
 
@@ -705,6 +754,201 @@ core::arch::global_asm!(
     run_main = sym run_main,
 );
 
+// powerpc64le _start: self-relocate ldso, then call run_main(sp, ldso_base)
+#[cfg(not(test))]
+#[cfg(target_arch = "powerpc64")]
+core::arch::global_asm!(
+    ".weak _start",
+    ".type _start, @function",
+    "_start:",
+    "bl 17f",
+    "17:",
+    "mflr 12",
+    "addis 2, 12, .TOC.-17b@ha",
+    "addi 2, 2, .TOC.-17b@l",
+    "ld 3, 0(1)",
+    "addi 4, 1, 8",
+    "sldi 5, 3, 3",
+    "add 4, 4, 5",
+    "addi 4, 4, 8",
+    "3:",
+    "ld 5, 0(4)",
+    "cmpdi 5, 0",
+    "beq 4f",
+    "addi 4, 4, 8",
+    "b 3b",
+    "4:",
+    "addi 4, 4, 8",
+    "li 14, 0",
+    "5:",
+    "ld 5, 0(4)",
+    "cmpdi 5, 0",
+    "beq 6f",
+    "cmpdi 5, 7",
+    "bne 7f",
+    "ld 14, 8(4)",
+    "7:",
+    "addi 4, 4, 16",
+    "b 5b",
+    "6:",
+    "ld 3, 32(14)",
+    "lhz 4, 56(14)",
+    "add 5, 14, 3",
+    "li 6, 0",
+    "8:",
+    "cmpd 6, 4",
+    "bge 9f",
+    "lwz 7, 0(5)",
+    "cmpwi 7, 2",
+    "beq 10f",
+    "addi 5, 5, 56",
+    "addi 6, 6, 1",
+    "b 8b",
+    "10:",
+    "ld 7, 16(5)",
+    "ld 8, 40(5)",
+    "add 7, 7, 14",
+    "add 8, 7, 8",
+    "li 9, 0",
+    "li 10, 0",
+    "11:",
+    "cmpd 7, 8",
+    "bge 12f",
+    "ld 3, 0(7)",
+    "ld 4, 8(7)",
+    "cmpdi 3, 0",
+    "beq 12f",
+    "cmpdi 3, 7",
+    "bne 13f",
+    "add 9, 14, 4",
+    "13:",
+    "cmpdi 3, 8",
+    "bne 14f",
+    "mr 10, 4",
+    "14:",
+    "addi 7, 7, 16",
+    "b 11b",
+    "12:",
+    "cmpdi 10, 0",
+    "beq 9f",
+    "cmpdi 9, 0",
+    "beq 9f",
+    "add 11, 9, 10",
+    "15:",
+    "cmpd 9, 11",
+    "bge 9f",
+    "ld 12, 0(9)",
+    "ld 3, 8(9)",
+    "ld 4, 16(9)",
+    "clrldi 3, 3, 32",
+    "cmpwi 3, 22",
+    "bne 16f",
+    "add 12, 12, 14",
+    "add 4, 4, 14",
+    "std 4, 0(12)",
+    "16:",
+    "addi 9, 9, 24",
+    "b 15b",
+    "9:",
+    ".hidden {run_main}",
+    "mr 3, 1",
+    "mr 4, 14",
+    "bl {run_main}",
+    "trap",
+    run_main = sym run_main,
+);
+
+// loongarch64 _start: self-relocate ldso, then call run_main(sp, ldso_base)
+#[cfg(not(test))]
+#[cfg(target_arch = "loongarch64")]
+core::arch::global_asm!(
+    ".weak _start",
+    ".type _start, @function",
+    "_start:",
+    "ld.d $a0, $sp, 0",
+    "addi.d $a1, $sp, 8",
+    "slli.d $a2, $a0, 3",
+    "add.d $a1, $a1, $a2",
+    "addi.d $a1, $a1, 8",
+    "3:",
+    "ld.d $a2, $a1, 0",
+    "beqz $a2, 4f",
+    "addi.d $a1, $a1, 8",
+    "b 3b",
+    "4:",
+    "addi.d $a1, $a1, 8",
+    "li.d $s1, 0",
+    "5:",
+    "ld.d $a2, $a1, 0",
+    "beqz $a2, 6f",
+    "li.d $a3, 7",
+    "bne $a2, $a3, 7f",
+    "ld.d $s1, $a1, 8",
+    "7:",
+    "addi.d $a1, $a1, 16",
+    "b 5b",
+    "6:",
+    "ld.d $a0, $s1, 32",
+    "ld.hu $a1, $s1, 56",
+    "add.d $a2, $s1, $a0",
+    "li.d $a3, 0",
+    "8:",
+    "bgeu $a3, $a1, 9f",
+    "ld.w $a4, $a2, 0",
+    "li.w $a5, 2",
+    "beq $a4, $a5, 10f",
+    "addi.d $a2, $a2, 56",
+    "addi.d $a3, $a3, 1",
+    "b 8b",
+    "10:",
+    "ld.d $a4, $a2, 16",
+    "ld.d $a5, $a2, 40",
+    "add.d $a4, $a4, $s1",
+    "add.d $a5, $a4, $a5",
+    "li.d $a6, 0",
+    "li.d $a7, 0",
+    "11:",
+    "bgeu $a4, $a5, 12f",
+    "ld.d $t0, $a4, 0",
+    "ld.d $t1, $a4, 8",
+    "beqz $t0, 12f",
+    "li.d $t2, 7",
+    "bne $t0, $t2, 13f",
+    "add.d $a6, $s1, $t1",
+    "13:",
+    "li.d $t2, 8",
+    "bne $t0, $t2, 14f",
+    "move $a7, $t1",
+    "14:",
+    "addi.d $a4, $a4, 16",
+    "b 11b",
+    "12:",
+    "beqz $a7, 9f",
+    "beqz $a6, 9f",
+    "add.d $t3, $a6, $a7",
+    "15:",
+    "bgeu $a6, $t3, 9f",
+    "ld.d $t4, $a6, 0",
+    "ld.d $t5, $a6, 8",
+    "ld.d $t6, $a6, 16",
+    "li.d $t0, 3",
+    "bstrpick.d $t5, $t5, 31, 0",
+    "bne $t5, $t0, 16f",
+    "add.d $t4, $t4, $s1",
+    "add.d $t6, $t6, $s1",
+    "st.d $t6, $t4, 0",
+    "16:",
+    "addi.d $a6, $a6, 24",
+    "b 15b",
+    "9:",
+    ".hidden {run_main}",
+    "move $a0, $sp",
+    "move $a1, $s1",
+    "bl {run_main}",
+    "break 0",
+    run_main = sym run_main,
+);
+
 // ============================================================
 // Entry point
 // ============================================================
@@ -922,6 +1166,22 @@ unsafe fn read_tp() -> usize {
     tp
 }
 
+#[cfg(target_arch = "powerpc64")]
+#[inline(always)]
+unsafe fn read_tp() -> usize {
+    let tp: usize;
+    core::arch::asm!("mr {}, 13", out(reg) tp);
+    tp
+}
+
+#[cfg(target_arch = "loongarch64")]
+#[inline(always)]
+unsafe fn read_tp() -> usize {
+    let tp: usize;
+    core::arch::asm!("move {}, $tp", out(reg) tp);
+    tp
+}
+
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 unsafe fn write_tp(addr: usize) {
@@ -938,6 +1198,18 @@ unsafe fn write_tp(addr: usize) {
 #[inline(always)]
 unsafe fn write_tp(addr: usize) {
     core::arch::asm!("mv tp, {}", in(reg) addr);
+}
+
+#[cfg(target_arch = "powerpc64")]
+#[inline(always)]
+unsafe fn write_tp(addr: usize) {
+    core::arch::asm!("mr 13, {}", in(reg) addr);
+}
+
+#[cfg(target_arch = "loongarch64")]
+#[inline(always)]
+unsafe fn write_tp(addr: usize) {
+    core::arch::asm!("move $tp, {}", in(reg) addr);
 }
 
 unsafe fn write_stderr(msg: &[u8]) {
@@ -1948,6 +2220,8 @@ unsafe fn tls_var_area_offset_from_block() -> usize {
     { TCB_SIZE }
     #[cfg(target_arch = "riscv64")]
     { TCB_SIZE }
+    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+    { TCB_SIZE }
 }
 
 unsafe fn tls_tcb_offset_from_block() -> usize {
@@ -1956,6 +2230,8 @@ unsafe fn tls_tcb_offset_from_block() -> usize {
     #[cfg(target_arch = "aarch64")]
     { 0 }
     #[cfg(target_arch = "riscv64")]
+    { 0 }
+    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
     { 0 }
 }
 
@@ -1966,6 +2242,8 @@ unsafe fn tls_tp_offset_from_block() -> usize {
     { TCB_SIZE }
     #[cfg(target_arch = "riscv64")]
     { TCB_SIZE }
+    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+    { TCB_SIZE }
 }
 
 unsafe fn tls_var_area_offset_from_tp() -> usize {
@@ -1975,6 +2253,8 @@ unsafe fn tls_var_area_offset_from_tp() -> usize {
     { 0 }
     #[cfg(target_arch = "riscv64")]
     { 0 }
+    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+    { 0 }
 }
 
 unsafe fn tls_tcb_offset_from_tp() -> isize {
@@ -1983,6 +2263,8 @@ unsafe fn tls_tcb_offset_from_tp() -> isize {
     #[cfg(target_arch = "aarch64")]
     { -(TCB_SIZE as isize) }
     #[cfg(target_arch = "riscv64")]
+    { -(TCB_SIZE as isize) }
+    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
     { -(TCB_SIZE as isize) }
 }
 
@@ -2069,7 +2351,7 @@ unsafe fn apply_rela_table(
 
         // _start already applied the interpreter's RELATIVE relocations.
         if (**LOADED.add(obj_idx)).is_self
-            && matches!(r_type, R_X86_64_RELATIVE | R_AARCH64_RELATIVE | R_RISCV_RELATIVE)
+            && r_type == R_RELATIVE
         {
             continue;
         }
@@ -2090,14 +2372,14 @@ unsafe fn apply_rela_table(
         }
 
         match r_type {
-            R_X86_64_RELATIVE | R_AARCH64_RELATIVE | R_RISCV_RELATIVE => {
+            R_RELATIVE => {
                 apply_relative(base, r_offset, r_addend);
             }
-            R_X86_64_64 | R_AARCH64_ABS64 | R_RISCV_64 => {
+            R_ABS64 => {
                 let sym_value = resolve_symbol_from_index(obj_idx, r_sym_idx);
                 *slot = (sym_value as i64 + r_addend) as u64;
             }
-            #[cfg(not(target_arch = "riscv64"))]
+            #[cfg(not(any(target_arch = "riscv64", target_arch = "loongarch64")))]
             R_GLOB_DAT => {
                 let sym_value = resolve_symbol_from_index(obj_idx, r_sym_idx);
                 *slot = sym_value;
@@ -2132,7 +2414,7 @@ unsafe fn apply_rela_table(
             let imm = (fs_off & 0xFFF) as u32;
             let new_insn = (insn & !(0xFFFu32 << 10)) | (imm << 10);
             core::ptr::write_unaligned(slot as *mut u32, new_insn);
-        } else if r_type == R_AARCH64_TLSDESC || r_type == R_RISCV_TLSDESC {
+        } else if r_type == R_AARCH64_TLSDESC || r_type == R_RISCV_TLSDESC || r_type == R_LARCH_TLS_DESC64 {
             let (module, sym_off) = resolve_tls_symbol(obj_idx, r_sym_idx);
             let off_in_mod = sym_off as i64 + r_addend;
             let desc = slot as *mut [u64; 2];

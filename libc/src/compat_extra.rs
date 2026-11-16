@@ -416,6 +416,10 @@ pub unsafe extern "C" fn pthread_getattr_np(thread: PthreadT, attr: *mut pthread
         core::arch::asm!("mov {}, sp", out(reg) sp, options(nomem, nostack));
         #[cfg(target_arch = "riscv64")]
         core::arch::asm!("mv {}, sp", out(reg) sp, options(nomem, nostack));
+        #[cfg(target_arch = "powerpc64")]
+        core::arch::asm!("mr {}, 1", out(reg) sp, options(nomem, nostack));
+        #[cfg(target_arch = "loongarch64")]
+        core::arch::asm!("move {}, $sp", out(reg) sp, options(nomem, nostack));
         if let Some((base, size)) = mapping_containing(sp) {
             stack_base = base;
             stack_size = size;
