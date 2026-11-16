@@ -3006,10 +3006,13 @@ unsafe fn dlsym_object(obj_idx: usize, name: *const u8, name_len: usize) -> Opti
 }
 
 /// Breadth-first search of an object and its DT_NEEDED closure.
-unsafe fn dlsym_scope(idx: usize, name: *const u8, name_len: usize) -> Option<(usize, usize)> {
+/// Breadth-first walk of the dependency closure rooted at `root`.  `visit`
+/// returns false to stop early.  The queue and visited set are anonymous
+/// mappings so the closure is not capped by a fixed object count.
+unsafe fn walk_closure<F: FnMut(usize) -> bool>(root: usize, mut visit: F) {
     let count = LOADED_COUNT;
-    if idx >= count || count == 0 {
-        return None;
+    if root >= count || count == 0 {
+        return;
     }
     let qbytes = count * core::mem::size_of::<usize>();
     let queue = map_zeroed(qbytes) as *mut usize;
@@ -3017,22 +3020,20 @@ unsafe fn dlsym_scope(idx: usize, name: *const u8, name_len: usize) -> Option<(u
     if queue.is_null() || seen.is_null() {
         if !queue.is_null() { sys_munmap(queue as *mut u8, qbytes); }
         if !seen.is_null() { sys_munmap(seen, count); }
-        return None;
+        return;
     }
     let mut head = 0usize;
     let mut tail = 0usize;
-    *seen.add(idx) = 1;
-    *queue.add(tail) = idx;
+    *seen.add(root) = 1;
+    *queue.add(tail) = root;
     tail += 1;
-    let mut result = None;
     while head < tail {
         let i = *queue.add(head);
         head += 1;
         if i >= count {
             continue;
         }
-        if let Some(r) = dlsym_object(i, name, name_len) {
-            result = Some(r);
+        if !visit(i) {
             break;
         }
         for d in 0..(**LOADED.add(i)).dep_count {
@@ -3046,7 +3047,16 @@ unsafe fn dlsym_scope(idx: usize, name: *const u8, name_len: usize) -> Option<(u
     }
     sys_munmap(queue as *mut u8, qbytes);
     sys_munmap(seen, count);
+}
+
+unsafe fn dlsym_scope(idx: usize, name: *const u8, name_len: usize) -> Option<(usize, usize)> {
+    let mut result = None;
+    walk_closure(idx, |i| {
+        result = dlsym_object(i, name, name_len);
+        result.is_none()
+    });
     result
+
 }
 
 unsafe fn symbol_value(obj_idx: usize, sym_idx: usize) -> *mut u8 {
@@ -3580,40 +3590,11 @@ unsafe fn add_dependency(obj_idx: usize, dep_idx: usize) {
 
 /// Mark an object and its reachable DT_NEEDED closure as global.
 unsafe fn promote_global(idx: usize) {
-    let count = LOADED_COUNT;
-    if idx >= count || count == 0 {
-        return;
-    }
-    let sbytes = count * core::mem::size_of::<usize>();
-    let stack = map_zeroed(sbytes) as *mut usize;
-    let seen = map_zeroed(count);
-    if stack.is_null() || seen.is_null() {
-        if !stack.is_null() { sys_munmap(stack as *mut u8, sbytes); }
-        if !seen.is_null() { sys_munmap(seen, count); }
-        return;
-    }
-    let mut top = 0usize;
-    *seen.add(idx) = 1;
-    *stack.add(top) = idx;
-    top += 1;
-    while top > 0 {
-        top -= 1;
-        let i = *stack.add(top);
-        if i >= count {
-            continue;
-        }
+    walk_closure(idx, |i| {
         (**LOADED.add(i)).global = true;
-        for d in 0..(**LOADED.add(i)).dep_count {
-            let dep = *(**LOADED.add(i)).deps.add(d);
-            if dep < count && *seen.add(dep) == 0 && top < count {
-                *seen.add(dep) = 1;
-                *stack.add(top) = dep;
-                top += 1;
-            }
-        }
-    }
-    sys_munmap(stack as *mut u8, sbytes);
-    sys_munmap(seen, count);
+        true
+    });
+
 }
 
 /// Walk one loaded object's dynamic section and load its DT_NEEDED entries.
@@ -3622,16 +3603,10 @@ unsafe fn load_object_needed(obj_idx: usize, ld_path: Option<*const u8>, make_gl
         let obj = &(**LOADED.add(obj_idx));
         (obj.dyn_addr, obj.dyn_memsz, obj.strtab, obj.strsz)
     };
-    let end = dyn_addr + dyn_memsz;
-    let mut pos = dyn_addr;
-    while pos + 16 <= end {
-        let tag = u64::from_le_bytes(core::ptr::read_unaligned(pos as *const [u8; 8]));
-        if tag == DT_NULL {
-            break;
-        }
+    let mut dyns = DynRange::new(dyn_addr, dyn_memsz);
+    while let Some((tag, val)) = dyns.next() {
         if tag == DT_NEEDED {
-            let off =
-                u64::from_le_bytes(core::ptr::read_unaligned((pos + 8) as *const [u8; 8])) as usize;
+            let off = val as usize;
             if off < strsz {
                 let name = strtab.add(off);
                 let len = str_len(name);
@@ -3644,7 +3619,6 @@ unsafe fn load_object_needed(obj_idx: usize, ld_path: Option<*const u8>, make_gl
                 }
             }
         }
-        pos += 16;
     }
     true
 }
