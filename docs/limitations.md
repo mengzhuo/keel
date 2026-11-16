@@ -14,6 +14,20 @@ regressions.  It is not an exhaustive security review.
   overflows on attacker-controlled `*` width/precision, but differs from C
   for extreme values.
 
+## Port status
+
+- **powerpc64le and loongarch64 are bring-up targets.**  Both build a
+  working `libc.so`, startup objects and standalone loader, and pass the
+  `scripts/cross-smoke.sh` fixture set under qemu-user (including pthreads,
+  TLS, `dlopen`, `setjmp`, fenv and math).  They have not been validated on
+  native hardware, and the release workflow and APK packaging still list
+  only x86\_64, aarch64 and riscv64.  `libc.so` for these targets is linked
+  with the cross GCC driver because the stable musl Rust targets cannot emit
+  a cdylib.
+- **powerpc64le follows ELFv2's `TP_OFFSET`/`DTP_OFFSET` bias.**  The thread
+  pointer sits 0x7000 bytes above the TLS variable area and DTP-relative
+  pointers carry an 0x8000 bias, matching the ABI the static linker assumes.
+
 ## Threading
 
 - **`getaddrinfo` and `getnameinfo` serialize on a resolver lock.**  The
@@ -76,10 +90,11 @@ regressions.  It is not an exhaustive security review.
   `pow*`, `sin*`/`cos*`/`tan*`, `lgamma*`, `tgamma*`, `y0`, `sinh*`,
   `exp`/`expf` and `round*` keep local ports because libm changes observable
   flags or results there.
-- **aarch64/riscv64 long-double math computes through `f64`.**  The function
-  signatures use the 128-bit ABI, but `math_long_double.rs`, `strtold` and
-  `printf`'s `%Lf` convert through `f64`, so results lose precision and range
-  beyond double.
+- **128-bit long-double math computes through `f64`.**  aarch64, riscv64
+  and loongarch64 use IEEE binary128 and powerpc64le uses IBM double-double;
+  the function signatures match those ABIs, but `math_long_double.rs`,
+  `strtold` and `printf`'s `%Lf` convert through `f64`, so results lose
+  precision and range beyond double.
 - **`vfork` forwards to `fork` and `posix_spawn` uses `fork`.**  The
   semantics are the portable ones; the copy-on-write/`vfork` performance
   optimisation is not implemented.

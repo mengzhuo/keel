@@ -87,7 +87,7 @@ typedef unsigned long long ino_t;
 #define __keel_nlink_t_defined
 #ifndef __DEFINED_nlink_t
 #define __DEFINED_nlink_t
-#if defined(__aarch64__) || defined(__riscv)
+#if defined(__aarch64__) || defined(__riscv) || defined(__loongarch__)
 typedef unsigned int nlink_t;
 #else
 typedef unsigned long nlink_t;
@@ -99,7 +99,7 @@ typedef unsigned long nlink_t;
 #define __keel_blksize_t_defined
 #ifndef __DEFINED_blksize_t
 #define __DEFINED_blksize_t
-#if defined(__aarch64__) || defined(__riscv)
+#if defined(__aarch64__) || defined(__riscv) || defined(__loongarch__)
 typedef int blksize_t;
 #else
 typedef long blksize_t;

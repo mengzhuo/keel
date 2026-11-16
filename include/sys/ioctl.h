@@ -125,16 +125,40 @@ int ioctl(int, unsigned long, ...);
 #define TIOCCBRK 0x5428
 #define TIOCCONS 0x541D
 #define TIOCEXCL 0x540C
+#if defined(__powerpc64__)
+#define TIOCGDEV 0x40045432
+#else
 #define TIOCGDEV 0x80045432
+#endif
 #define TIOCGETD 0x5424
+#if defined(__powerpc64__)
+#define TIOCGEXCL 0x40045440
+#else
 #define TIOCGEXCL 0x80045440
+#endif
 #define TIOCGICOUNT 0x545D
+#if defined(__powerpc64__)
+#define TIOCGISO7816 0x40285442
+#else
 #define TIOCGISO7816 0x80285442
+#endif
 #define TIOCGLCKTRMIOS 0x5456
 #define TIOCGPGRP 0x540F
+#if defined(__powerpc64__)
+#define TIOCGPKT 0x40045438
+#else
 #define TIOCGPKT 0x80045438
+#endif
+#if defined(__powerpc64__)
+#define TIOCGPTLCK 0x40045439
+#else
 #define TIOCGPTLCK 0x80045439
+#endif
+#if defined(__powerpc64__)
+#define TIOCGPTN 0x40045430
+#else
 #define TIOCGPTN 0x80045430
+#endif
 #define TIOCGPTPEER 0x5441
 #define TIOCGRS485 0x542E
 #define TIOCGSERIAL 0x541E
@@ -184,22 +208,39 @@ int ioctl(int, unsigned long, ...);
 #define TIOCSERSWILD 0x5455
 #define TIOCSER_TEMT 1
 #define TIOCSETD 0x5423
+#if defined(__powerpc64__)
+#define TIOCSIG 0x80045436
+#else
 #define TIOCSIG 0x40045436
+#endif
 #define TIOCSISO7816 0xc0285443
 #define TIOCSLCKTRMIOS 0x5457
 #define TIOCSPGRP 0x5410
+#if defined(__powerpc64__)
+#define TIOCSPTLCK 0x80045431
+#else
 #define TIOCSPTLCK 0x40045431
+#endif
 #define TIOCSRS485 0x542F
 #define TIOCSSERIAL 0x541F
 #define TIOCSSOFTCAR 0x541A
 #define TIOCSTI 0x5412
 #define TIOCVHANGUP 0x5437
 
-/* musl 1.2.6 compatibility helpers */
+/* musl 1.2.6 compatibility helpers.
+ * powerpc encodes the direction in three bits at bit 29 with _IOC_WRITE=4;
+ * every other supported architecture uses the asm-generic two-bit layout. */
+#if defined(__powerpc64__)
+#define _IOC(a,b,c,d) ( ((a)<<29) | ((b)<<8) | (c) | ((d)<<16) )
+#define _IOC_NONE  0U
+#define _IOC_WRITE 4U
+#define _IOC_READ  2U
+#else
 #define _IOC(a,b,c,d) ( ((a)<<30) | ((b)<<8) | (c) | ((d)<<16) )
 #define _IOC_NONE  0U
 #define _IOC_WRITE 1U
 #define _IOC_READ  2U
+#endif
 #define _IO(a,b) _IOC(_IOC_NONE,(a),(b),0)
 #define _IOW(a,b,c) _IOC(_IOC_WRITE,(a),(b),sizeof(c))
 #define _IOR(a,b,c) _IOC(_IOC_READ,(a),(b),sizeof(c))

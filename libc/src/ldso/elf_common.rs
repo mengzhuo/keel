@@ -262,6 +262,8 @@ pub const ET_DYN: u16 = 3;
 pub const EM_X86_64: u16 = 62;
 pub const EM_AARCH64: u16 = 183;
 pub const EM_RISCV: u16 = 243;
+pub const EM_PPC64: u16 = 21;
+pub const EM_LOONGARCH: u16 = 258;
 
 pub const PAGE_SIZE: usize = 4096;
 
@@ -278,7 +280,12 @@ pub fn parse_ehdr(data: &[u8]) -> Result<Ehdr, &'static str> {
         return Err("not ELFCLASS64");
     }
     let ehdr = unsafe { core::ptr::read_unaligned(data.as_ptr() as *const Ehdr) };
-    if ehdr.e_machine != EM_X86_64 && ehdr.e_machine != EM_AARCH64 && ehdr.e_machine != EM_RISCV {
+    if ehdr.e_machine != EM_X86_64
+        && ehdr.e_machine != EM_AARCH64
+        && ehdr.e_machine != EM_RISCV
+        && ehdr.e_machine != EM_PPC64
+        && ehdr.e_machine != EM_LOONGARCH
+    {
         return Err("not a supported EM machine");
     }
     Ok(ehdr)

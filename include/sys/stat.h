@@ -13,7 +13,7 @@ extern "C" {
 #include <time.h>
 
 struct stat {
-#if defined(__aarch64__) || defined(__riscv)
+#if defined(__aarch64__) || defined(__riscv) || defined(__loongarch__)
     dev_t st_dev;
     ino_t st_ino;
     mode_t st_mode;

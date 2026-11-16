@@ -1912,6 +1912,7 @@ mod sysnr {
     pub const SYS_GET_ROBUST_LIST: i64 = 100;
     pub const SYS_INIT_MODULE: i64 = 105;
     pub const SYS_INOTIFY_ADD_WATCH: i64 = 27;
+    pub const SYS_INOTIFY_INIT: i64 = 26;
     pub const SYS_INOTIFY_INIT1: i64 = 26;
     pub const SYS_INOTIFY_RM_WATCH: i64 = 28;
     pub const SYS_IOCTL: i64 = 29;
@@ -2052,6 +2053,7 @@ mod sysnr {
     pub const SYS_SCHED_YIELD: i64 = 124;
     pub const SYS_SECCOMP: i64 = 277;
     pub const SYS_SEMCTL: i64 = 191;
+    pub const SYS_SELECT: i64 = 72;
     pub const SYS_SEMGET: i64 = 190;
     pub const SYS_SEMOP: i64 = 193;
     pub const SYS_SEMTIMEDOP: i64 = 192;

@@ -267,7 +267,9 @@ unsafe fn tcb_slot(offset: usize) -> *mut usize {
     }
     #[cfg(target_arch = "x86_64")]
     let tcb = tp;
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
+    #[cfg(target_arch = "powerpc64")]
+    let tcb = tp - (256 + 0x7000);
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
     let tcb = tp - 256;
     if core::ptr::read_unaligned(tcb as *const usize) != tcb {
         return core::ptr::null_mut();

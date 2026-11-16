@@ -11,7 +11,8 @@ Last checked: 2026-11-09.
 ## What keel is
 
 - An independent implementation of the musl 1.2.6 ABI, not a fork of musl.
-- `libc.so` (loader + libc) and `libc.a` for x86\_64, aarch64, and riscv64.
+- `libc.so` (loader + libc) and `libc.a` for x86\_64, aarch64, riscv64,
+powerpc64le and loongarch64.
 - `no_std`; `unsafe` is confined to the syscall and pointer boundary.
 - Validated with musl's own libc-test, LTP, a differential harness against
   musl 1.2.6, and nine real Alpine workloads.
@@ -32,7 +33,7 @@ Last checked: 2026-11-09.
 
 | Project | Status | Scope | Notes |
 |---|---|---|---|
-| **keel** | active, `0.1.x` | musl 1.2.6; x86\_64, aarch64, riscv64; combined `libc.so` | 9/9 Alpine workloads, shared LTP suites have identical failure lists, libc-test 412 PASS + 6 SKIP as root, full public macro surface checked |
+| **keel** | active, `0.1.x` | musl 1.2.6; x86\_64, aarch64, riscv64, ppc64le, loongarch64; combined `libc.so` | 9/9 Alpine workloads, shared LTP suites have identical failure lists, libc-test 412 PASS + 6 SKIP as root, full public macro surface checked |
 | [anp/rusl](https://github.com/anp/rusl) | inactive (2018) | x86\_64; partial musl port | historical, proof-of-concept port |
 | [SrDicov/zlibc](https://github.com/SrDicov/zlibc) | pre-alpha (2026-10) | x86\_64; musl ABI | phase 1 skeleton; does not link or run yet; no ldso |
 | [starkross/mytilus](https://github.com/starkross/mytilus) | pre-alpha (2026-05) | aarch64 only; musl 1.2.6 | empty crate scaffolds; no working libc; no ldso |
@@ -152,7 +153,7 @@ a different ABI implementation.
 | libc-test: 412 PASS / 6 SKIP / 0 FAIL as root; 413 PASS / 5 SKIP as unprivileged CI (pinned `libc-test`, 2026-11-15) | `libc-test-harness/reports/` |
 | 0 unexpected parity diffs vs musl 1.2.6 | `scripts/parity-check.sh` |
 | Full musl 1.2.6 symbol surface in `libc.so` | `scripts/parity-check.sh symbols` |
-| x86\_64, aarch64, riscv64 | CI and `scripts/riscv-smoke.sh` |
+| x86\_64, aarch64, riscv64, ppc64le, loongarch64 | CI, `scripts/riscv-smoke.sh` and `scripts/cross-smoke.sh` |
 
 ## Reporting a compatibility issue
 

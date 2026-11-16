@@ -276,7 +276,9 @@ unsafe fn errno_init() {
     let tp = arch_get_tp();
     #[cfg(target_arch = "x86_64")]
     let tcb = tp;
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
+    #[cfg(target_arch = "powerpc64")]
+    let tcb = tp.wrapping_sub(256 + 0x7000);
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
     let tcb = tp.wrapping_sub(256);
     if tp != 0 && core::ptr::read(tcb as *const usize) == tcb {
         ERRNO_TLS_ACTIVE.store(1, Ordering::Relaxed);
@@ -2373,11 +2375,28 @@ unsafe fn sys_fstat(fd: i32, buf: *mut u8) -> i64 {
     <Arch as Syscalls>::syscall2(SYS_FSTAT, fd as i64, buf as i64)
 }
 
+// Linux removed the legacy getrlimit/setrlimit entry points on some
+// architectures (qemu-ppc64le reports syscall 76 as unknown); prlimit64
+// with pid 0 provides the same semantics.
+#[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+#[inline]
+unsafe fn sys_getrlimit(resource: i32, rlim: *mut u8) -> i64 {
+    <Arch as Syscalls>::syscall4(SYS_PRLIMIT64, 0, resource as i64, 0, rlim as i64)
+}
+
+#[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+#[inline]
+unsafe fn sys_setrlimit(resource: i32, rlim: *const u8) -> i64 {
+    <Arch as Syscalls>::syscall4(SYS_PRLIMIT64, 0, resource as i64, rlim as i64, 0)
+}
+
+#[cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64")))]
 #[inline]
 unsafe fn sys_getrlimit(resource: i32, rlim: *mut u8) -> i64 {
     <Arch as Syscalls>::syscall2(SYS_GETRLIMIT, resource as i64, rlim as i64)
 }
 
+#[cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64")))]
 #[inline]
 unsafe fn sys_setrlimit(resource: i32, rlim: *const u8) -> i64 {
     <Arch as Syscalls>::syscall2(SYS_SETRLIMIT, resource as i64, rlim as i64)
@@ -15842,7 +15861,11 @@ pub unsafe extern "C" fn __tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
     if tp == 0 {
         return core::ptr::null_mut();
     }
-    (tp - STATIC_TLS_TP_OFFSET + STATIC_TLS_VAR_OFFSET + (*ti).ti_offset) as *mut u8
+    #[cfg(target_arch = "powerpc64")]
+    let dtp_bias = 0x8000usize;
+    #[cfg(not(target_arch = "powerpc64"))]
+    let dtp_bias = 0usize;
+    (tp - STATIC_TLS_TP_OFFSET + STATIC_TLS_VAR_OFFSET + (*ti).ti_offset + dtp_bias) as *mut u8
 }
 
 /// Static executables have no dynamic loader to build a TCB.  Allocate one
@@ -15907,6 +15930,10 @@ unsafe fn init_static_tls() {
     STATIC_TLS_BLOCK_SIZE = total;
     STATIC_TLS_TP_OFFSET = if cfg!(target_arch = "x86_64") {
         tls_size
+    } else if cfg!(target_arch = "powerpc64") {
+        // ELFv2 encodes TP-relative offsets with a -0x7000 bias, so TP sits
+        // 0x7000 bytes above the TLS variable area.
+        tcb_size + 0x7000
     } else {
         tcb_size
     };
@@ -16112,7 +16139,12 @@ pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> 
 #[unsafe(naked)]
 #[cfg(target_arch = "powerpc64")]
 pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> *mut c_void {
-    core::arch::naked_asm!("mflr 5", "b dlsym_impl");
+    core::arch::naked_asm!(
+        "addis 2, 12, .TOC.-dlsym@ha",
+        "addi 2, 2, .TOC.-dlsym@l",
+        "mflr 5",
+        "b dlsym_impl",
+    );
 }
 
 #[no_mangle]
@@ -20892,7 +20924,13 @@ pub unsafe extern "C" fn adjtimex(buf: *mut core::ffi::c_void) -> i32 {
 // TIOCSPTLCK = _IOW('T', 0x31, int). The old 0x541x values are the window-size
 // and process-group requests, which both return the wrong data and write more
 // bytes than the int the caller supplied.
+#[cfg(target_arch = "powerpc64")]
+const TIOCGPTN: i64 = 0x40045430;
+#[cfg(not(target_arch = "powerpc64"))]
 const TIOCGPTN: i64 = 0x80045430;
+#[cfg(target_arch = "powerpc64")]
+const TIOCSPTLCK: i64 = 0x80045431;
+#[cfg(not(target_arch = "powerpc64"))]
 const TIOCSPTLCK: i64 = 0x40045431;
 
 #[no_mangle]

@@ -79,6 +79,60 @@ static void my_exit(int code) {
     __builtin_unreachable();
 }
 
+#elif defined(__powerpc64__)
+
+static void my_write(int fd, const void *buf, unsigned long count) {
+    register long r0 __asm__("r0") = 4;   /* SYS_write */
+    register long r3 __asm__("r3") = fd;
+    register long r4 __asm__("r4") = (long)buf;
+    register long r5 __asm__("r5") = count;
+    __asm__ volatile (
+        "sc"
+        : "+r"(r0), "+r"(r3)
+        : "r"(r4), "r"(r5)
+        : "memory", "cr0", "ctr", "xer"
+    );
+}
+
+static void my_exit(int code) {
+    register long r0 __asm__("r0") = 1;   /* SYS_exit */
+    register long r3 __asm__("r3") = code;
+    __asm__ volatile (
+        "sc"
+        : "+r"(r0), "+r"(r3)
+        :
+        : "memory", "cr0", "ctr", "xer"
+    );
+    __builtin_unreachable();
+}
+
+#elif defined(__loongarch__)
+
+static void my_write(int fd, const void *buf, unsigned long count) {
+    register long a7 __asm__("$a7") = 64;
+    register long a0 __asm__("$a0") = fd;
+    register long a1 __asm__("$a1") = (long)buf;
+    register long a2 __asm__("$a2") = count;
+    __asm__ volatile (
+        "syscall 0"
+        :
+        : "r"(a7), "r"(a0), "r"(a1), "r"(a2)
+        : "memory"
+    );
+}
+
+static void my_exit(int code) {
+    register long a7 __asm__("$a7") = 93;
+    register long a0 __asm__("$a0") = code;
+    __asm__ volatile (
+        "syscall 0"
+        :
+        : "r"(a7), "r"(a0)
+        : "memory"
+    );
+    __builtin_unreachable();
+}
+
 #else
 #error "unsupported architecture"
 #endif

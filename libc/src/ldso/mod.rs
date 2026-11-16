@@ -851,7 +851,14 @@ core::arch::global_asm!(
     "b 15b",
     "9:",
     ".hidden {run_main}",
+    // run_main and every function it calls use the caller-allocated linkage
+    // area (the callee saves LR at 16(r1) of the incoming frame).  Calling
+    // with the raw kernel stack would overwrite argv[1] with the return
+    // address, so give the entry a real 32-byte frame.
     "mr 3, 1",
+    "clrrdi 1, 1, 4",
+    "li 0, 0",
+    "stdu 0, -32(1)",
     "mr 4, 14",
     "bl {run_main}",
     "trap",
@@ -2242,7 +2249,9 @@ unsafe fn tls_tp_offset_from_block() -> usize {
     { TCB_SIZE }
     #[cfg(target_arch = "riscv64")]
     { TCB_SIZE }
-    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+    #[cfg(target_arch = "powerpc64")]
+    { TCB_SIZE + 0x7000 }
+    #[cfg(target_arch = "loongarch64")]
     { TCB_SIZE }
 }
 
@@ -2253,7 +2262,9 @@ unsafe fn tls_var_area_offset_from_tp() -> usize {
     { 0 }
     #[cfg(target_arch = "riscv64")]
     { 0 }
-    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+    #[cfg(target_arch = "powerpc64")]
+    { 0x7000 }
+    #[cfg(target_arch = "loongarch64")]
     { 0 }
 }
 
@@ -2264,7 +2275,9 @@ unsafe fn tls_tcb_offset_from_tp() -> isize {
     { -(TCB_SIZE as isize) }
     #[cfg(target_arch = "riscv64")]
     { -(TCB_SIZE as isize) }
-    #[cfg(any(target_arch = "powerpc64", target_arch = "loongarch64"))]
+    #[cfg(target_arch = "powerpc64")]
+    { -((TCB_SIZE + 0x7000) as isize) }
+    #[cfg(target_arch = "loongarch64")]
     { -(TCB_SIZE as isize) }
 }
 
@@ -2394,7 +2407,15 @@ unsafe fn apply_rela_table(
             }
             R_DTPREL64 => {
                 let (_, sym_off) = resolve_tls_symbol(obj_idx, r_sym_idx);
-                *slot = (sym_off as i64 + r_addend) as u64;
+                #[cfg(target_arch = "powerpc64")]
+                {
+                    // ELFv2 DTP pointers are biased by DTP_OFFSET.
+                    *slot = (sym_off as i64 + r_addend - 0x8000) as u64;
+                }
+                #[cfg(not(target_arch = "powerpc64"))]
+                {
+                    *slot = (sym_off as i64 + r_addend) as u64;
+                }
             }
             R_TPREL64 => {
                 let fs_off = tls_tprel_offset(obj_idx, r_sym_idx, r_addend);
@@ -3279,9 +3300,13 @@ unsafe fn symbol_value(obj_idx: usize, sym_idx: usize) -> *mut u8 {
     let st_value = u64::from_le_bytes(core::ptr::read_unaligned(ent.add(8) as *const [u8; 8]));
     let st_info = *ent.add(4);
     if (st_info & 0xf) == 6 {
+        #[cfg(target_arch = "powerpc64")]
+        let tls_bias = 0x8000usize;
+        #[cfg(not(target_arch = "powerpc64"))]
+        let tls_bias = 0usize;
         let ti = TlsIndex {
             ti_module: obj_idx,
-            ti_offset: st_value as usize,
+            ti_offset: (st_value as usize).wrapping_sub(tls_bias),
         };
         return __ldso_tls_get_addr(&ti);
     }
@@ -3378,15 +3403,24 @@ unsafe fn compute_tls_layout() {
     total += total;
     TLS_TOTAL_SIZE = (total + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
 
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    #[cfg(any(
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "powerpc64",
+        target_arch = "loongarch64"
+    ))]
     {
-        // Both use the TLS_ABOVE_TP layout: the variable area is at positive
-        // offsets from TP. AArch64 reserves a 16-byte gap above TP; RISC-V
-        // does not. Module offsets keep the same alignment congruence as the
+        // These use the TLS_ABOVE_TP layout: the variable area is at positive
+        // offsets from TP. AArch64 reserves a 16-byte gap above TP; the others
+        // do not. Module offsets keep the same alignment congruence as the
         // image address so every TLS symbol stays aligned.
         #[cfg(target_arch = "aarch64")]
         const GAP_ABOVE_TP: usize = 16;
-        #[cfg(target_arch = "riscv64")]
+        #[cfg(any(
+            target_arch = "riscv64",
+            target_arch = "powerpc64",
+            target_arch = "loongarch64"
+        ))]
         const GAP_ABOVE_TP: usize = 0;
         let mut offset = GAP_ABOVE_TP;
         for i in 0..LOADED_COUNT {
@@ -3499,7 +3533,11 @@ pub unsafe extern "C" fn __ldso_tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
     #[cfg(not(target_arch = "x86_64"))]
     {
         if module >= STATIC_TLS_COUNT {
-            let addr = dynamic_tls_addr(module, offset);
+            #[cfg(target_arch = "powerpc64")]
+            let dynamic_offset = offset.wrapping_add(0x8000);
+            #[cfg(not(target_arch = "powerpc64"))]
+            let dynamic_offset = offset;
+            let addr = dynamic_tls_addr(module, dynamic_offset);
             if !addr.is_null() {
                 return addr;
             }
@@ -3522,7 +3560,14 @@ pub unsafe extern "C" fn __ldso_tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
     }
     let fs_base2 = read_tp();
     let tls_base = fs_base2 - tls_var_area_offset_from_tp();
-    (tls_base as *mut u8).add(*TLS_LAYOUT_OFFSET.add(module)).add(offset) as *mut u8
+    #[cfg(target_arch = "powerpc64")]
+    let dtp_bias = 0x8000usize;
+    #[cfg(not(target_arch = "powerpc64"))]
+    let dtp_bias = 0usize;
+    (tls_base as *mut u8)
+        .add(*TLS_LAYOUT_OFFSET.add(module))
+        .add(offset)
+        .add(dtp_bias) as *mut u8
 }
 
 #[no_mangle]
@@ -3895,7 +3940,6 @@ unsafe fn find_phdr(phdr: *const u8, phent: usize, phnum: usize, want: u32) -> *
 }
 
 unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
-
     // 1. Find LD_LIBRARY_PATH from kernel envp
     let ld_path = find_env(sp, b"LD_LIBRARY_PATH=");
     LD_LIBRARY_PATH = ld_path.unwrap_or(core::ptr::null());
@@ -4226,7 +4270,6 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
     let argc = *(orig_sp as *const u64) as usize;
     let argv_start = orig_sp + 8;
     let envp_start = argv_start + (argc + 1) * 8;
-
     let mut envc: usize = 0;
     while *((envp_start + envc * 8) as *const u64) != 0 {
         envc += 1;
