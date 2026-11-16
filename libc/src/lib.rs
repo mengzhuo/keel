@@ -161,7 +161,6 @@ include!("math_bitmanip.rs");
 include!("math_sqrtfmod.rs");
 include!("math_trig.rs");
 include!("math_exp.rs");
-include!("math_erf.rs");
 include!("math_lgamma.rs");
 include!("math_tgamma.rs");
 include!("math_bessel.rs");
@@ -15890,12 +15889,12 @@ pub unsafe extern "C" fn cbrt(x: f64) -> f64 {
 
 #[no_mangle]
 pub unsafe extern "C" fn erf(x: f64) -> f64 {
-    erf_impl(x)
+    libm::erf(x)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn erfc(x: f64) -> f64 {
-    erfc_impl(x)
+    libm::erfc(x)
 }
 
 #[no_mangle]
@@ -20382,7 +20381,7 @@ pub unsafe extern "C" fn __signbitl(x: f64) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn j0(x: f64) -> f64 {
-    j0_impl(x)
+    libm::j0(x)
 }
 
 #[no_mangle]
