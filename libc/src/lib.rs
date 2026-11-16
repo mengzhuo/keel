@@ -6594,6 +6594,78 @@ fn fmt_star_width(width: c_int, flags: &mut u8) -> usize {
     }
 }
 
+/// Parsed conversion specifier shared by the narrow and wide formatters.
+struct FormatSpec {
+    flags: u8,
+    width: usize,
+    precision: i32,
+    len1: u8,
+    len2: u8,
+    spec: u8,
+    /// Index of the conversion character; the caller advances past it.
+    next: usize,
+}
+
+/// Parse flags, width, precision and the length modifier at `i` (the first
+/// byte after `%`).  `*` width/precision arguments are consumed from `args`.
+unsafe fn parse_format_spec(
+    fmt: *const u8,
+    mut i: usize,
+    args: &mut VaList<'_>,
+) -> FormatSpec {
+    let mut flags: u8 = 0;
+    loop {
+        match *fmt.add(i) {
+            b'-' => { flags |= FLAG_MINUS; i += 1; }
+            b'+' => { flags |= FLAG_PLUS; i += 1; }
+            b' ' => { flags |= FLAG_SPACE; i += 1; }
+            b'0' => { flags |= FLAG_ZERO; i += 1; }
+            b'#' => { flags |= FLAG_HASH; i += 1; }
+            _ => break,
+        }
+    }
+    let mut width: usize = 0;
+    if *fmt.add(i) == b'*' {
+        width = fmt_star_width(args.next_arg::<c_int>(), &mut flags);
+        i += 1;
+    } else {
+        while *fmt.add(i) >= b'0' && *fmt.add(i) <= b'9' {
+            width = width.saturating_mul(10).saturating_add((*fmt.add(i) - b'0') as usize);
+            i += 1;
+        }
+    }
+    width = fmt_width(width);
+    let mut precision: i32 = -1;
+    if *fmt.add(i) == b'.' {
+        i += 1;
+        if *fmt.add(i) == b'*' {
+            let p = args.next_arg::<c_int>();
+            precision = if p < 0 { -1 } else { fmt_precision(p) };
+            i += 1;
+        } else {
+            precision = 0;
+            while *fmt.add(i) >= b'0' && *fmt.add(i) <= b'9' {
+                precision = precision.saturating_mul(10).saturating_add((*fmt.add(i) - b'0') as i32);
+                i += 1;
+            }
+            precision = fmt_precision(precision);
+        }
+    }
+    let mut len1 = 0u8;
+    let mut len2 = 0u8;
+    let c = *fmt.add(i);
+    if c == b'h' || c == b'l' || c == b'j' || c == b'z' || c == b't' || c == b'L' {
+        len1 = c;
+        i += 1;
+        let c2 = *fmt.add(i);
+        if (c == b'h' && c2 == b'h') || (c == b'l' && c2 == b'l') {
+            len2 = c2;
+            i += 1;
+        }
+    }
+    FormatSpec { flags, width, precision, len1, len2, spec: *fmt.add(i), next: i }
+}
+
 macro_rules! impl_format {
     ($fmt:expr, $args:expr, $write_char:expr, $write_str:expr) => {{
         let fmt = $fmt;
@@ -6608,55 +6680,17 @@ macro_rules! impl_format {
                 count += 1; i += 1; continue;
             }
             i += 1;
-            // Parse flags
-            let mut flags: u8 = 0;
-            loop {
-                let fc = *fmt.add(i) as u8;
-                match fc {
-                    b'-' => { flags |= FLAG_MINUS; i += 1; }
-                    b'+' => { flags |= FLAG_PLUS; i += 1; }
-                    b' ' => { flags |= FLAG_SPACE; i += 1; }
-                    b'0' => { flags |= FLAG_ZERO; i += 1; }
-                    b'#' => { flags |= FLAG_HASH; i += 1; }
-                    _ => break,
-                }
-            }
-            // Parse width
-            let mut width: usize = 0;
-            if *fmt.add(i) as u8 == b'*' {
-                width = fmt_star_width(args.next_arg::<c_int>(), &mut flags); i += 1;
-            } else {
-                while (*fmt.add(i) as u8) >= b'0' && (*fmt.add(i) as u8) <= b'9' {
-                    width = width.saturating_mul(10).saturating_add(((*fmt.add(i) as u8) - b'0') as usize); i += 1;
-                }
-            }
-            width = fmt_width(width);
-            // Parse precision
-            let mut precision: i32 = -1;
-            if *fmt.add(i) as u8 == b'.' {
-                i += 1;
-                if *fmt.add(i) as u8 == b'*' {
-                    precision = args.next_arg::<c_int>(); i += 1;
-                    if precision >= 0 { precision = fmt_precision(precision); }
-                } else {
-                    precision = 0;
-                    while (*fmt.add(i) as u8) >= b'0' && (*fmt.add(i) as u8) <= b'9' {
-                        precision = precision.saturating_mul(10).saturating_add(((*fmt.add(i) as u8) - b'0') as i32); i += 1;
-                    }
-                    precision = fmt_precision(precision);
-                }
-            }
-            // Parse length modifier
-            let len_mod = *fmt.add(i) as u8;
-            let spec: u8;
-            if len_mod == b'h' || len_mod == b'l' || len_mod == b'j' || len_mod == b'z' || len_mod == b't' || len_mod == b'L' {
-                i += 1;
-                let len_mod2 = *fmt.add(i) as u8;
-                if (len_mod == b'h' && len_mod2 == b'h') || (len_mod == b'l' && len_mod2 == b'l') {
-                    i += 1;
-                    spec = *fmt.add(i) as u8;
-                    // Handle double-length modifiers
-                    match (len_mod, len_mod2, spec) {
+            let fs = parse_format_spec(fmt as *const u8, i, args);
+            let flags = fs.flags;
+            let width = fs.width;
+            let precision = fs.precision;
+            let len_mod = fs.len1;
+            let spec = fs.spec;
+            i = fs.next;
+            if fs.len2 != 0 {
+                let len_mod2 = fs.len2;
+                // Handle double-length modifiers
+                match (len_mod, len_mod2, spec) {
                         (b'h', b'h', b'n') => {
                             let p = args.next_arg::<*mut c_void>();
                             if !p.is_null() { *(p as *mut u8) = count as u8; }
@@ -6717,8 +6751,7 @@ macro_rules! impl_format {
                         }
                         _ => { ($write_char)(b'%'); ($write_char)(len_mod); ($write_char)(len_mod2); ($write_char)(spec); count += 4; }
                     }
-                } else {
-                    spec = len_mod2;
+                } else if len_mod != 0 {
                     // size_t/ptrdiff_t are 64-bit on all supported targets;
                     // treat %z/%t integer conversions like %l.
                     let lm = match len_mod {
@@ -6847,9 +6880,7 @@ macro_rules! impl_format {
                         }
                         _ => { ($write_char)(b'%'); ($write_char)(len_mod); ($write_char)(spec); count += 3; }
                     }
-                }
-            } else {
-                spec = *fmt.add(i) as u8;
+                } else {
                 match spec {
                     b's' => {
                         let s = args.next_arg::<*const c_char>();
@@ -10496,50 +10527,16 @@ unsafe fn vswprintf_impl(
             continue;
         }
         fi += 1;
-        let mut flags: u8 = 0;
-        loop {
-            match *fmt_narrow.add(fi) {
-                b'-' => { flags |= FLAG_MINUS; fi += 1; }
-                b'+' => { flags |= FLAG_PLUS; fi += 1; }
-                b' ' => { flags |= FLAG_SPACE; fi += 1; }
-                b'0' => { flags |= FLAG_ZERO; fi += 1; }
-                b'#' => { flags |= FLAG_HASH; fi += 1; }
-                _ => break,
-            }
-        }
-        let mut width: usize = 0;
-        if *fmt_narrow.add(fi) == b'*' {
-            let w = args.next_arg::<c_int>();
-            width = fmt_star_width(w, &mut flags);
-            fi += 1;
-        } else {
-            while *fmt_narrow.add(fi) >= b'0' && *fmt_narrow.add(fi) <= b'9' {
-                width = width.saturating_mul(10).saturating_add((*fmt_narrow.add(fi) - b'0') as usize); fi += 1;
-            }
-        }
-        width = fmt_width(width);
-        let mut precision: i32 = -1;
-        if *fmt_narrow.add(fi) == b'.' {
-            fi += 1;
-            if *fmt_narrow.add(fi) == b'*' {
-                let p = args.next_arg::<c_int>();
-                precision = if p < 0 { -1 } else { fmt_precision(p) }; fi += 1;
-            } else {
-                precision = 0;
-                while *fmt_narrow.add(fi) >= b'0' && *fmt_narrow.add(fi) <= b'9' {
-                    precision = precision.saturating_mul(10).saturating_add((*fmt_narrow.add(fi) - b'0') as i32); fi += 1;
-                }
-                precision = fmt_precision(precision);
-            }
-        }
-        let len_mod = *fmt_narrow.add(fi);
-        if len_mod == b'h' || len_mod == b'l' || len_mod == b'j' || len_mod == b'z' || len_mod == b't' || len_mod == b'L' {
-            fi += 1;
-            let spec = *fmt_narrow.add(fi);
-            if (len_mod == b'h' && spec == b'h') || (len_mod == b'l' && spec == b'l') {
-                fi += 1;
-                let spec2 = *fmt_narrow.add(fi);
-                match (len_mod, spec, spec2) {
+        let fs = parse_format_spec(fmt_narrow, fi, &mut args);
+        let flags = fs.flags;
+        let width = fs.width;
+        let precision = fs.precision;
+        let len_mod = fs.len1;
+        fi = fs.next;
+        if fs.len2 != 0 {
+            let spec = fs.len2;
+            let spec2 = fs.spec;
+            match (len_mod, spec, spec2) {
                     (b'h', b'h', b'n') => { let p = args.next_arg::<*mut c_void>(); if !p.is_null() { *(p as *mut u8) = pos as u8; } }
                     (b'l', b'l', b'n') => { let p = args.next_arg::<*mut c_void>(); if !p.is_null() { *(p as *mut c_longlong) = pos as c_longlong; } }
                     (b'h', b'h', b'd') | (b'h', b'h', b'i') => {
@@ -10594,7 +10591,8 @@ unsafe fn vswprintf_impl(
                     },
                     _ => { wc!(b'%'); wc!(len_mod); wc!(spec); wc!(spec2); }
                 }
-            } else {
+            } else if len_mod != 0 {
+                let spec = fs.spec;
                 let lm = match len_mod {
                         b'z' | b't' if spec != b'n' => b'l',
                         // intmax_t is long on every target keel supports.
@@ -10710,11 +10708,11 @@ unsafe fn vswprintf_impl(
                         let mut wbuf = [0u8; 4224];
                         let wlen = format_float_into(wbuf.as_mut_ptr(), val, spec, precision, width, flags);
                         wemit!(wbuf, wlen);
-                    },                    _ => { wc!(b'%'); wc!(len_mod); wc!(spec); }
+                    },
+                    _ => { wc!(b'%'); wc!(len_mod); wc!(spec); }
                 }
-            }
-        } else {
-            let spec = *fmt_narrow.add(fi);
+            } else {
+            let spec = fs.spec;
             match spec {
                 b'd' | b'i' => {
                     let mut fbuf = [0u8; FMT_INT_BUF];
