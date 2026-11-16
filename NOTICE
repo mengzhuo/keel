@@ -24,4 +24,6 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ----------------------------------------------------------------------
 
+keel depends on the `libm` crate (MIT), a Rust port of musl's math library.
+
 The rest of keel is licensed under BSD-3-Clause; see LICENSE.

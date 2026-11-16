@@ -1,11 +1,12 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Translated from musl: sinh.c, cosh.c, tanh.c, sinhf.c, coshf.c, tanhf.c,
-// expm1.c, expm1f.c, __expo2.c, __expo2f.c
+// sinh/sinhf and the expm1 helpers are ported from musl (sinh.c, sinhf.c,
+// expm1.c, expm1f.c, __expo2.c, __expo2f.c).  cosh/coshf/tanh/tanhf delegate
+// to libm.
 //
-// All constants/tables prefixed with HYP_ to avoid collisions with math_exp.rs.
-// All private helpers prefixed with hyper_.
+// All constants/tables are prefixed with HYP_ to avoid collisions with
+// math_exp.rs; private helpers use the `hyper_` prefix.
 
 // ============================================================
 // Constants for hyper_expm1 (double precision)

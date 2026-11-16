@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Meng Zhuo
 // SPDX-License-Identifier: BSD-3-Clause
 
-
+// Shared bit, classification, fenv and gamma-sign helpers used by the local
+// math ports and the libm-backed wrappers.
 
 #[inline]
 const fn asuint(f: f32) -> u32 {

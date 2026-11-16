@@ -57,6 +57,10 @@ regressions.  It is not an exhaustive security review.
 - **The standalone `keel` mapper drops the environment.**  It builds an
   `argv` and auxiliary vector for the target but gives it an empty `envp`.
   Dynamic binaries using `libc.so` as the interpreter are not affected.
+- **The standalone mapper shares ELF parsing, mapping and startup with the
+  dynamic linker, but not symbol relocation.**  Static executables have no
+  dynamic symbol table, so the mapper only applies RELATIVE and RELR
+  relocations.
 - **`dlclose` does not unload.**  It validates the handle but does not unmap
   objects or run `DT_FINI`/`DT_FINI_ARRAY`, matching musl's behaviour.
 - **`RTLD_DEEPBIND` is not provided.**  It is not part of musl's API.
@@ -67,6 +71,11 @@ regressions.  It is not an exhaustive security review.
   format.  The x86\_64 long-double macros are the only allowlisted
   macro-parity differences, and this is why some upstream long-double test
   vectors are skipped.
+- **Some f32/f64 math functions delegate to the `libm` crate.**  This is
+  deliberate where libm matches musl's fenv and last-bit behavior.  `log*`,
+  `pow*`, `sin*`/`cos*`/`tan*`, `lgamma*`, `tgamma*`, `y0`, `sinh*`,
+  `exp`/`expf` and `round*` keep local ports because libm changes observable
+  flags or results there.
 - **aarch64/riscv64 long-double math computes through `f64`.**  The function
   signatures use the 128-bit ABI, but `math_long_double.rs`, `strtold` and
   `printf`'s `%Lf` convert through `f64`, so results lose precision and range

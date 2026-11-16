@@ -164,10 +164,11 @@ range at `0x38`, is preserved when `dlopen` grows a thread's TLS block, and is
 unmapped when the thread exits.  Kernels without the symbol, or where the
 state cannot be made fork-safe, use the syscall.
 
-The standalone loader rebuilds the auxiliary vector for the target.  It
-preserves `AT_SYSINFO_EHDR` and `AT_PHENT`, translates `AT_PHDR` from a file
-offset to its runtime address, maps BSS past `p_filesz`, and clears its own
-thread pointer before jumping to a static target.
+The dynamic linker and standalone mapper share initial-stack construction
+through `startup_common.rs`.  The standalone mapper preserves
+`AT_SYSINFO_EHDR` and `AT_PHENT`, translates `AT_PHDR` from a file offset to
+its runtime address, maps BSS past `p_filesz`, and clears its own thread
+pointer before jumping to a static target.
 
 ## Remaining gaps
 

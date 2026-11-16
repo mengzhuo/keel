@@ -15,4 +15,5 @@ test = false
 bench = false
 
 [dependencies]
+# f32/f64 math where libm matches musl fenv/rounding behavior.
 libm = "0.2"

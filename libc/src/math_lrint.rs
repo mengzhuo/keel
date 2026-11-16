@@ -64,11 +64,9 @@ pub extern "C" fn rintf(x: f32) -> f32 {
     }
 }
 
-// On x86_64 with c_long = i64 (LONG_MAX >= 2^53), the musl slow path
-// (lrint_slow with FE_INEXACT handling) is not needed. Simple cast suffices
-// because: (1) rint returns an exact integer as f64, (2) the largest integer
-// representable as f64 is 2^53 which fits in i64, (3) for |x| >= 2^52 rint
-// returns x unchanged and the saturating `as` cast handles overflow.
+// rint returns an exact integer, so the only extra work is C's FE_INVALID
+// contract: values outside [-2^63, 2^63) must raise invalid instead of being
+// silently saturated by Rust's `as` cast.
 
 const LRINT_TWO63: f64 = 9223372036854775808.0;
 
