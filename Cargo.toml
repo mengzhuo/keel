@@ -20,6 +20,18 @@ description = "A Rust musl-compatible libc with a dynamic linker"
 license = "BSD-3-Clause"
 repository = "https://github.com/mengzhuo/keel"
 readme = "README.md"
+# The standalone mapper includes two loader sources from the sibling libc
+# package.  Cargo excludes nested packages by default, so list them
+# explicitly to keep the published keel-rt tarball self-contained.
+include = [
+    "src/**",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "libc/src/ldso/elf_common.rs",
+    "libc/src/ldso/startup_common.rs",
+]
 
 [[bin]]
 name = "keel"

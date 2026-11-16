@@ -1,0 +1,1 @@
+../../libc/src/ldso/startup_common.rs

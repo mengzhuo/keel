@@ -9,13 +9,13 @@ use crate::arch::sys_mmap;
 #[allow(dead_code)] // the shared file also serves the in-libc loader
 pub mod elf_common {
     use super::sys_mmap;
-    include!("../libc/src/ldso/elf_common.rs");
+    include!("ldso/elf_common.rs");
 }
 pub use elf_common::*;
 
 pub const MAP_FAILED: *mut u8 = !0 as *mut u8;
 
-include!("../libc/src/ldso/startup_common.rs");
+include!("ldso/startup_common.rs");
 
 pub fn apply_relocations(data: &[u8], phdrs: &[Phdr], base_addr: u64) -> Result<(), &'static str> {
     let dyn_ph = match phdrs.iter().find(|p| p.p_type == PT_DYNAMIC) {
