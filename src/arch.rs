@@ -448,7 +448,7 @@ pub unsafe fn sys_mmap(
     fd: i32,
     offset: i64,
 ) -> *mut u8 {
-    unsafe {
+    let result = unsafe {
         <Arch as Syscalls>::syscall6(
             SYS_MMAP,
             addr as i64,
@@ -457,6 +457,11 @@ pub unsafe fn sys_mmap(
             flags as i64,
             fd as i64,
             offset,
-        ) as *mut u8
+        )
+    };
+    if result < 0 && result > -4096 {
+        !0 as *mut u8
+    } else {
+        result as *mut u8
     }
 }

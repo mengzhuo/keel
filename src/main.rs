@@ -3,8 +3,9 @@
 
 // Standalone mapper for static ELF and static-PIE binaries.
 //
-// ELF parsing, segment mapping and relocation live in loader_core.rs; the
-// architecture/syscall layer lives in arch.rs.
+// ELF parsing, segment mapping and startup-stack construction are shared
+// with the in-libc dynamic linker; the architecture/syscall layer lives in
+// arch.rs.
 
 mod arch;
 mod loader_core;
@@ -31,25 +32,31 @@ fn main() {
     }
 }
 
-/// Read the kernel's vDSO address from our own auxv.  The target inherits
-/// the same address space, so the same pointer stays valid after the jump.
-fn read_sysinfo_ehdr() -> u64 {
+/// Read the kernel's auxv for this process.  The target inherits the same
+/// address space, so pointers such as AT_RANDOM remain valid for the copy
+/// performed while building the new stack.
+fn read_host_auxv() -> Vec<(u64, u64)> {
     let Ok(data) = fs::read("/proc/self/auxv") else {
-        return 0;
+        return Vec::new();
     };
+    let mut out = Vec::with_capacity(data.len() / 16);
     let mut i = 0;
     while i + 16 <= data.len() {
         let tag = u64::from_ne_bytes(data[i..i + 8].try_into().unwrap());
         let val = u64::from_ne_bytes(data[i + 8..i + 16].try_into().unwrap());
+        i += 16;
         if tag == AT_NULL {
             break;
         }
-        if tag == AT_SYSINFO_EHDR {
-            return val;
-        }
-        i += 16;
+        out.push((tag, val));
     }
-    0
+    out
+}
+
+fn auxv_get(auxv: &[(u64, u64)], tag: u64) -> u64 {
+    auxv.iter()
+        .find_map(|&(t, v)| if t == tag { Some(v) } else { None })
+        .unwrap_or(0)
 }
 
 fn load_and_run(path: &str, argv: &[String]) -> Result<(), String> {
@@ -74,7 +81,7 @@ fn load_and_run(path: &str, argv: &[String]) -> Result<(), String> {
         argv,
         phdr_runtime_addr(&ehdr, phdrs, load_bias),
         phdrs.len(),
-        read_sysinfo_ehdr(),
+        &read_host_auxv(),
     )
 }
 
@@ -95,13 +102,39 @@ fn phdr_runtime_addr(ehdr: &Ehdr, phdrs: &[Phdr], load_bias: u64) -> u64 {
     load_bias + ehdr.e_phoff
 }
 
-fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize, sysinfo_ehdr: u64) -> Result<(), String> {
+fn transfer(
+    entry: u64,
+    argv: &[String],
+    phdr_addr: u64,
+    phnum: usize,
+    host_auxv: &[(u64, u64)],
+) -> Result<(), String> {
     let c_argv: Vec<CString> = argv
         .iter()
         .map(|a| CString::new(a.as_str()).map_err(|_| "argument contains a NUL byte".to_string()))
         .collect::<Result<_, _>>()?;
+    let argv_ptrs: Vec<*const u8> = c_argv.iter().map(|c| c.as_ptr() as *const u8).collect();
+    let envp_ptrs: Vec<*const u8> = Vec::new();
 
-    let stack_size = 64 * 1024;
+    // The standalone mapper does not forward the host environment, so the
+    // target sees an empty envp (documented in docs/limitations.md).
+    let auxv = [
+        (AT_PHDR, phdr_addr),
+        (AT_PHENT, PHDR_SIZE as u64),
+        (AT_PHNUM, phnum as u64),
+        (AT_PAGESZ, PAGE_SIZE as u64),
+        (AT_ENTRY, entry),
+        (AT_BASE, 0),
+        (AT_SECURE, 0),
+        (AT_UID, auxv_get(host_auxv, AT_UID)),
+        (AT_EUID, auxv_get(host_auxv, AT_EUID)),
+        (AT_GID, auxv_get(host_auxv, AT_GID)),
+        (AT_EGID, auxv_get(host_auxv, AT_EGID)),
+        (AT_SYSINFO_EHDR, auxv_get(host_auxv, AT_SYSINFO_EHDR)),
+    ];
+    let random = auxv_get(host_auxv, AT_RANDOM) as *const u8;
+
+    let stack_size = 8 * 1024 * 1024;
     let stack_base = unsafe {
         sys_mmap(
             core::ptr::null_mut(),
@@ -116,108 +149,27 @@ fn transfer(entry: u64, argv: &[String], phdr_addr: u64, phnum: usize, sysinfo_e
         return Err("mmap stack failed".to_string());
     }
 
-    let mut sp = stack_base as usize + stack_size;
-    let mut str_ptrs = Vec::new();
-
-    for c in &c_argv {
-        let bytes = c.as_bytes_with_nul();
-        sp -= bytes.len();
-        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), sp as *mut u8, bytes.len()) };
-        str_ptrs.push(sp);
+    let mut scratch = vec![0usize; argv_ptrs.len()];
+    let sp = unsafe {
+        build_initial_stack(
+            stack_base as usize,
+            stack_size,
+            &argv_ptrs,
+            &envp_ptrs,
+            &auxv,
+            random,
+            scratch.as_mut_ptr(),
+        )
     }
-
-    sp &= !7usize;
-
-    let auxv_entries: [(u64, u64); 7] = [
-        (AT_PHDR, phdr_addr),
-        // Elf64_Phdr size; static libc uses it while walking PT_TLS.
-        (AT_PHENT, 56),
-        (AT_PHNUM, phnum as u64),
-        (AT_PAGESZ, PAGE_SIZE as u64),
-        (AT_ENTRY, entry),
-        (AT_SYSINFO_EHDR, sysinfo_ehdr),
-        (AT_NULL, 0),
-    ];
-
-    // Lay out the structured area so that the final stack pointer stays
-    // 16-byte aligned.  argc is written last and must sit exactly at sp;
-    // aligning after writing it (as this loader used to do) shifts argc.
-    sp &= !15usize;
-    let auxv_bytes = auxv_entries.len() * 16;
-    let words = 1 /* argc */ + 1 /* argv NULL */ + str_ptrs.len() + 1 /* envp NULL */;
-    if (auxv_bytes + words * 8) % 16 != 0 {
-        // Padding above the auxv is ignored: the scan stops at AT_NULL.
-        sp -= 8;
-        unsafe { *(sp as *mut u64) = 0 };
-    }
-    sp -= auxv_bytes;
-    let auxv_ptr = sp as *mut (u64, u64);
-    for (i, &(tag, val)) in auxv_entries.iter().enumerate() {
-        unsafe { *auxv_ptr.add(i) = (tag, val) };
-    }
-
-    // argv NULL terminator, then envp NULL: the standalone mapper does not
-    // forward the host environment, so the target sees an empty envp
-    // (documented in docs/limitations.md).
-    sp -= 8;
-    unsafe { *(sp as *mut u64) = 0 };
-    sp -= 8;
-    unsafe { *(sp as *mut u64) = 0 };
-
-    for &ptr in str_ptrs.iter().rev() {
-        sp -= 8;
-        unsafe { *(sp as *mut u64) = ptr as u64 };
-    }
-
-    sp -= 8;
-    unsafe { *(sp as *mut u64) = argv.len() as u64 };
+    .ok_or_else(|| "initial stack overflow".to_string())?;
 
     // The target is static: it must build its own TCB.  Do not let it inherit
     // the loader's Rust/glibc thread pointer.
-    unsafe { arch::clear_thread_pointer() };
-
-    #[cfg(target_arch = "x86_64")]
     unsafe {
-        core::arch::asm!(
-            "mov rsp, {sp}",
-            "jmp {entry}",
-            sp = in(reg) sp,
-            entry = in(reg) entry,
-            in("rdi") argv.len(),
-            in("rsi") sp + 8,
-            options(noreturn)
-        );
+        arch::clear_thread_pointer();
+        jump_to_entry(entry, sp);
     }
 
-    #[cfg(target_arch = "aarch64")]
-    unsafe {
-        core::arch::asm!(
-            "mov sp, {sp}",
-            "mov x0, {argc}",
-            "mov x1, {argv}",
-            "br {entry}",
-            sp = in(reg) sp,
-            argc = in(reg) argv.len(),
-            argv = in(reg) sp + 8,
-            entry = in(reg) entry,
-            options(noreturn)
-        );
-    }
-
-    #[cfg(target_arch = "riscv64")]
-    unsafe {
-        core::arch::asm!(
-            "mv sp, {sp}",
-            "mv a0, {argc}",
-            "mv a1, {argv}",
-            "jr {entry}",
-            sp = in(reg) sp,
-            argc = in(reg) argv.len(),
-            argv = in(reg) sp + 8,
-            entry = in(reg) entry,
-            options(noreturn)
-        );
-    }
     #[allow(unreachable_code)]
     Ok(())
 }

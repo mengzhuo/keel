@@ -12,6 +12,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 include!("arch.rs");
 include!("elf_common.rs");
+include!("startup_common.rs");
 
 // ============================================================
 // Constants
@@ -117,12 +118,6 @@ const RTLD_NOLOAD: i32 = 4;
 const RTLD_NODELETE: i32 = 0x1000;
 const RTLD_GLOBAL: i32 = 0x100;
 
-const AT_UID: u64 = 11;
-const AT_EUID: u64 = 12;
-const AT_GID: u64 = 13;
-const AT_EGID: u64 = 14;
-const AT_SECURE: u64 = 23;
-const AT_RANDOM: u64 = 25;
 
 const MAP_FAILED: usize = !0usize;
 
@@ -4042,11 +4037,9 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
     if stack_base as usize == MAP_FAILED {
         die(94, b"stack_mmap", stack_size);
     }
-    let mut sp = stack_base as usize + stack_size;
-
     // Do not cap argv/envp at a fixed array size.  The temporary pointer
     // array lives in an anonymous mapping and is unmapped before the jump.
-    let ptr_words = match argc.checked_add(envc).and_then(|n| n.checked_add(2)) {
+    let ptr_words = match argc.checked_add(envc) {
         Some(n) => n,
         None => die(95, b"argv_env_overflow", 0),
     };
@@ -4065,131 +4058,41 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
     if ptr_map as usize == MAP_FAILED {
         die(96, b"argv_env_mmap", ptr_bytes);
     }
-    let ptrs = ptr_map as *mut usize;
-    let new_argv = ptrs;
-    let new_envp = ptrs.add(argc);
 
-    for i in 0..argc {
-        let s = *((argv_start + i * 8) as *const u64) as *const u8;
-        let len = str_len(s);
-        if sp < stack_base as usize + len + 1 + 4096 {
-            die(97, b"argv_env_stack", 0);
-        }
-        sp -= len + 1;
-        core::ptr::copy_nonoverlapping(s, sp as *mut u8, len + 1);
-        *new_argv.add(i) = sp;
-    }
-
-    for i in 0..envc {
-        let s = *((envp_start + i * 8) as *const u64) as *const u8;
-        let len = str_len(s);
-        if sp < stack_base as usize + len + 1 + 4096 {
-            die(97, b"argv_env_stack", 0);
-        }
-        sp -= len + 1;
-        core::ptr::copy_nonoverlapping(s, sp as *mut u8, len + 1);
-        *new_envp.add(i) = sp;
-    }
-
-    // musl's crt1 needs AT_RANDOM for the stack canary; preserve it on the new stack.
+    let auxv = [
+        (AT_PHDR, phdr_addr),
+        (AT_PHENT, PHDR_SIZE as u64),
+        (AT_PHNUM, phnum as u64),
+        (AT_PAGESZ, 4096),
+        (AT_ENTRY, entry),
+        (AT_BASE, orig_auxv.at_base),
+        (AT_SECURE, orig_auxv.at_secure),
+        (AT_UID, orig_auxv.at_uid),
+        (AT_EUID, orig_auxv.at_euid),
+        (AT_GID, orig_auxv.at_gid),
+        (AT_EGID, orig_auxv.at_egid),
+        (AT_SYSINFO_EHDR, orig_auxv.at_sysinfo_ehdr),
+    ];
+    // musl's crt1 needs AT_RANDOM for the stack canary; Linux always
+    // supplies it, and a predictable canary is worse than refusing to start.
     if orig_auxv.at_random.is_null() {
-        // Linux always supplies AT_RANDOM; a predictable canary is worse
-        // than refusing to start.
         die(98, b"at_random", 0);
     }
-    let mut random_bytes = [0u8; 16];
-    core::ptr::copy_nonoverlapping(orig_auxv.at_random, random_bytes.as_mut_ptr(), 16);
-    sp -= 16;
-    sp &= !15usize;
-    let random_ptr = sp;
-    core::ptr::copy_nonoverlapping(random_bytes.as_ptr(), random_ptr as *mut u8, 16);
-
-    // Pad before auxv so argc lands on a 16-byte boundary (no gap between
-    // argv[] and argc).  envp/argv arrays plus argc are (envc+argc+3) words.
-    if (envc + argc) % 2 == 0 {
-        sp -= 8;
-        *(sp as *mut u64) = 0;
-    }
-
-    const AUXV_ENTRIES: usize = 14;
-    sp -= AUXV_ENTRIES * 16;
-    let aux = sp as *mut u64;
-    *aux.add(0) = AT_PHDR;
-    *aux.add(1) = phdr_addr;
-    *aux.add(2) = AT_PHENT;
-    *aux.add(3) = PHDR_SIZE as u64;
-    *aux.add(4) = AT_PHNUM;
-    *aux.add(5) = phnum as u64;
-    *aux.add(6) = AT_PAGESZ;
-    *aux.add(7) = 4096;
-    *aux.add(8) = AT_ENTRY;
-    *aux.add(9) = entry;
-    *aux.add(10) = AT_BASE;
-    *aux.add(11) = orig_auxv.at_base;
-    *aux.add(12) = AT_SECURE;
-    *aux.add(13) = orig_auxv.at_secure;
-    *aux.add(14) = AT_RANDOM;
-    *aux.add(15) = random_ptr as u64;
-    *aux.add(16) = AT_UID;
-    *aux.add(17) = orig_auxv.at_uid;
-    *aux.add(18) = AT_EUID;
-    *aux.add(19) = orig_auxv.at_euid;
-    *aux.add(20) = AT_GID;
-    *aux.add(21) = orig_auxv.at_gid;
-    *aux.add(22) = AT_EGID;
-    *aux.add(23) = orig_auxv.at_egid;
-    *aux.add(24) = AT_SYSINFO_EHDR;
-    *aux.add(25) = orig_auxv.at_sysinfo_ehdr;
-    *aux.add(26) = AT_NULL;
-    *aux.add(27) = 0;
-
-    sp -= (envc + 1) * 8;
-    for i in 0..envc {
-        *((sp + i * 8) as *mut u64) = *new_envp.add(i) as u64;
-    }
-    *((sp + envc * 8) as *mut u64) = 0;
-
-    sp -= (argc + 1) * 8;
-    for i in 0..argc {
-        *((sp + i * 8) as *mut u64) = *new_argv.add(i) as u64;
-    }
-    *((sp + argc * 8) as *mut u64) = 0;
-
-    sp -= 8;
-    *(sp as *mut u64) = argc as u64;
-
+    let argv = core::slice::from_raw_parts(argv_start as *const *const u8, argc);
+    let envp = core::slice::from_raw_parts(envp_start as *const *const u8, envc);
+    let sp = match build_initial_stack(
+        stack_base as usize,
+        stack_size,
+        argv,
+        envp,
+        &auxv,
+        orig_auxv.at_random,
+        ptr_map as *mut usize,
+    ) {
+        Some(sp) => sp,
+        None => die(97, b"argv_env_stack", 0),
+    };
     let _ = sys_munmap(ptr_map, ptr_bytes);
 
-    #[cfg(target_arch = "x86_64")]
-    core::arch::asm!(
-        "mov rsp, {sp}",
-        "jmp {entry}",
-        sp = in(reg) sp,
-        entry = in(reg) entry,
-        options(noreturn)
-    );
-
-    #[cfg(target_arch = "aarch64")]
-    core::arch::asm!(
-        "mov sp, {sp}",
-        "br {entry}",
-        sp = in(reg) sp,
-        entry = in(reg) entry,
-        options(noreturn)
-    );
-
-    #[cfg(target_arch = "riscv64")]
-    {
-        // Workaround: riscv64 compiler reuses entry register for other
-        // calculations. Force a volatile reload right before the asm block.
-        let entry_ref = &entry as *const u64;
-        let entry_val = unsafe { core::ptr::read_volatile(entry_ref) };
-        core::arch::asm!(
-            "mv sp, {sp}",
-            "jr {entry}",
-            sp = in(reg) sp,
-            entry = in(reg) entry_val,
-            options(noreturn)
-        );
-    }
+    jump_to_entry(entry, sp)
 }
