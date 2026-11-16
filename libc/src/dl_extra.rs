@@ -406,6 +406,6 @@ pub unsafe extern "C" fn dlinfo(handle: *mut c_void, request: c_int, info: *mut 
     if let Some(f) = LDSO_DLINFO {
         return f(handle, request, info);
     }
-    ERRNO!() = 95; // ENOTSUP
+    ERRNO!() = ENOTSUP;
     -1
 }

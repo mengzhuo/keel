@@ -4,6 +4,7 @@
 // realpath, glob/globfree and nftw/ftw.
 
 const PATH_MAX_V: usize = 4096;
+const DIRENT_BUF_SIZE: usize = 8192;
 
 // ============================================================
 // realpath
@@ -240,8 +241,8 @@ pub(crate) unsafe fn list_dir_names(path: *const c_char) -> (*mut *mut c_char, u
     let mut arr = crate::malloc(cap * core::mem::size_of::<*mut c_char>()) as *mut *mut c_char;
     if arr.is_null() { crate::close(fd); return (core::ptr::null_mut(), 0); }
     #[repr(align(8))]
-    struct Buf([u8; 8192]);
-    let mut buf = Buf([0u8; 8192]);
+    struct Buf([u8; DIRENT_BUF_SIZE]);
+    let mut buf = Buf([0u8; DIRENT_BUF_SIZE]);
     let mut failed = false;
     for_each_dirent(fd, buf.0.as_mut_ptr(), buf.0.len(), |name| {
         let nl = crate::strlen(name);
@@ -693,9 +694,9 @@ unsafe fn nftw_do(
     let mut stat_ok = true;
     let rc = if phys { crate::lstat(path, &mut st as *mut Stat as *mut c_void) } else { crate::stat(path, &mut st) };
     if rc != 0 {
-        if !phys && ERRNO!() == 2 && crate::lstat(path, &mut st as *mut Stat as *mut c_void) == 0 {
+        if !phys && ERRNO!() == ENOENT && crate::lstat(path, &mut st as *mut Stat as *mut c_void) == 0 {
             type_ = FTW_SLN_V;
-        } else if ERRNO!() != 13 {
+        } else if ERRNO!() != EACCES {
             return -1;
         } else {
             type_ = FTW_NS_V;
@@ -758,8 +759,8 @@ unsafe fn nftw_do(
         }
         // Enumerate with getdents64 so nested walks are independent.
         #[repr(align(8))]
-        struct Buf([u8; 8192]);
-        let mut dbuf = Buf([0u8; 8192]);
+        struct Buf([u8; DIRENT_BUF_SIZE]);
+        let mut dbuf = Buf([0u8; DIRENT_BUF_SIZE]);
         let mut result = 0i32;
         for_each_dirent(dfd, dbuf.0.as_mut_ptr(), dbuf.0.len(), |name| {
             if *name == b'.' as c_char {
@@ -768,7 +769,7 @@ unsafe fn nftw_do(
             }
             let nl = crate::strlen(name);
             if len + 1 + nl >= cap {
-                ERRNO!() = 36;
+                ERRNO!() = ENAMETOOLONG;
                 result = -1;
                 return false;
             }
@@ -807,7 +808,7 @@ pub unsafe extern "C" fn nftw(
     if path.is_null() || f.is_none() { ERRNO!() = EINVAL; return -1; }
     if fd_limit <= 0 { return 0; }
     let l = crate::strlen(path);
-    if l >= PATH_MAX_V { ERRNO!() = 36; return -1; }
+    if l >= PATH_MAX_V { ERRNO!() = ENAMETOOLONG; return -1; }
     let mut buf = [0u8; PATH_MAX_V + 1];
     core::ptr::copy_nonoverlapping(path as *const u8, buf.as_mut_ptr(), l + 1);
     nftw_do(buf.as_mut_ptr(), buf.len(), l, WalkCb::N(f), fd_limit, flags, core::ptr::null_mut(), 0)
@@ -822,7 +823,7 @@ pub unsafe extern "C" fn ftw(
     if path.is_null() || f.is_none() { ERRNO!() = EINVAL; return -1; }
     if fd_limit <= 0 { return 0; }
     let l = crate::strlen(path);
-    if l >= PATH_MAX_V { ERRNO!() = 36; return -1; }
+    if l >= PATH_MAX_V { ERRNO!() = ENAMETOOLONG; return -1; }
     let mut buf = [0u8; PATH_MAX_V + 1];
     core::ptr::copy_nonoverlapping(path as *const u8, buf.as_mut_ptr(), l + 1);
     nftw_do(buf.as_mut_ptr(), buf.len(), l, WalkCb::F(f), fd_limit, FTW_PHYS_V, core::ptr::null_mut(), 0)

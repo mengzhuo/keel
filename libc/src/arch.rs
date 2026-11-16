@@ -12,14 +12,19 @@
 // Architecture selection
 // ============================================================
 
+/// Linux returns -errno in [-4095, -1]; anything else is a valid pointer.
+const SYSCALL_ERR_MAX: i64 = 4096;
+
+#[cfg(target_arch = "x86_64")]
+const SYS_ARCH_PRCTL: i64 = 158;
+
 /// Read the thread pointer.  errno and static TLS use this before any
 /// architecture-specific TLS helpers are available.
 #[cfg(target_arch = "x86_64")]
 unsafe fn arch_get_tp() -> usize {
-    const ARCH_PRCTL: i64 = 158;
     const ARCH_GET_FS: i64 = 0x1003;
     let mut tp: usize = 0;
-    let _ = <Arch as Syscalls>::syscall2(ARCH_PRCTL, ARCH_GET_FS, &mut tp as *mut usize as i64);
+    let _ = <Arch as Syscalls>::syscall2(SYS_ARCH_PRCTL, ARCH_GET_FS, &mut tp as *mut usize as i64);
     tp
 }
 

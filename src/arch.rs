@@ -6,6 +6,12 @@
 // Used as a normal module from main.rs.  Contains the raw syscall ABI, the
 // active Arch alias, SYS_MMAP and the loader's sys_mmap wrapper.
 
+/// Linux returns -errno in [-4095, -1]; anything else is a valid pointer.
+const SYSCALL_ERR_MAX: i64 = 4096;
+
+#[cfg(target_arch = "x86_64")]
+const SYS_ARCH_PRCTL: i64 = 158;
+
 // ============================================================
 // Syscall ABI
 // ============================================================
@@ -425,7 +431,6 @@ pub use sysnr::*;
 pub unsafe fn clear_thread_pointer() {
     #[cfg(target_arch = "x86_64")]
     unsafe {
-        const SYS_ARCH_PRCTL: i64 = 158;
         const ARCH_SET_FS: i64 = 0x1002;
         let _ = <Arch as Syscalls>::syscall2(SYS_ARCH_PRCTL, ARCH_SET_FS, 0);
     }
@@ -459,7 +464,7 @@ pub unsafe fn sys_mmap(
             offset,
         )
     };
-    if result < 0 && result > -4096 {
+    if result < 0 && result > -SYSCALL_ERR_MAX {
         !0 as *mut u8
     } else {
         result as *mut u8

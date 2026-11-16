@@ -425,7 +425,7 @@ unsafe fn list_net_names<F: FnMut(*const c_char, usize)>(mut cb: F) {
 
 #[no_mangle]
 pub unsafe extern "C" fn if_indextoname(ifindex: c_uint, ifname: *mut c_char) -> *mut c_char {
-    if ifindex == 0 || ifname.is_null() { ERRNO!() = 19; return core::ptr::null_mut(); }
+    if ifindex == 0 || ifname.is_null() { ERRNO!() = ENODEV; return core::ptr::null_mut(); }
     let mut found = false;
     list_net_names(|name, len| {
         if found { return; }
@@ -434,7 +434,7 @@ pub unsafe extern "C" fn if_indextoname(ifindex: c_uint, ifname: *mut c_char) ->
             found = true;
         }
     });
-    if found { ifname } else { ERRNO!() = 19; core::ptr::null_mut() }
+    if found { ifname } else { ERRNO!() = ENODEV; core::ptr::null_mut() }
 }
 
 #[repr(C)]

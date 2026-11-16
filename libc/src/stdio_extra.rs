@@ -78,7 +78,7 @@ unsafe extern "C" fn cookie_write(f: *mut FILE, buf: *const u8, len: usize) -> u
 unsafe extern "C" fn cookie_seek(f: *mut FILE, off: i64, whence: c_int) -> i64 {
     let cf = (*f).cookie as *mut CookieFile;
     if cf.is_null() || (*cf).io.seek == 0 {
-        ERRNO!() = 95; // ENOTSUP
+        ERRNO!() = ENOTSUP;
         return -1;
     }
     if whence < 0 || whence > 2 {

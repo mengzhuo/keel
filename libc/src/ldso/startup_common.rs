@@ -4,6 +4,8 @@
 // Shared initial-stack construction and entry jump for both the standalone
 // mapper and the in-libc dynamic linker.
 
+const STACK_GUARD: usize = 1024;
+
 unsafe fn c_str_len(s: *const u8) -> usize {
     let mut n = 0usize;
     while *s.add(n) != 0 {
@@ -26,7 +28,7 @@ pub unsafe fn build_initial_stack(
     random: *const u8,
     scratch: *mut usize,
 ) -> Option<usize> {
-    let bottom = stack_base.checked_add(1024)?;
+    let bottom = stack_base.checked_add(STACK_GUARD)?;
     let mut sp = stack_base.checked_add(stack_size)?;
 
     for (i, &s) in argv.iter().enumerate() {

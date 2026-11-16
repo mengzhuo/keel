@@ -91,21 +91,21 @@ pub unsafe extern "C" fn ns_skiprr(ptr: *const u8, eom: *const u8, section: c_in
     let len = match (eom as usize).checked_sub(ptr as usize) {
         Some(len) => len,
         None => {
-            ERRNO!() = 90; // EMSGSIZE
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
     let msg = match InBuf::new(ptr, len) {
         Some(msg) => msg,
         None => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
     match ns_skiprr_inner(&msg, 0, section, count) {
         Some(r) if r <= c_int::MAX as usize => r as c_int,
         _ => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             -1
         }
     }
@@ -114,34 +114,34 @@ pub unsafe extern "C" fn ns_skiprr(ptr: *const u8, eom: *const u8, section: c_in
 #[no_mangle]
 pub unsafe extern "C" fn ns_initparse(msg: *const u8, msglen: c_int, handle: *mut NsMsg) -> c_int {
     if msg.is_null() || handle.is_null() || msglen < 0 {
-        ERRNO!() = 90;
+        ERRNO!() = EMSGSIZE;
         return -1;
     }
     let len = msglen as usize;
     let view = match InBuf::new(msg, len) {
         Some(view) => view,
         None => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
     (*handle)._msg = msg;
     (*handle)._eom = msg.add(len);
     if len < (2 + NS_S_MAX_V) * NS_INT16SZ_V {
-        ERRNO!() = 90;
+        ERRNO!() = EMSGSIZE;
         return -1;
     }
     (*handle)._id = match view.peek_u16_be(0) {
         Some(v) => v,
         None => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
     (*handle)._flags = match view.peek_u16_be(2) {
         Some(v) => v,
         None => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn ns_initparse(msg: *const u8, msglen: c_int, handle: *mu
         (*handle)._counts[i] = match view.peek_u16_be(4 + 2 * i) {
             Some(v) => v,
             None => {
-                ERRNO!() = 90;
+                ERRNO!() = EMSGSIZE;
                 return -1;
             }
         };
@@ -162,14 +162,14 @@ pub unsafe extern "C" fn ns_initparse(msg: *const u8, msglen: c_int, handle: *mu
             let r = match ns_skiprr_inner(&view, p, i as c_int, count) {
                 Some(r) => r,
                 None => {
-                    ERRNO!() = 90;
+                    ERRNO!() = EMSGSIZE;
                     return -1;
                 }
             };
             p = match p.checked_add(r) {
                 Some(p) => p,
                 None => {
-                    ERRNO!() = 90;
+                    ERRNO!() = EMSGSIZE;
                     return -1;
                 }
             };
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn ns_initparse(msg: *const u8, msglen: c_int, handle: *mu
         }
     }
     if p != len {
-        ERRNO!() = 90;
+        ERRNO!() = EMSGSIZE;
         return -1;
     }
     (*handle)._sect = NS_S_MAX_V as c_int;
@@ -196,28 +196,28 @@ pub unsafe extern "C" fn ns_name_uncompress(
     dstsiz: usize,
 ) -> c_int {
     let r = crate::dn_expand(msg, eom, src, dst, dstsiz as c_int);
-    if r < 0 { ERRNO!() = 90; }
+    if r < 0 { ERRNO!() = EMSGSIZE; }
     r
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn ns_parserr(handle: *mut NsMsg, section: c_int, rrnum_in: c_int, rr: *mut NsRr) -> c_int {
     if handle.is_null() || rr.is_null() || section < 0 || section >= NS_S_MAX_V as c_int {
-        ERRNO!() = 19; // ENODEV
+        ERRNO!() = ENODEV;
         return -1;
     }
     let base = (*handle)._msg;
     let len = match ((*handle)._eom as usize).checked_sub(base as usize) {
         Some(len) => len,
         None => {
-            ERRNO!() = 19;
+            ERRNO!() = ENODEV;
             return -1;
         }
     };
     let view = match InBuf::new(base, len) {
         Some(view) => view,
         None => {
-            ERRNO!() = 19;
+            ERRNO!() = ENODEV;
             return -1;
         }
     };
@@ -230,7 +230,7 @@ pub unsafe extern "C" fn ns_parserr(handle: *mut NsMsg, section: c_int, rrnum_in
     let mut rrnum = rrnum_in;
     if rrnum == -1 { rrnum = (*handle)._rrnum; }
     if rrnum < 0 || rrnum >= (*handle)._counts[sec] as c_int {
-        ERRNO!() = 19;
+        ERRNO!() = ENODEV;
         return -1;
     }
     if rrnum < (*handle)._rrnum {
@@ -241,21 +241,21 @@ pub unsafe extern "C" fn ns_parserr(handle: *mut NsMsg, section: c_int, rrnum_in
         let off = match ns_offset(base, len, (*handle)._msg_ptr) {
             Some(off) => off,
             None => {
-                ERRNO!() = 19;
+                ERRNO!() = ENODEV;
                 return -1;
             }
         };
         let skip = match ns_skiprr_inner(&view, off, section, rrnum - (*handle)._rrnum) {
             Some(skip) => skip,
             None => {
-                ERRNO!() = 90;
+                ERRNO!() = EMSGSIZE;
                 return -1;
             }
         };
         let next = match off.checked_add(skip) {
             Some(next) if next <= len => next,
             _ => {
-                ERRNO!() = 90;
+                ERRNO!() = EMSGSIZE;
                 return -1;
             }
         };
@@ -273,59 +273,59 @@ pub unsafe extern "C" fn ns_parserr(handle: *mut NsMsg, section: c_int, rrnum_in
     let mut off = match ns_offset(base, len, (*handle)._msg_ptr) {
         Some(off) => off,
         None => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
     off = match off.checked_add(r as usize) {
         Some(off) if off <= len => off,
         _ => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
     (*handle)._msg_ptr = base.add(off);
     if len - off < 2 * NS_INT16SZ_V {
-        ERRNO!() = 90;
+        ERRNO!() = EMSGSIZE;
         return -1;
     }
     (*rr).type_ = match view.peek_u16_be(off) {
         Some(v) => v,
         None => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
     (*rr).rr_class = match view.peek_u16_be(off + NS_INT16SZ_V) {
         Some(v) => v,
         None => {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
     };
     off += 2 * NS_INT16SZ_V;
     if section != 0 {
         if len - off < NS_INT32SZ_V + NS_INT16SZ_V {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
         (*rr).ttl = match view.peek_u32_be(off) {
             Some(v) => v,
             None => {
-                ERRNO!() = 90;
+                ERRNO!() = EMSGSIZE;
                 return -1;
             }
         };
         (*rr).rdlength = match view.peek_u16_be(off + NS_INT32SZ_V) {
             Some(v) => v,
             None => {
-                ERRNO!() = 90;
+                ERRNO!() = EMSGSIZE;
                 return -1;
             }
         };
         off += NS_INT32SZ_V + NS_INT16SZ_V;
         if (*rr).rdlength as usize > len - off {
-            ERRNO!() = 90;
+            ERRNO!() = EMSGSIZE;
             return -1;
         }
         (*rr).rdata = base.add(off);

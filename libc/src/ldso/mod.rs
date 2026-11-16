@@ -36,6 +36,7 @@ const DT_INIT_ARRAYSZ: u64 = 27;
 const DT_FINI_ARRAYSZ: u64 = 28;
 const DT_RUNPATH: u64 = 29;
 const DT_GNU_HASH: u64 = 0x6ffffef5;
+const DT_VERSYM: u64 = 0x6ffffff0;
 
 const R_X86_64_64: u64 = 1;
 const R_X86_64_COPY: u64 = 5;
@@ -878,7 +879,7 @@ fn sys_mmap(
     offset: i64,
 ) -> *mut u8 {
     let result = unsafe { <Arch as Syscalls>::syscall6(SYS_MMAP, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, offset) };
-    if result < 0 && result > -4096 {
+    if result < 0 && result > -crate::SYSCALL_ERR_MAX {
         return MAP_FAILED as *mut u8;
     }
     result as *mut u8
@@ -1332,12 +1333,12 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
     let object_dev_ino = fd_identity(fd);
     let object_dev = object_dev_ino.0;
     let object_ino = object_dev_ino.1;
-    let mut buf = [0u8; 4096];
+    let mut buf = [0u8; PAGE_SIZE];
     let n = sys_read(fd, buf.as_mut_ptr(), buf.len());
     if n < 64 {
         return None;
     }
-    if buf[0] != 0x7f || buf[1] != b'E' {
+    if !is_elf_magic(buf.as_ptr()) {
         return None;
     }
 
@@ -1399,8 +1400,7 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
         return None;
     }
 
-    const PAGE: u64 = 4096;
-    let total_size = ((max_vaddr_end + PAGE - 1) & !(PAGE - 1)) as usize;
+    let total_size = ((max_vaddr_end + PAGE_SIZE as u64 - 1) & !(PAGE_SIZE as u64 - 1)) as usize;
 
     // ASLR may place our own stack or the executable at the
     // desired base. Probe for a free span before committing with MAP_FIXED.
@@ -1431,11 +1431,11 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
 
     for i in 0..seg_count {
         let seg = segs[i];
-        let adj = seg.p_vaddr & (PAGE - 1);
+        let adj = seg.p_vaddr & (PAGE_SIZE as u64 - 1);
         let map_addr = actual_base + seg.p_vaddr - adj;
         let map_off = seg.p_offset - adj;
-        let mem_len = ((seg.p_memsz + adj + PAGE - 1) & !(PAGE - 1)) as usize;
-        let file_len = ((seg.p_filesz + adj + PAGE - 1) & !(PAGE - 1)) as usize;
+        let mem_len = ((seg.p_memsz + adj + PAGE_SIZE as u64 - 1) & !(PAGE_SIZE as u64 - 1)) as usize;
+        let file_len = ((seg.p_filesz + adj + PAGE_SIZE as u64 - 1) & !(PAGE_SIZE as u64 - 1)) as usize;
         let prot = prot_from_flags(seg.p_flags);
 
         if file_len > 0 {
@@ -1522,7 +1522,7 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             DT_STRSZ => dt_strsz = d_val,
             DT_GNU_HASH => dt_gnu_hash = d_val,
             DT_HASH => dt_hash = d_val,
-            0x6ffffff0 => dt_versym = d_val, // DT_VERSYM
+            DT_VERSYM => dt_versym = d_val,
             DT_RUNPATH => { dt_runpath_off = d_val; dt_runpath_present = true; }
             DT_RPATH => { dt_rpath_off = d_val; dt_rpath_present = true; }
             DT_INIT => { dt_init = d_val; dt_init_present = true; }
@@ -2539,9 +2539,9 @@ unsafe fn lookup_symbol_in_object(obj_idx: usize, name: *const u8, name_len: usi
     fallback
 }
 
-static mut DLERROR_BUF: [u8; 4096] = [0; 4096];
+static mut DLERROR_BUF: [u8; PAGE_SIZE] = [0; PAGE_SIZE];
 static mut DLERROR_SET: bool = false;
-const DLERROR_BUF_SIZE: usize = 4096;
+const DLERROR_BUF_SIZE: usize = PAGE_SIZE;
 
 unsafe fn set_dlerror(msg: &[u8]) {
     let len = if msg.len() >= DLERROR_BUF_SIZE {
@@ -2617,7 +2617,7 @@ pub unsafe extern "C" fn __ldso_dl_iterate_phdr(cb: Option<LdsoIterateCb>, data:
         let eh = base as *const u8;
         let mut phdr: *const u8 = core::ptr::null();
         let mut phnum: u16 = 0;
-        if *eh == 0x7f && *eh.add(1) == b'E' {
+        if is_elf_magic(eh) {
             let e_phoff = ehdr_u64(eh, EH_PHOFF);
             let e_phentsize = ehdr_u16(eh, EH_PHENTSIZE);
             let e_phnum = ehdr_u16(eh, EH_PHNUM);
@@ -3090,11 +3090,11 @@ unsafe fn compute_tls_layout() {
     // Keep at least one page and double the sum: each module is aligned
     // independently, so the plain sum understates the laid-out variable area
     // once TCB and alignment padding are included.
-    if total < 4096 {
-        total = 4096;
+    if total < PAGE_SIZE {
+        total = PAGE_SIZE;
     }
     total += total;
-    TLS_TOTAL_SIZE = (total + 4095) & !4095;
+    TLS_TOTAL_SIZE = (total + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
 
     #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     {
@@ -3283,7 +3283,7 @@ unsafe fn ldso_tls_base_offset() -> usize {
 
 unsafe fn register_self(ldso_base: u64) {
     let ehdr = ldso_base as *const u8;
-    if *ehdr != 0x7f || *ehdr.add(1) != b'E' {
+    if !is_elf_magic(ehdr) {
         return;
     }
     let e_phoff = ehdr_u64(ehdr, EH_PHOFF);
@@ -3690,7 +3690,7 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
                 DT_STRSZ => dt_strsz = d_val,
                 DT_GNU_HASH => dt_gnu_hash = d_val,
                 DT_HASH => dt_hash = d_val,
-                0x6ffffff0 => dt_versym = d_val, // DT_VERSYM
+                DT_VERSYM => dt_versym = d_val,
                 DT_INIT => { dt_init = d_val; dt_init_present = true; }
                 DT_INIT_ARRAY => { dt_init_array = d_val; dt_init_array_present = true; }
                 DT_INIT_ARRAYSZ => dt_init_array_sz = d_val,
@@ -4000,7 +4000,7 @@ unsafe fn build_and_jump(entry: u64, phdr_addr: u64, phnum: u16, orig_sp: usize)
         (AT_PHDR, phdr_addr),
         (AT_PHENT, PHDR_SIZE as u64),
         (AT_PHNUM, phnum as u64),
-        (AT_PAGESZ, 4096),
+        (AT_PAGESZ, PAGE_SIZE as u64),
         (AT_ENTRY, entry),
         (AT_BASE, orig_auxv.at_base),
         (AT_SECURE, orig_auxv.at_secure),

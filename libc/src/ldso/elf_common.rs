@@ -8,6 +8,16 @@ pub const PT_LOAD: u32 = 1;
 pub const PT_DYNAMIC: u32 = 2;
 pub const PT_PHDR: u32 = 6;
 
+pub const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
+
+#[inline]
+pub unsafe fn is_elf_magic(p: *const u8) -> bool {
+    *p == ELF_MAGIC[0]
+        && *p.add(1) == ELF_MAGIC[1]
+        && *p.add(2) == ELF_MAGIC[2]
+        && *p.add(3) == ELF_MAGIC[3]
+}
+
 // ELF64 program-header layout.  Both loaders parse phdrs from raw bytes
 // because the executable's phdrs are already mapped by the kernel.
 pub const PHDR_SIZE: usize = 56;
@@ -251,7 +261,7 @@ pub fn parse_ehdr(data: &[u8]) -> Result<Ehdr, &'static str> {
     if data.len() < 64 {
         return Err("file too small for ELF header");
     }
-    if &data[..4] != b"\x7fELF" {
+    if data[..4] != ELF_MAGIC {
         return Err("bad ELF magic");
     }
     if data[4] != 2 {
