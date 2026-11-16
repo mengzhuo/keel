@@ -44,11 +44,16 @@ ssize_t readahead(int, off_t, size_t);
 #define O_NOATIME  01000000
 #define O_PATH    010000000
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__powerpc64__)
 #define O_DIRECTORY  040000
 #define O_NOFOLLOW  0100000
+#if defined(__powerpc64__)
+#define O_DIRECT     0400000
+#define O_LARGEFILE 0200000
+#else
 #define O_DIRECT     0200000
 #define O_LARGEFILE 0400000
+#endif
 #define O_TMPFILE 020040000
 #else
 #define O_DIRECTORY 0200000

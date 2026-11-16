@@ -6171,8 +6171,16 @@ const O_TRUNC: i32 = 512;
 const O_APPEND: i32 = 1024;
 const O_EXCL: i32 = 128;
 const O_NONBLOCK: i32 = 2048;
-const O_NOFOLLOW: i32 = if cfg!(target_arch = "aarch64") { 0o100000 } else { 0o400000 };
-const O_DIRECTORY: i32 = if cfg!(target_arch = "aarch64") { 0o40000 } else { 0o200000 };
+const O_NOFOLLOW: i32 = if cfg!(any(target_arch = "aarch64", target_arch = "powerpc64")) {
+    0o100000
+} else {
+    0o400000
+};
+const O_DIRECTORY: i32 = if cfg!(any(target_arch = "aarch64", target_arch = "powerpc64")) {
+    0o40000
+} else {
+    0o200000
+};
 const O_CLOEXEC: i32 = 0x80000;
 
 const F_GETFD: i32 = 1;

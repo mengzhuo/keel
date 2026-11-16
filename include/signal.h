@@ -73,9 +73,15 @@ extern "C" {
 #define SS_AUTODISARM (1U << 31)
 #define SS_FLAG_BITS  SS_AUTODISARM
 
-#ifdef __aarch64__
+#if defined(__aarch64__)
 #define MINSIGSTKSZ   6144
 #define SIGSTKSZ      12288
+#elif defined(__powerpc64__)
+#define MINSIGSTKSZ   4096
+#define SIGSTKSZ      10240
+#elif defined(__loongarch__)
+#define MINSIGSTKSZ   4096
+#define SIGSTKSZ      16384
 #else
 #define MINSIGSTKSZ   2048
 #define SIGSTKSZ      8192
@@ -256,9 +262,50 @@ struct sigaltstack {
 
 typedef struct sigaltstack stack_t;
 
+#if defined(__powerpc64__)
+typedef unsigned long greg_t, gregset_t[48];
+typedef struct {
+    double fpregs[32];
+    double fpscr;
+    unsigned _pad[2];
+} fpregset_t;
+typedef struct {
+    unsigned vrregs[32][4];
+    unsigned vrsave;
+    unsigned _pad[2];
+    unsigned vscr;
+} vrregset_t;
+struct sigcontext {
+    unsigned long _unused[4];
+    int signal;
+    unsigned long handler;
+    unsigned long oldmask;
+    struct pt_regs *regs;
+};
+typedef struct {
+    gregset_t gregs;
+    fpregset_t fpregs;
+    vrregset_t vrregs __attribute__((__aligned__(16)));
+} mcontext_t;
+#elif defined(__loongarch__)
+typedef unsigned long greg_t, gregset_t[32];
+struct sigcontext {
+    unsigned long sc_pc;
+    unsigned long sc_regs[32];
+    unsigned sc_flags;
+    unsigned long sc_extcontext[] __attribute__((__aligned__(16)));
+};
+typedef struct {
+    unsigned long __pc;
+    unsigned long __gregs[32];
+    unsigned __flags;
+    unsigned long __extcontext[] __attribute__((__aligned__(16)));
+} mcontext_t;
+#else
 typedef struct {
     unsigned long __space[32];
 } mcontext_t;
+#endif
 
 typedef struct __ucontext {
     unsigned long uc_flags;

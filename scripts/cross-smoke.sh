@@ -144,6 +144,8 @@ smoke_one() {
     run va_list_abi "$ROOT/tests/fixtures/va_list_abi_test.c"
     run new_functions "$ROOT/tests/fixtures/new_functions_test.c" "new_functions ok"
     run compat "$ROOT/tests/fixtures/compat_test.c" "compat ok"
+    run oflags "$ROOT/tests/fixtures/oflags_test.c" "oflags ok"
+    run ucontext "$ROOT/tests/fixtures/ucontext_test.c" "ucontext ok"
 
     # Standalone loader: a static PIE with raw syscalls.
     if "$CC_BIN" -static-pie -nostdlib -fPIE \
