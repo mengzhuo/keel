@@ -3,10 +3,10 @@
 
 # Release order:
 #
-#   verify-version (fast) -> tests (the complete ci.yml graph) -> publish
+#   verify-version (fast) -> ci (the complete ci.yml graph) -> publish
 #
-# `publish` has no path around `tests`: crates and APKs are only built and
-# uploaded after the full native + cross-architecture CI matrix passes.
+# `publish` has no path around `ci`: if the CI workflow cannot be loaded or
+# any job in it fails, `publish` is skipped and nothing is published.
 
 name: Release
 
@@ -55,16 +55,16 @@ jobs:
   # requests: the precheck group (header, rustfmt, clippy, macro parity),
   # native x86_64 + aarch64 tests, cross-arch smoke tests and libc-test on
   # all four qemu targets.
-  # GitHub reports this job as failed if any job in ci.yml fails, including
-  # the aggregate `ci-status` job.
-  tests:
+  # GitHub reports this job as failed if the workflow cannot be loaded or if
+  # any job in ci.yml fails, including the aggregate `ci-status` job.
+  ci:
     needs: verify-version
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
 
   publish:
-    needs: tests
+    needs: [verify-version, ci]
     runs-on: ubuntu-latest
     # Must match the "Environment" field of the trusted publisher configured
     # on crates.io for keel-rt, keel-libc and keel-utils.
