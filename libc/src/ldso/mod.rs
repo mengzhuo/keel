@@ -468,6 +468,86 @@ unsafe fn push_object(value: LoadedObject) -> Option<usize> {
 // _start: self-relocate ldso, then call run_main(sp)
 // ============================================================
 
+// Shared bootstrap used before the interpreter has applied its own
+// relocations.  It walks the kernel auxv to find AT_BASE, reads the
+// interpreter's program headers and dynamic section directly, applies the
+// RELATIVE relocations, and only then enters Rust code that may touch
+// relocated data.  Keep this function free of static references: it runs
+// while libc.so's GOT and TOC are still unrelocated.
+#[inline(never)]
+unsafe fn ldso_self_relocate(sp: usize) -> ! {
+    let argc = *(sp as *const usize);
+    let mut p = sp + 8 + argc * 8;
+    while *(p as *const usize) != 0 {
+        p += 8;
+    }
+    p += 8; // skip the NULL after argv
+    while *(p as *const usize) != 0 {
+        p += 8;
+    }
+    p += 8; // skip the NULL after envp
+
+    let mut base = 0usize;
+    loop {
+        let tag = *(p as *const usize);
+        let val = *((p + 8) as *const usize);
+        if tag == 0 {
+            break;
+        }
+        if tag == 7 {
+            base = val; // AT_BASE
+        }
+        p += 16;
+    }
+
+    // ELF64 header and program headers of the interpreter itself.
+    let e_phoff = *((base + 32) as *const u64) as usize;
+    let e_phentsize = *((base + 54) as *const u16) as usize;
+    let e_phnum = *((base + 56) as *const u16) as usize;
+    let mut ph = base + e_phoff;
+    let mut dyn_vaddr = 0usize;
+    for _ in 0..e_phnum {
+        if *(ph as *const u32) == 2 {
+            dyn_vaddr = *((ph + 16) as *const u64) as usize;
+            break;
+        }
+        ph += e_phentsize;
+    }
+
+    let mut d = base + dyn_vaddr;
+    let mut rela = 0usize;
+    let mut relasz = 0usize;
+    loop {
+        let tag = *(d as *const u64);
+        let val = *((d + 8) as *const u64) as usize;
+        if tag == 0 {
+            break;
+        }
+        if tag == 7 {
+            rela = val; // DT_RELA
+        } else if tag == 8 {
+            relasz = val; // DT_RELASZ
+        }
+        d += 16;
+    }
+
+    if rela != 0 && relasz != 0 {
+        let mut r = base + rela;
+        let end = r + relasz;
+        while r < end {
+            let r_offset = *(r as *const u64) as usize;
+            let r_info = *((r + 8) as *const u64);
+            let r_addend = *((r + 16) as *const u64) as usize;
+            if (r_info & 0xffff_ffff) == R_RELATIVE {
+                *((base + r_offset) as *mut u64) = (base + r_addend) as u64;
+            }
+            r += 24;
+        }
+    }
+
+    run_main(sp, base as u64)
+}
+
 #[cfg(not(test))]
 #[cfg(target_arch = "x86_64")]
 core::arch::global_asm!(
@@ -475,491 +555,70 @@ core::arch::global_asm!(
     ".type _start, @function",
     "_start:",
     "mov rdi, rsp",
-    "mov rax, [rsp]",
-    "lea rbx, [rsp + 8]",
-    "lea rcx, [rbx + rax*8]",
-    "add rcx, 8",
-    "2:",
-    "cmp qword ptr [rcx], 0",
-    "je 3f",
-    "add rcx, 8",
-    "jmp 2b",
-    "3:",
-    "add rcx, 8",
-    "xor rsi, rsi",
-    "4:",
-    "mov rax, [rcx]",
-    "cmp rax, 0",
-    "je 5f",
-    "cmp rax, 7",
-    "jne 6f",
-    "mov rsi, [rcx + 8]",
-    "6:",
-    "add rcx, 16",
-    "jmp 4b",
-    "5:",
-    "mov rax, [rsi + 32]",
-    "movzx rcx, word ptr [rsi + 56]",
-    "lea r8, [rsi + rax]",
-    "xor r9, r9",
-    "7:",
-    "cmp r9, rcx",
-    "jge 8f",
-    "mov eax, [r8]",
-    "cmp eax, 2",
-    "je 9f",
-    "add r8, 56",
-    "inc r9",
-    "jmp 7b",
-    "9:",
-    "mov r10, [r8 + 16]",
-    "mov r11, [r8 + 40]",
-    "add r10, rsi",
-    "xor rax, rax",
-    "xor rbx, rbx",
-    "mov rcx, r10",
-    "lea rdx, [r10 + r11]",
-    "10:",
-    "cmp rcx, rdx",
-    "jge 11f",
-    "mov r12, [rcx]",
-    "mov r13, [rcx + 8]",
-    "cmp r12, 0",
-    "je 11f",
-    "cmp r12, 7",
-    "jne 12f",
-    "lea rax, [rsi + r13]",
-    "12:",
-    "cmp r12, 8",
-    "jne 13f",
-    "mov rbx, r13",
-    "13:",
-    "add rcx, 16",
-    "jmp 10b",
-    "11:",
-    "test rbx, rbx",
-    "jz 8f",
-    "test rax, rax",
-    "jz 8f",
-    "xor rcx, rcx",
-    "14:",
-    "cmp rcx, rbx",
-    "jge 8f",
-    "mov r12, [rax + rcx]",
-    "mov r13, [rax + rcx + 8]",
-    "mov r14, [rax + rcx + 16]",
-    "and r13d, 0xffffffff",
-    "cmp r13d, 8",
-    "jne 15f",
-    "add r12, rsi",
-    "add r14, rsi",
-    "mov [r12], r14",
-    "15:",
-    "add rcx, 24",
-    "jmp 14b",
-    "8:",
-    ".hidden {run_main}",
-    "call {run_main}",
+    "and rsp, -16",
+    "call {relocate}",
     "ud2",
-    run_main = sym run_main,
+    relocate = sym ldso_self_relocate,
 );
 
-// aarch64 _start: self-relocate ldso, then call run_main(sp, ldso_base)
+// aarch64 _start: hand the kernel stack to the shared Rust self-relocator
 #[cfg(not(test))]
 #[cfg(target_arch = "aarch64")]
 core::arch::global_asm!(
     ".weak _start",
-    ".type _start, @function",
+    ".type _start, %function",
     "_start:",
-    // Save sp into x29 (frame pointer, callee-saved)
-    "mov x29, sp",
-    // Walk stack: argc, argv[], NULL, envp[], NULL, auxv[]
-    "ldr x0, [sp]",              // argc
-    "add x1, sp, #8",            // &argv[0]
-    "add x2, x1, x0, lsl #3",   // skip argv[]
-    "add x2, x2, #8",            // skip NULL after argv -> &envp[0]
-    "2:",
-    "ldr x3, [x2]",
-    "cbz x3, 3f",
-    "add x2, x2, #8",
-    "b 2b",
-    "3:",
-    "add x2, x2, #8",            // &auxv[0]
-    "mov x20, #0",                // ldso_base = 0
-    "4:",
-    "ldr x3, [x2]",              // auxv tag
-    "cbz x3, 5f",                // AT_NULL -> done
-    "cmp x3, #7",                // AT_BASE
-    "bne 6f",
-    "ldr x20, [x2, #8]",         // ldso_base
-    "6:",
-    "add x2, x2, #16",
-    "b 4b",
-    "5:",
-    // x20 = ldso_base. Walk ldso's ELF phdrs to find PT_DYNAMIC.
-    "ldr x0, [x20, #32]",        // e_phoff
-    "ldrh w1, [x20, #56]",       // e_phnum
-    "add x2, x20, x0",           // phdr table
-    "mov x3, #0",                 // i
-    "7:",
-    "cmp x3, x1",
-    "bge 8f",
-    "ldr w4, [x2]",              // p_type
-    "cmp w4, #2",                // PT_DYNAMIC
-    "beq 9f",
-    "add x2, x2, #56",           // next phdr (PHDR_SIZE=56)
-    "add x3, x3, #1",
-    "b 7b",
-    "9:",
-    // Found PT_DYNAMIC. Read DT_RELA and DT_RELASZ from dynamic section.
-    "ldr x4, [x2, #16]",         // p_vaddr
-    "ldr x5, [x2, #40]",         // p_memsz
-    "add x4, x4, x20",           // dyn_addr = base + p_vaddr
-    "add x5, x4, x5",            // dyn_end
-    "mov x6, #0",                 // rela = 0
-    "mov x7, #0",                 // relasz = 0
-    "10:",
-    "cmp x4, x5",
-    "bge 11f",
-    "ldr x8, [x4]",              // d_tag
-    "ldr x9, [x4, #8]",          // d_val
-    "cbz x8, 11f",               // DT_NULL
-    "cmp x8, #7",                // DT_RELA
-    "bne 12f",
-    "add x6, x20, x9",           // rela = base + d_val
-    "12:",
-    "cmp x8, #8",                // DT_RELASZ
-    "bne 13f",
-    "mov x7, x9",                // relasz = d_val
-    "13:",
-    "add x4, x4, #16",
-    "b 10b",
-    "11:",
-    // Apply R_AARCH64_RELATIVE (type 1027) relocations.
-    "cbz x7, 8f",
-    "cbz x6, 8f",
-    "add x8, x6, x7",            // table_end
-    "14:",
-    "cmp x6, x8",
-    "bge 8f",
-    "ldr x9, [x6]",              // r_offset
-    "ldr x10, [x6, #8]",         // r_info
-    "ldr x11, [x6, #16]",        // r_addend
-    "cmp w10, #1027",             // R_AARCH64_RELATIVE
-    "bne 15f",
-    "add x9, x9, x20",           // slot = base + r_offset
-    "add x11, x11, x20",         // val = base + r_addend
-    "str x11, [x9]",
-    "15:",
-    "add x6, x6, #24",
-    "b 14b",
-    "8:",
-    ".hidden {run_main}",
-    "mov x0, x29",               // sp
-    "mov x1, x20",               // ldso_base
-    "bl {run_main}",
-    "brk #1",
-    run_main = sym run_main,
+    "mov x0, sp",
+    "and sp, x0, #-16",
+    "b {relocate}",
+    relocate = sym ldso_self_relocate,
 );
 
-// riscv64 _start: self-relocate ldso, then call run_main(sp, ldso_base)
+// riscv64 _start: hand the kernel stack to the shared Rust self-relocator
 #[cfg(not(test))]
 #[cfg(target_arch = "riscv64")]
 core::arch::global_asm!(
     ".weak _start",
-    ".type _start, @function",
+    ".type _start, %function",
     "_start:",
-    // Save sp into s0 (frame pointer, callee-saved)
-    "mv s0, sp",
-    // Walk stack: argc, argv[], NULL, envp[], NULL, auxv[]
-    "ld a0, 0(sp)",              // argc
-    "add a1, sp, 8",            // &argv[0]
-    "slli a2, a0, 3",
-    "add a2, a1, a2",           // skip argv[]
-    "addi a2, a2, 8",           // skip NULL after argv -> &envp[0]
-    "2:",
-    "ld a3, 0(a2)",
-    "beqz a3, 3f",
-    "addi a2, a2, 8",
-    "j 2b",
-    "3:",
-    "addi a2, a2, 8",           // &auxv[0]
-    "li s1, 0",                 // ldso_base = 0
-    "4:",
-    "ld a3, 0(a2)",             // auxv tag
-    "beqz a3, 5f",              // AT_NULL -> done
-    "li a4, 7",                 // AT_BASE
-    "bne a3, a4, 6f",
-    "ld s1, 8(a2)",             // ldso_base
-    "6:",
-    "addi a2, a2, 16",
-    "j 4b",
-    "5:",
-    // s1 = ldso_base. Walk ldso's ELF phdrs to find PT_DYNAMIC.
-    "ld a0, 32(s1)",            // e_phoff
-    "lhu a1, 56(s1)",           // e_phnum
-    "add a2, s1, a0",           // phdr table
-    "li a3, 0",                 // i
-    "7:",
-    "bgeu a3, a1, 8f",
-    "lw a4, 0(a2)",             // p_type
-    "li a5, 2",                 // PT_DYNAMIC
-    "beq a4, a5, 9f",
-    "addi a2, a2, 56",          // next phdr (PHDR_SIZE=56)
-    "addi a3, a3, 1",
-    "j 7b",
-    "9:",
-    // Found PT_DYNAMIC. Read DT_RELA and DT_RELASZ from dynamic section.
-    "ld a4, 16(a2)",            // p_vaddr
-    "ld a5, 40(a2)",            // p_memsz
-    "add a4, a4, s1",           // dyn_addr = base + p_vaddr
-    "add a5, a4, a5",           // dyn_end
-    "li a6, 0",                 // rela = 0
-    "li a7, 0",                 // relasz = 0
-    "10:",
-    "bgeu a4, a5, 11f",
-    "ld t0, 0(a4)",             // d_tag
-    "ld t1, 8(a4)",             // d_val
-    "beqz t0, 11f",             // DT_NULL
-    "li t2, 7",                 // DT_RELA
-    "bne t0, t2, 12f",
-    "add a6, s1, t1",           // rela = base + d_val
-    "12:",
-    "li t2, 8",                 // DT_RELASZ
-    "bne t0, t2, 13f",
-    "mv a7, t1",                // relasz = d_val
-    "13:",
-    "addi a4, a4, 16",
-    "j 10b",
-    "11:",
-    // Apply R_RISCV_RELATIVE (type 3) relocations.
-    "beqz a7, 8f",
-    "beqz a6, 8f",
-    "add t3, a6, a7",           // table_end
-    "14:",
-    "bgeu a6, t3, 8f",
-    "ld t4, 0(a6)",             // r_offset
-    "ld t5, 8(a6)",             // r_info
-    "ld t6, 16(a6)",            // r_addend
-    "li t0, 3",                 // R_RISCV_RELATIVE
-    "slli t1, t5, 32",
-    "srli t1, t1, 32", // r_type = r_info & 0xffffffff
-    "bne t1, t0, 15f",
-    "add t4, t4, s1",           // slot = base + r_offset
-    "add t6, t6, s1",           // val = base + r_addend
-    "sd t6, 0(t4)",
-    "15:",
-    "addi a6, a6, 24",
-    "j 14b",
-    "8:",
-    ".hidden {run_main}",
-    "mv a0, s0",               // sp
-    "mv a1, s1",               // ldso_base
-    "call {run_main}",
-    "unimp",
-    run_main = sym run_main,
+    "mv a0, sp",
+    "andi sp, sp, -16",
+    "tail {relocate}",
+    relocate = sym ldso_self_relocate,
 );
 
-// powerpc64le _start: self-relocate ldso, then call run_main(sp, ldso_base)
+// powerpc64le _start: hand the kernel stack to the shared Rust self-relocator
 #[cfg(not(test))]
 #[cfg(target_arch = "powerpc64")]
 core::arch::global_asm!(
     ".weak _start",
     ".type _start, @function",
     "_start:",
-    "bl 17f",
-    "17:",
-    "mflr 12",
-    "addis 2, 12, .TOC.-17b@ha",
-    "addi 2, 2, .TOC.-17b@l",
-    "ld 3, 0(1)",
-    "addi 4, 1, 8",
-    "sldi 5, 3, 3",
-    "add 4, 4, 5",
-    "addi 4, 4, 8",
-    "3:",
-    "ld 5, 0(4)",
-    "cmpdi 5, 0",
-    "beq 4f",
-    "addi 4, 4, 8",
-    "b 3b",
-    "4:",
-    "addi 4, 4, 8",
-    "li 14, 0",
-    "5:",
-    "ld 5, 0(4)",
-    "cmpdi 5, 0",
-    "beq 6f",
-    "cmpdi 5, 7",
-    "bne 7f",
-    "ld 14, 8(4)",
-    "7:",
-    "addi 4, 4, 16",
-    "b 5b",
-    "6:",
-    "ld 3, 32(14)",
-    "lhz 4, 56(14)",
-    "add 5, 14, 3",
-    "li 6, 0",
-    "8:",
-    "cmpd 6, 4",
-    "bge 9f",
-    "lwz 7, 0(5)",
-    "cmpwi 7, 2",
-    "beq 10f",
-    "addi 5, 5, 56",
-    "addi 6, 6, 1",
-    "b 8b",
-    "10:",
-    "ld 7, 16(5)",
-    "ld 8, 40(5)",
-    "add 7, 7, 14",
-    "add 8, 7, 8",
-    "li 9, 0",
-    "li 10, 0",
-    "11:",
-    "cmpd 7, 8",
-    "bge 12f",
-    "ld 3, 0(7)",
-    "ld 4, 8(7)",
-    "cmpdi 3, 0",
-    "beq 12f",
-    "cmpdi 3, 7",
-    "bne 13f",
-    "add 9, 14, 4",
-    "13:",
-    "cmpdi 3, 8",
-    "bne 14f",
-    "mr 10, 4",
-    "14:",
-    "addi 7, 7, 16",
-    "b 11b",
-    "12:",
-    "cmpdi 10, 0",
-    "beq 9f",
-    "cmpdi 9, 0",
-    "beq 9f",
-    "add 11, 9, 10",
-    "15:",
-    "cmpd 9, 11",
-    "bge 9f",
-    "ld 12, 0(9)",
-    "ld 3, 8(9)",
-    "ld 4, 16(9)",
-    "clrldi 3, 3, 32",
-    "cmpwi 3, 22",
-    "bne 16f",
-    "add 12, 12, 14",
-    "add 4, 4, 14",
-    "std 4, 0(12)",
-    "16:",
-    "addi 9, 9, 24",
-    "b 15b",
-    "9:",
-    ".hidden {run_main}",
-    // run_main and every function it calls use the caller-allocated linkage
-    // area (the callee saves LR at 16(r1) of the incoming frame).  Calling
-    // with the raw kernel stack would overwrite argv[1] with the return
-    // address, so give the entry a real 32-byte frame.
+    "addis 2, 12, .TOC.-_start@ha",
+    "addi 2, 2, .TOC.-_start@l",
     "mr 3, 1",
     "clrrdi 1, 1, 4",
     "li 0, 0",
     "stdu 0, -32(1)",
-    "mr 4, 14",
-    "bl {run_main}",
+    "addis 12, 2, {relocate}@toc@ha",
+    "addi 12, 12, {relocate}@toc@l",
+    "mtctr 12",
+    "bctrl",
     "trap",
-    run_main = sym run_main,
+    relocate = sym ldso_self_relocate,
 );
 
-// loongarch64 _start: self-relocate ldso, then call run_main(sp, ldso_base)
+// loongarch64 _start: hand the kernel stack to the shared Rust self-relocator
 #[cfg(not(test))]
 #[cfg(target_arch = "loongarch64")]
 core::arch::global_asm!(
     ".weak _start",
     ".type _start, @function",
     "_start:",
-    "ld.d $a0, $sp, 0",
-    "addi.d $a1, $sp, 8",
-    "slli.d $a2, $a0, 3",
-    "add.d $a1, $a1, $a2",
-    "addi.d $a1, $a1, 8",
-    "3:",
-    "ld.d $a2, $a1, 0",
-    "beqz $a2, 4f",
-    "addi.d $a1, $a1, 8",
-    "b 3b",
-    "4:",
-    "addi.d $a1, $a1, 8",
-    "li.d $s1, 0",
-    "5:",
-    "ld.d $a2, $a1, 0",
-    "beqz $a2, 6f",
-    "li.d $a3, 7",
-    "bne $a2, $a3, 7f",
-    "ld.d $s1, $a1, 8",
-    "7:",
-    "addi.d $a1, $a1, 16",
-    "b 5b",
-    "6:",
-    "ld.d $a0, $s1, 32",
-    "ld.hu $a1, $s1, 56",
-    "add.d $a2, $s1, $a0",
-    "li.d $a3, 0",
-    "8:",
-    "bgeu $a3, $a1, 9f",
-    "ld.w $a4, $a2, 0",
-    "li.w $a5, 2",
-    "beq $a4, $a5, 10f",
-    "addi.d $a2, $a2, 56",
-    "addi.d $a3, $a3, 1",
-    "b 8b",
-    "10:",
-    "ld.d $a4, $a2, 16",
-    "ld.d $a5, $a2, 40",
-    "add.d $a4, $a4, $s1",
-    "add.d $a5, $a4, $a5",
-    "li.d $a6, 0",
-    "li.d $a7, 0",
-    "11:",
-    "bgeu $a4, $a5, 12f",
-    "ld.d $t0, $a4, 0",
-    "ld.d $t1, $a4, 8",
-    "beqz $t0, 12f",
-    "li.d $t2, 7",
-    "bne $t0, $t2, 13f",
-    "add.d $a6, $s1, $t1",
-    "13:",
-    "li.d $t2, 8",
-    "bne $t0, $t2, 14f",
-    "move $a7, $t1",
-    "14:",
-    "addi.d $a4, $a4, 16",
-    "b 11b",
-    "12:",
-    "beqz $a7, 9f",
-    "beqz $a6, 9f",
-    "add.d $t3, $a6, $a7",
-    "15:",
-    "bgeu $a6, $t3, 9f",
-    "ld.d $t4, $a6, 0",
-    "ld.d $t5, $a6, 8",
-    "ld.d $t6, $a6, 16",
-    "li.d $t0, 3",
-    "bstrpick.d $t5, $t5, 31, 0",
-    "bne $t5, $t0, 16f",
-    "add.d $t4, $t4, $s1",
-    "add.d $t6, $t6, $s1",
-    "st.d $t6, $t4, 0",
-    "16:",
-    "addi.d $a6, $a6, 24",
-    "b 15b",
-    "9:",
-    ".hidden {run_main}",
     "move $a0, $sp",
-    "move $a1, $s1",
-    "bl {run_main}",
-    "break 0",
-    run_main = sym run_main,
+    "bstrins.d $sp, $zero, 3, 0",
+    "b {relocate}",
+    relocate = sym ldso_self_relocate,
 );
 
 // ============================================================
