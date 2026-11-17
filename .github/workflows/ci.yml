@@ -120,14 +120,17 @@ jobs:
         uses: actions/cache@v6
         with:
           path: /tmp/libc-test
-          key: libc-test-${{ runner.os }}-${{ matrix.arch }}-${{ steps.libc_test.outputs.sha }}
+          key: libc-test-v2-${{ runner.os }}-${{ matrix.arch }}-${{ steps.libc_test.outputs.sha }}
 
       - name: Fetch libc-test sources
         run: |
           if [ ! -d /tmp/libc-test/src ] || \
              [ "$(git -C /tmp/libc-test rev-parse HEAD 2>/dev/null)" != "${{ steps.libc_test.outputs.sha }}" ]; then
             rm -rf /tmp/libc-test
-            git clone --depth 1 https://github.com/kraj/libc-test /tmp/libc-test
+            git init -q /tmp/libc-test
+            git -C /tmp/libc-test remote add origin https://github.com/kraj/libc-test
+            git -C /tmp/libc-test fetch -q --depth 1 origin "${{ steps.libc_test.outputs.sha }}"
+            git -C /tmp/libc-test checkout -q --detach FETCH_HEAD
           fi
 
       - name: Build all artifacts
@@ -211,18 +214,25 @@ jobs:
       - name: Install cross compiler, target libc and qemu
         run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }} qemu-user
 
+      - name: Resolve libc-test revision
+        id: libc_test
+        run: echo "sha=$LIBC_TEST_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Cache libc-test sources
         uses: actions/cache@v6
         with:
           path: /tmp/libc-test
-          key: libc-test-${{ runner.os }}-${{ matrix.arch }}-b7ec467969a53756258778fa7d9b045f912d1c93
+          key: libc-test-v2-${{ runner.os }}-${{ matrix.arch }}-${{ steps.libc_test.outputs.sha }}
 
       - name: Fetch libc-test sources
         run: |
           if [ ! -d /tmp/libc-test/src ] || \
              [ "$(git -C /tmp/libc-test rev-parse HEAD 2>/dev/null)" != "$LIBC_TEST_SHA" ]; then
             rm -rf /tmp/libc-test
-            git clone --depth 1 https://github.com/kraj/libc-test /tmp/libc-test
+            git init -q /tmp/libc-test
+            git -C /tmp/libc-test remote add origin https://github.com/kraj/libc-test
+            git -C /tmp/libc-test fetch -q --depth 1 origin "$LIBC_TEST_SHA"
+            git -C /tmp/libc-test checkout -q --detach FETCH_HEAD
           fi
 
       - name: Run functional, regression and API suites

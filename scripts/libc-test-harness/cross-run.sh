@@ -54,7 +54,11 @@ case "$ARCH" in
         RUST_TARGET=loongarch64-unknown-linux-gnu
         CRT_TARGET=loongarch64-unknown-linux-gnu
         ABI_FLAGS=()
-        ARCH_SKIP="functional/strtold functional/tls_local_exec"
+        # QEMU 10.2 converts newfstatat through its 32-bit target_stat64
+        # layout on loongarch64 (the 64-bit ABI struct is correct on real
+        # hardware), so timestamp checks read garbage.  Re-enable this when
+        # the CI qemu is fixed.
+        ARCH_SKIP="functional/strtold functional/tls_local_exec functional/stat"
         ;;
     *)
         echo "unknown architecture: $ARCH" >&2

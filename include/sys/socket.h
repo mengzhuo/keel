@@ -104,12 +104,22 @@ struct sockaddr_storage {
 #define SO_LINGER       13
 #define SO_BSDCOMPAT    14
 #define SO_REUSEPORT    15
+#if defined(__powerpc64__)
+/* The 64-bit PowerPC socket ABI uses its own option numbering. */
+#define SO_RCVLOWAT     16
+#define SO_SNDLOWAT     17
+#define SO_RCVTIMEO     18
+#define SO_SNDTIMEO     19
+#define SO_PASSCRED     20
+#define SO_PEERCRED     21
+#else
 #define SO_PASSCRED     16
 #define SO_PEERCRED     17
 #define SO_RCVLOWAT     18
 #define SO_SNDLOWAT     19
 #define SO_RCVTIMEO     20
 #define SO_SNDTIMEO     21
+#endif
 #define SO_ACCEPTCONN   30
 
 #define SOL_SOCKET      1

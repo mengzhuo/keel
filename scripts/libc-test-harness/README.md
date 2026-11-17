@@ -61,13 +61,15 @@ Cross (`cross-run.sh`):
   binaries are built here; the root integration tests cover `libc.a`.
 - **Only the functional subset runs by default** — use `./run.sh all` for everything.
 
-Cross baseline (qemu, pinned `libc-test` checkout): aarch64, powerpc64le,
-loongarch64 and riscv64 all report `functional` 70 PASS + 3 SKIP,
-`regression` 65 PASS + 3 SKIP as root (66 + 2 unprivileged) and `api`
-79/79.  The cross skips are the robust-futex tests (qemu-user) plus
-`strtold`/`tls_local_exec` on the 128-bit long-double/TLS-alignment
-targets.  Cross `math` is not part of the gate; the x86_64 math suite
-below still runs natively.
+Cross baseline (qemu, pinned `libc-test` checkout): aarch64, riscv64 and
+powerpc64le report `functional` 69 PASS + 3 SKIP; loongarch64 reports
+68 PASS + 4 SKIP.  All four report `regression` 65 PASS + 3 SKIP as root
+(66 + 2 unprivileged) and `api` 79/79.  The cross skips are the
+robust-futex tests (qemu-user), `strtold`/`tls_local_exec` on the 128-bit
+long-double/TLS-alignment targets, and `functional/stat` on loongarch64:
+QEMU 10.2 writes the 32-bit `stat64` layout for `newfstatat` (the 64-bit
+ABI struct is correct on real hardware).  Cross `math` is not part of the
+gate; the x86_64 math suite below still runs natively.
 
 Current native baseline (x86_64, pinned `libc-test` checkout): `functional` 72/72,
 `regression` 66 PASS + 2 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The
