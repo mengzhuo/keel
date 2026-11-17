@@ -277,7 +277,9 @@ impl Syscalls for Aarch64 {
 
 #[cfg(target_arch = "riscv64")]
 pub struct Riscv64;
+#[cfg(target_arch = "powerpc64")]
 pub struct PowerPc64;
+#[cfg(target_arch = "loongarch64")]
 pub struct LoongArch64;
 
 // riscv64
@@ -596,21 +598,11 @@ mod sysnr {
 #[cfg(target_arch = "powerpc64")]
 mod sysnr {
     pub const SYS_MMAP: i64 = 90;
-    pub const SYS_MUNMAP: i64 = 91;
-    pub const SYS_OPENAT: i64 = 286;
-    pub const SYS_READ: i64 = 3;
-    pub const SYS_CLOSE: i64 = 6;
-    pub const SYS_EXIT: i64 = 1;
 }
 // loongarch64
 #[cfg(target_arch = "loongarch64")]
 mod sysnr {
     pub const SYS_MMAP: i64 = 222;
-    pub const SYS_MUNMAP: i64 = 215;
-    pub const SYS_OPENAT: i64 = 56;
-    pub const SYS_READ: i64 = 63;
-    pub const SYS_CLOSE: i64 = 57;
-    pub const SYS_EXIT: i64 = 93;
 }
 pub use sysnr::*;
 
