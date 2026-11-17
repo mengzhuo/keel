@@ -13,6 +13,7 @@ static int early_go;
 static int failed;
 static int (*bump)(void);
 static int (*get)(void);
+static int *tlsdesc_var_ptr;
 
 static void *early_thread(void *arg) {
     (void)arg;
@@ -51,7 +52,8 @@ int main(void) {
     }
     bump = (int (*)(void))dlsym(handle, "tlsdesc_bump");
     get = (int (*)(void))dlsym(handle, "tlsdesc_get");
-    if (!bump || !get) return 1;
+    tlsdesc_var_ptr = (int *)dlsym(handle, "tlsdesc_var");
+    if (!bump || !get || !tlsdesc_var_ptr) return 1;
 
     pthread_mutex_lock(&lock);
     early_go = 1;
@@ -73,8 +75,9 @@ int main(void) {
         return 1;
     }
 
-    if (bump() != 8 || bump() != 9) {
-        printf("main thread failed: %d\n", get());
+    // dlsym() and the TLSDESC accessors must resolve to the same copy.
+    if (bump() != 8 || bump() != 9 || *tlsdesc_var_ptr != 9 || get() != 9) {
+        printf("main thread failed: %d/%d\n", *tlsdesc_var_ptr, get());
         return 1;
     }
 

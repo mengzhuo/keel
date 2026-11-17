@@ -11,3 +11,7 @@ int tlsdesc_bump(void) {
 int tlsdesc_get(void) {
     return tlsdesc_var;
 }
+
+void tlsdesc_set(int v) {
+    tlsdesc_var = v;
+}

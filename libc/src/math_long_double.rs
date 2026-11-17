@@ -143,7 +143,7 @@ pub unsafe extern "C" fn frexpl(x: f64, exp: *mut i32) -> f64 {
     crate::frexp(x, exp)
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 #[no_mangle]
 pub unsafe extern "C" fn frexpl(x: f128, exp: *mut i32) -> f128 {
     f64_to_f128(crate::frexp(f128_to_f64(x), exp))
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn modfl(x: f64, iptr: *mut f64) -> f64 {
     crate::modf(x, iptr)
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 #[no_mangle]
 pub unsafe extern "C" fn modfl(x: f128, iptr: *mut f128) -> f128 {
     let mut ip = 0.0f64;
@@ -170,7 +170,7 @@ pub unsafe extern "C" fn nanl(_tagp: *const core::ffi::c_char) -> f64 {
     f64::NAN
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 #[no_mangle]
 pub unsafe extern "C" fn nanl(_tagp: *const core::ffi::c_char) -> f128 {
     f64_to_f128(f64::NAN)
@@ -183,7 +183,7 @@ pub unsafe extern "C" fn sincosl(x: f64, s: *mut f64, c: *mut f64) {
     *c = crate::cos(x);
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 #[no_mangle]
 pub unsafe extern "C" fn sincosl(x: f128, s: *mut f128, c: *mut f128) {
     *s = f64_to_f128(crate::sin(f128_to_f64(x)));
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn remquol(x: f64, y: f64, quo: *mut i32) -> f64 {
     crate::remquo(x, y, quo)
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64", target_arch = "loongarch64"))]
 #[no_mangle]
 pub unsafe extern "C" fn remquol(x: f128, y: f128, quo: *mut i32) -> f128 {
     f64_to_f128(crate::remquo(f128_to_f64(x), f128_to_f64(y), quo))

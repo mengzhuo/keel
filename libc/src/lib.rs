@@ -1306,8 +1306,8 @@ pub struct stack_t {
     pub ss_size: usize,
 }
 
-// Kernel ABI for rt_sigaction (x86_64/riscv64/aarch64 all use the same
-// handler/flags/restorer/8-byte-mask layout).
+// Kernel ABI for rt_sigaction.  All supported architectures use the same
+// handler/flags/restorer/8-byte-mask layout.
 #[repr(C)]
 pub struct KSigAction {
     pub sa_handler: usize,
@@ -9337,8 +9337,9 @@ pub unsafe extern "C" fn abort() -> ! {
     _exit(128 + 6);
 }
 
-// aarch64 GCC accesses the stack canary via the global __stack_chk_guard
-// symbol (GOT-based for PIE). Export it so the dynamic linker can resolve it.
+// The 128-bit targets and powerpc64 access the stack canary through the
+// global __stack_chk_guard symbol (GOT- or TOC-based for PIE).  Export it so
+// the dynamic linker can resolve it, and seed it from AT_RANDOM at startup.
 #[no_mangle]
 pub static mut __stack_chk_guard: usize = 0;
 
@@ -13090,8 +13091,9 @@ pub unsafe extern "C" fn gethostname(name: *mut c_char, len: usize) -> c_int {
 }
 
 // Linux page size.  This is hardcoded to 4096 on every architecture; that
-// is correct for the CI hosts but not for aarch64/riscv64 kernels with a
-// larger base page size.  See sysconf(_SC_PAGE_SIZE) for the same value.
+// is correct for the CI hosts but not for aarch64, powerpc64le, riscv64 or
+// loongarch64 kernels configured with a larger base page size.  See
+// sysconf(_SC_PAGE_SIZE) for the same value.
 #[no_mangle]
 pub extern "C" fn getpagesize() -> c_int {
     PAGE as c_int
@@ -16040,10 +16042,16 @@ pub unsafe extern "C" fn __libc_start_main(
         init_fn();
     }
 
-    // aarch64/riscv64 GCC reads __stack_chk_guard as a global (GOT-based for PIE),
-    // so we must initialize it from AT_RANDOM before calling main.
-    // x86_64 uses %fs:0x28 which the kernel already set up.
-    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    // aarch64/riscv64/loongarch64 GCC reads __stack_chk_guard as a global
+    // (GOT-based for PIE) and powerpc64 through its TOC, so initialize it
+    // from AT_RANDOM before calling main.  x86_64 uses %fs:0x28, which the
+    // kernel already set up.
+    #[cfg(any(
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "powerpc64",
+        target_arch = "loongarch64"
+    ))]
     {
         let random_ptr = getauxval(25) as *const u8; // AT_RANDOM = 25
         if !random_ptr.is_null() {
@@ -22544,9 +22552,16 @@ pub unsafe extern "C" fn strtof_l(nptr: *const core::ffi::c_char, endptr: *mut *
     crate::strtof(nptr, endptr)
 }
 
+#[cfg(target_arch = "x86_64")]
 #[no_mangle]
 pub unsafe extern "C" fn strtold_l(nptr: *const core::ffi::c_char, endptr: *mut *mut core::ffi::c_char, _loc: *mut core::ffi::c_void) -> f64 {
     crate::strtod(nptr, endptr)
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+#[no_mangle]
+pub unsafe extern "C" fn strtold_l(nptr: *const core::ffi::c_char, endptr: *mut *mut core::ffi::c_char, _loc: *mut core::ffi::c_void) -> f128 {
+    f64_to_f128(crate::strtod(nptr, endptr))
 }
 
 // ============================================================
@@ -23425,7 +23440,10 @@ pub unsafe extern "C" fn utmpxname(file: *const c_char) -> c_int { utmp_set_name
 #[no_mangle] pub unsafe extern "C" fn __getdelim(lineptr: *mut *mut c_char, n: *mut usize, delim: c_int, stream: *mut FILE) -> isize { getdelim(lineptr, n, delim, stream) }
 #[no_mangle] pub unsafe extern "C" fn __strtod_l(s: *const c_char, end: *mut *mut c_char, loc: locale_t) -> f64 { strtod_l(s, end, loc) }
 #[no_mangle] pub unsafe extern "C" fn __strtof_l(s: *const c_char, end: *mut *mut c_char, loc: locale_t) -> f32 { strtof_l(s, end, loc) }
+#[cfg(target_arch = "x86_64")]
 #[no_mangle] pub unsafe extern "C" fn __strtold_l(s: *const c_char, end: *mut *mut c_char, loc: locale_t) -> f64 { strtold_l(s, end, loc) }
+#[cfg(not(target_arch = "x86_64"))]
+#[no_mangle] pub unsafe extern "C" fn __strtold_l(s: *const c_char, end: *mut *mut c_char, loc: locale_t) -> f128 { strtold_l(s, end, loc) }
 
 #[no_mangle] pub unsafe extern "C" fn __strtol_internal(s: *const c_char, end: *mut *mut c_char, base: c_int) -> c_long { strtol(s, end, base) }
 #[no_mangle] pub unsafe extern "C" fn __strtoul_internal(s: *const c_char, end: *mut *mut c_char, base: c_int) -> c_ulong { strtoul(s, end, base) }

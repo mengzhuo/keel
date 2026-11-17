@@ -179,7 +179,9 @@ pub unsafe fn apply_relative(base: u64, r_offset: u64, r_addend: i64) -> u64 {
 }
 
 /// Apply packed RELR relocations: entries are either an address or a bitmap
-/// of the 63 words following the previous address.
+/// of the 63 words following the previous address.  Each slot keeps its
+/// link-time value as the addend, so the loader only adds `base`
+/// (`*slot += base`), matching musl.
 pub unsafe fn apply_relr(base: u64, relr_off: u64, relr_sz: u64) {
     if relr_sz == 0 {
         return;

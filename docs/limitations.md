@@ -30,6 +30,13 @@ regressions.  It is not an exhaustive security review.
 
 ## Threading
 
+- **initial-exec TLS in a `dlopen`ed module is only reliable for threads
+  created after the load.**  New modules are appended to the static TLS
+  block and existing threads grow their block lazily on the next dynamic
+  TLS access.  Global-dynamic and TLSDESC accesses use per-thread copies
+  and work in threads created before the `dlopen`; an `initial-exec` access
+  from such a thread can still use the old layout.  musl avoids this by
+  reserving a fixed static TLS surplus at thread creation.
 - **`getaddrinfo` and `getnameinfo` serialize on a resolver lock.**  The
   public APIs are thread-safe, but concurrent calls are serialized while
   they use the legacy non-reentrant `/etc/hosts` and service helpers.
@@ -78,6 +85,16 @@ regressions.  It is not an exhaustive security review.
 - **`dlclose` does not unload.**  It validates the handle but does not unmap
   objects or run `DT_FINI`/`DT_FINI_ARRAY`, matching musl's behaviour.
 - **`RTLD_DEEPBIND` is not provided.**  It is not part of musl's API.
+- **The loader applies every dynamic relocation type musl handles on the
+  supported architectures.**  RELA and RELR tables, `COPY`, `GLOB_DAT`,
+  `JUMP_SLOT`, `R_*_ADDR64`/`R_*_64`, TLS `DTPMOD`/`DTPREL`/`TPREL`, and
+  TLSDESC (aarch64, x86\_64, riscv64, loongarch64) are supported;
+  powerpc64le also applies `R_PPC64_UADDR64` and x86\_64 applies
+  `R_X86_64_PC32`.  IFUNC (`R_*_IRELATIVE`) is not supported, matching
+  musl.
+- **PLT relocations are bound eagerly.**  `RTLD_LAZY` behaves like
+  `RTLD_NOW`; both are valid ABI behaviour, but the loader does not defer
+  `JUMP_SLOT` resolution.
 
 ## Math
 

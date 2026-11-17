@@ -161,21 +161,29 @@ smoke_one() {
     run tls-threads "$ROOT/tests/fixtures/tlsthread_test.c" "tls threads ok"
 
     # dlopen a DSO that uses dynamic TLS.
+    # Global-dynamic (ppc64le DTPMOD/DTPREL, loongarch64 TLSDESC) and
+    # initial-exec (TPREL64) TLS in a dlopen'ed DSO.
     "$CC_BIN" -shared -nostdlib -fPIC -nostdinc -isystem "$GCCINC" \
         -I "$ROOT/include" -D_GNU_SOURCE \
         "$ROOT/tests/fixtures/dlopen_b.c" -o "$TMP/libb.so" >/dev/null 2>&1
+    "$CC_BIN" -shared -nostdlib -fPIC -ftls-model=initial-exec \
+        -nostdinc -isystem "$GCCINC" -I "$ROOT/include" -D_GNU_SOURCE \
+        "$ROOT/tests/fixtures/dlopen_b.c" -o "$TMP/libb_ie.so" >/dev/null 2>&1
     if (cd "$ROOT" && "${CC[@]}" -nostartfiles -Wl,--dynamic-linker="$T/libc.so" \
         -L"$LIBS" "$ROOT/tests/fixtures/dlopen_tls_test.c" \
         "$CRT/crt1.o" -Wl,--allow-shlib-undefined -lc -o "$TMP/dlopen_tls") \
         >"$TMP/dlopen_tls.build" 2>&1; then
-        if LD_LIBRARY_PATH="$LIBS" timeout 30 "$QEMU_BIN" "$TMP/dlopen_tls" \
-            "$TMP/libb.so" >"$TMP/dlopen_tls.out" 2>&1 \
-            && grep -q "who=2 tls=7" "$TMP/dlopen_tls.out"; then
-            echo "PASS dlopen-tls"
-        else
-            echo "FAIL dlopen-tls: $(head -c 160 "$TMP/dlopen_tls.out" | tr '\n' ' ')"
-            FAILS=$((FAILS + 1))
-        fi
+        local variant
+        for variant in libb.so libb_ie.so; do
+            if LD_LIBRARY_PATH="$LIBS" timeout 30 "$QEMU_BIN" "$TMP/dlopen_tls" \
+                "$TMP/$variant" >"$TMP/dlopen_tls.out" 2>&1 \
+                && grep -q "who=2 tls=7" "$TMP/dlopen_tls.out"; then
+                echo "PASS dlopen-tls ($variant)"
+            else
+                echo "FAIL dlopen-tls ($variant): $(head -c 160 "$TMP/dlopen_tls.out" | tr '\n' ' ')"
+                FAILS=$((FAILS + 1))
+            fi
+        done
     else
         echo "BUILDFAIL dlopen-tls"
         FAILS=$((FAILS + 1))

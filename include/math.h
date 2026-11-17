@@ -79,7 +79,7 @@ static __inline int __fpclassify(double __f)
 
 static __inline int __fpclassifyl(long double __f)
 {
-#if defined(__aarch64__) || defined(__riscv)
+#if defined(__aarch64__) || defined(__riscv) || defined(__loongarch__)
     // IEEE quad: sign(1) exponent(15) mantissa(112)
     unsigned long long __hi, __lo;
     __builtin_memcpy(&__lo, &__f, 8);
@@ -89,6 +89,9 @@ static __inline int __fpclassifyl(long double __f)
     if (!__e) return __m ? FP_SUBNORMAL : FP_ZERO;
     if (__e == 0x7fff) return __m ? FP_NAN : FP_INFINITE;
     return FP_NORMAL;
+#elif defined(__powerpc64__)
+    /* IBM double-double: classify through the high part. */
+    return __fpclassify((double)__f);
 #else
     union { long double __f; struct { unsigned long long __m; unsigned short __e; unsigned short __pad; } __i; } __u = { __f };
     int __e = __u.__i.__e & 0x7fff;
@@ -111,10 +114,12 @@ static __inline int __signbit(double __f)
 
 static __inline int __signbitl(long double __f)
 {
-#if defined(__aarch64__) || defined(__riscv)
+#if defined(__aarch64__) || defined(__riscv) || defined(__loongarch__)
     unsigned long long __hi;
     __builtin_memcpy(&__hi, (const char *)&__f + 8, 8);
     return __hi >> 63;
+#elif defined(__powerpc64__)
+    return __signbit((double)__f);
 #else
     union { long double __f; struct { unsigned long long __m; unsigned short __e; unsigned short __pad; } __i; } __u = { __f };
     return __u.__i.__e >> 15;

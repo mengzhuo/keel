@@ -38,7 +38,12 @@ const DT_RUNPATH: u64 = 29;
 const DT_GNU_HASH: u64 = 0x6ffffef5;
 const DT_VERSYM: u64 = 0x6ffffff0;
 
+// Dynamic relocation types handled by process_relocations_range().  This
+// matches musl's REL_* mapping for each architecture, plus the aarch64 TLSLE
+// instruction fixups; RELR is applied separately by apply_relr().
 const R_X86_64_64: u64 = 1;
+const R_X86_64_PC32: u64 = 2;
+const R_X86_64_TLSDESC: u64 = 36;
 const R_X86_64_COPY: u64 = 5;
 const R_X86_64_GLOB_DAT: u64 = 6;
 const R_X86_64_JUMP_SLOT: u64 = 7;
@@ -79,6 +84,7 @@ const R_ABS64: u64 = R_PPC64_ADDR64;
 const R_ABS64: u64 = R_LARCH_64;
 
 const R_PPC64_ADDR64: u64 = 38;
+const R_PPC64_UADDR64: u64 = 43;
 const R_PPC64_COPY: u64 = 19;
 const R_PPC64_GLOB_DAT: u64 = 20;
 const R_PPC64_JUMP_SLOT: u64 = 21;
@@ -2392,6 +2398,19 @@ unsafe fn apply_rela_table(
                 let sym_value = resolve_symbol_from_index(obj_idx, r_sym_idx);
                 *slot = (sym_value as i64 + r_addend) as u64;
             }
+            #[cfg(target_arch = "x86_64")]
+            R_X86_64_PC32 => {
+                // TEXTREL-style PC-relative relocations (musl's REL_OFFSET32).
+                let sym_value = resolve_symbol_from_index(obj_idx, r_sym_idx);
+                let v = (sym_value as i64 + r_addend - slot as usize as i64) as u32;
+                core::ptr::write_unaligned(slot as *mut u32, v);
+            }
+            #[cfg(target_arch = "powerpc64")]
+            R_PPC64_UADDR64 => {
+                // Unaligned 64-bit data relocation (musl's REL_USYMBOLIC).
+                let sym_value = resolve_symbol_from_index(obj_idx, r_sym_idx);
+                core::ptr::write_unaligned(slot as *mut u64, (sym_value as i64 + r_addend) as u64);
+            }
             #[cfg(not(any(target_arch = "riscv64", target_arch = "loongarch64")))]
             R_GLOB_DAT => {
                 let sym_value = resolve_symbol_from_index(obj_idx, r_sym_idx);
@@ -2435,12 +2454,18 @@ unsafe fn apply_rela_table(
             let imm = (fs_off & 0xFFF) as u32;
             let new_insn = (insn & !(0xFFFu32 << 10)) | (imm << 10);
             core::ptr::write_unaligned(slot as *mut u32, new_insn);
-        } else if r_type == R_AARCH64_TLSDESC || r_type == R_RISCV_TLSDESC || r_type == R_LARCH_TLS_DESC64 {
+        } else if r_type == R_AARCH64_TLSDESC
+            || r_type == R_RISCV_TLSDESC
+            || r_type == R_LARCH_TLS_DESC64
+            || r_type == R_X86_64_TLSDESC
+        {
             let (module, sym_off) = resolve_tls_symbol(obj_idx, r_sym_idx);
             let off_in_mod = sym_off as i64 + r_addend;
             let desc = slot as *mut [u64; 2];
-            if module >= STATIC_TLS_COUNT && off_in_mod >= 0
-                && (off_in_mod as u64) <= 0xffff_ffff && module <= 0xffff_ffff
+            if module >= STATIC_TLS_COUNT
+                && off_in_mod >= 0
+                && (off_in_mod as u64) <= 0xffff_ffff
+                && module <= 0xffff_ffff
             {
                 // [module:32][offset:32]; the resolver maps this thread's
                 // copy lazily, so a thread created before the dlopen still
@@ -2501,18 +2526,84 @@ unsafe fn run_constructors_for(idx: usize) {
 // the caller keeps TP in a caller-saved register across the call.  A normal
 // Rust function clobbers those registers (the generated aarch64 sequence keeps
 // TP in x2), so implement it in assembly exactly like musl.
-#[cfg(not(target_arch = "x86_64"))]
 extern "C" {
     fn __tlsdesc_static(desc: *const u64) -> u64;
 }
 
+// x86_64 TLSDESC resolvers receive the descriptor in %rax and return the
+// TP-relative offset in %rax.  They must preserve every other register, so
+// the dynamic path saves the caller-saved GPRs and all XMM registers before
+// calling the Rust helper.
 #[cfg(target_arch = "x86_64")]
-#[no_mangle]
-unsafe extern "C" fn __tlsdesc_static(desc: *const u64) -> u64 {
-    // x86_64 does not use TLSDESC in this toolchain; keep a referenceable
-    // definition for the shared relocation path.
-    core::ptr::read_unaligned(desc.add(1))
-}
+core::arch::global_asm!(
+    ".globl __tlsdesc_static",
+    ".hidden __tlsdesc_static",
+    ".type __tlsdesc_static,@function",
+    "__tlsdesc_static:",
+    "mov rax, qword ptr [rax + 8]",
+    "ret",
+);
+
+#[cfg(target_arch = "x86_64")]
+core::arch::global_asm!(
+    ".globl __tlsdesc_dynamic",
+    ".hidden __tlsdesc_dynamic",
+    ".type __tlsdesc_dynamic,@function",
+    "__tlsdesc_dynamic:",
+    "push rdi",
+    "push rsi",
+    "push rdx",
+    "push rcx",
+    "push r8",
+    "push r9",
+    "push r10",
+    "push r11",
+    "sub rsp, 264",
+    "movaps xmmword ptr [rsp], xmm0",
+    "movaps xmmword ptr [rsp + 16], xmm1",
+    "movaps xmmword ptr [rsp + 32], xmm2",
+    "movaps xmmword ptr [rsp + 48], xmm3",
+    "movaps xmmword ptr [rsp + 64], xmm4",
+    "movaps xmmword ptr [rsp + 80], xmm5",
+    "movaps xmmword ptr [rsp + 96], xmm6",
+    "movaps xmmword ptr [rsp + 112], xmm7",
+    "movaps xmmword ptr [rsp + 128], xmm8",
+    "movaps xmmword ptr [rsp + 144], xmm9",
+    "movaps xmmword ptr [rsp + 160], xmm10",
+    "movaps xmmword ptr [rsp + 176], xmm11",
+    "movaps xmmword ptr [rsp + 192], xmm12",
+    "movaps xmmword ptr [rsp + 208], xmm13",
+    "movaps xmmword ptr [rsp + 224], xmm14",
+    "movaps xmmword ptr [rsp + 240], xmm15",
+    "mov rdi, rax",
+    "call __keel_tlsdesc_dynamic",
+    "movaps xmm0, xmmword ptr [rsp]",
+    "movaps xmm1, xmmword ptr [rsp + 16]",
+    "movaps xmm2, xmmword ptr [rsp + 32]",
+    "movaps xmm3, xmmword ptr [rsp + 48]",
+    "movaps xmm4, xmmword ptr [rsp + 64]",
+    "movaps xmm5, xmmword ptr [rsp + 80]",
+    "movaps xmm6, xmmword ptr [rsp + 96]",
+    "movaps xmm7, xmmword ptr [rsp + 112]",
+    "movaps xmm8, xmmword ptr [rsp + 128]",
+    "movaps xmm9, xmmword ptr [rsp + 144]",
+    "movaps xmm10, xmmword ptr [rsp + 160]",
+    "movaps xmm11, xmmword ptr [rsp + 176]",
+    "movaps xmm12, xmmword ptr [rsp + 192]",
+    "movaps xmm13, xmmword ptr [rsp + 208]",
+    "movaps xmm14, xmmword ptr [rsp + 224]",
+    "movaps xmm15, xmmword ptr [rsp + 240]",
+    "add rsp, 264",
+    "pop r11",
+    "pop r10",
+    "pop r9",
+    "pop r8",
+    "pop rcx",
+    "pop rdx",
+    "pop rsi",
+    "pop rdi",
+    "ret",
+);
 
 #[cfg(target_arch = "aarch64")]
 core::arch::global_asm!(
@@ -2537,15 +2628,8 @@ core::arch::global_asm!(
 // Dynamic descriptor: descriptor[1] packs (module << 32) | offset.  The
 // resolver must preserve every register except the result, so a small
 // assembly shim saves the caller-saved set and calls the Rust helper.
-#[cfg(not(target_arch = "x86_64"))]
 extern "C" {
     fn __tlsdesc_dynamic(desc: *const u64) -> u64;
-}
-
-#[cfg(target_arch = "x86_64")]
-#[no_mangle]
-unsafe extern "C" fn __tlsdesc_dynamic(desc: *const u64) -> u64 {
-    __keel_tlsdesc_dynamic(desc) as u64
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -3525,22 +3609,20 @@ pub struct TlsIndex {
 pub unsafe extern "C" fn __ldso_tls_get_addr(ti: *const TlsIndex) -> *mut u8 {
     let module = (*ti).ti_module;
     let offset = (*ti).ti_offset;
-    // x86_64 has no dynamic TLSDESC descriptors, so its dlopen'ed modules
-    // keep using the expanded main block.  On the descriptor architectures,
-    // dlsym() and the traditional TLS model must resolve to the same
-    // per-thread copy as TLSDESC so writes through one are visible through
-    // the other.
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        if module >= STATIC_TLS_COUNT {
-            #[cfg(target_arch = "powerpc64")]
-            let dynamic_offset = offset.wrapping_add(0x8000);
-            #[cfg(not(target_arch = "powerpc64"))]
-            let dynamic_offset = offset;
-            let addr = dynamic_tls_addr(module, dynamic_offset);
-            if !addr.is_null() {
-                return addr;
-            }
+    // Modules loaded after startup can live in a per-thread private copy:
+    // old threads cannot have their static blocks resized in place, and a
+    // thread created before dlopen must still see the module's initial
+    // .tdata.  TLSDESC, the traditional TLS model and dlsym() all resolve
+    // through dynamic_tls_addr() so writes through one are visible through
+    // the others.
+    if module >= STATIC_TLS_COUNT {
+        #[cfg(target_arch = "powerpc64")]
+        let dynamic_offset = offset.wrapping_add(0x8000);
+        #[cfg(not(target_arch = "powerpc64"))]
+        let dynamic_offset = offset;
+        let addr = dynamic_tls_addr(module, dynamic_offset);
+        if !addr.is_null() {
+            return addr;
         }
     }
     let fs_base = read_tp();
