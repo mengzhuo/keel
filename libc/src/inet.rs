@@ -277,10 +277,16 @@ pub unsafe extern "C" fn inet_addr(s: *const c_char) -> u32 {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct InAddr {
+    pub s_addr: u32,
+}
+
 #[no_mangle]
-pub unsafe extern "C" fn inet_ntoa(addr: u32) -> *mut c_char {
+pub unsafe extern "C" fn inet_ntoa(addr: InAddr) -> *mut c_char {
     static mut NTOA_BUF: [c_char; 16] = [0; 16];
-    let b = addr.to_ne_bytes();
+    let b = addr.s_addr.to_ne_bytes();
     let mut pos = 0;
     for i in 0..4 {
         if i > 0 { NTOA_BUF[pos] = b'.' as c_char; pos += 1; }

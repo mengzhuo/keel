@@ -120,14 +120,79 @@ jobs:
       # and libc_test_functional.rs.
       - name: Run libc-test API suite
         run: |
-          cd libc-test-harness
+          cd scripts/libc-test-harness
           ./run.sh api
 
       - name: Run libc-test math suite
         if: matrix.arch == 'x86_64'
         run: |
-          cd libc-test-harness
+          cd scripts/libc-test-harness
           ./run.sh math
+
+  libc-test-cross:
+    name: libc-test-cross (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    # The bring-up targets are still non-blocking; promote to blocking once
+    # they have a few green weeks.
+    continue-on-error: true
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            targets: aarch64-unknown-linux-gnu
+            packages: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+            cross_cc: aarch64-linux-gnu-gcc
+          - arch: riscv64
+            targets: riscv64gc-unknown-linux-gnu
+            packages: gcc-riscv64-linux-gnu libc6-dev-riscv64-cross
+            cross_cc: riscv64-linux-gnu-gcc
+          - arch: powerpc64le
+            targets: powerpc64le-unknown-linux-gnu
+            packages: gcc-powerpc64le-linux-gnu libc6-dev-ppc64el-cross
+            cross_cc: powerpc64le-linux-gnu-gcc
+          - arch: loongarch64
+            # Ubuntu has no unversioned gcc-loongarch64-linux-gnu meta package.
+            targets: loongarch64-unknown-linux-gnu
+            packages: gcc-14-loongarch64-linux-gnu libc6-dev-loong64-cross
+            cross_cc: loongarch64-linux-gnu-gcc-14
+    env:
+      LIBC_TEST_DIR: /tmp/libc-test
+      LIBC_TEST_SHA: b7ec467969a53756258778fa7d9b045f912d1c93
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - name: Install cross compiler, target libc and qemu
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }} qemu-user
+
+      - name: Cache libc-test sources
+        uses: actions/cache@v6
+        with:
+          path: /tmp/libc-test
+          key: libc-test-${{ runner.os }}-${{ matrix.arch }}-b7ec467969a53756258778fa7d9b045f912d1c93
+
+      - name: Fetch libc-test sources
+        run: |
+          if [ ! -d /tmp/libc-test/src ] || \
+             [ "$(git -C /tmp/libc-test rev-parse HEAD 2>/dev/null)" != "$LIBC_TEST_SHA" ]; then
+            rm -rf /tmp/libc-test
+            git clone --depth 1 https://github.com/kraj/libc-test /tmp/libc-test
+          fi
+
+      - name: Run functional, regression and API suites
+        env:
+          CROSS_CC: ${{ matrix.cross_cc }}
+        run: |
+          set -e
+          ./scripts/libc-test-harness/cross-run.sh ${{ matrix.arch }} functional
+          ./scripts/libc-test-harness/cross-run.sh ${{ matrix.arch }} regression
+          ./scripts/libc-test-harness/cross-run.sh ${{ matrix.arch }} api
 
   macro-parity:
     runs-on: ubuntu-latest

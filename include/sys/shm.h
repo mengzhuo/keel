@@ -16,6 +16,20 @@ typedef int pid_t;
 
 #define SHMLBA 4096
 
+#if defined(__powerpc64__)
+struct shmid_ds {
+	struct ipc_perm shm_perm;
+	time_t shm_atime;
+	time_t shm_dtime;
+	time_t shm_ctime;
+	size_t shm_segsz;
+	pid_t shm_cpid;
+	pid_t shm_lpid;
+	unsigned long shm_nattch;
+	unsigned long __pad1;
+	unsigned long __pad2;
+};
+#else
 struct shmid_ds {
 	struct ipc_perm shm_perm;
 	size_t shm_segsz;
@@ -28,6 +42,7 @@ struct shmid_ds {
 	unsigned long __pad1;
 	unsigned long __pad2;
 };
+#endif
 
 struct shminfo {
 	unsigned long shmmax, shmmin, shmmni, shmseg, shmall, __unused[4];

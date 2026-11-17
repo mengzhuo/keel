@@ -65,9 +65,17 @@ pub const SS_DISABLE: c_int = 2;
 pub const MINSIGSTKSZ: usize = 6144;
 #[cfg(target_arch = "aarch64")]
 pub const SIGSTKSZ: usize = 12288;
-#[cfg(not(target_arch = "aarch64"))]
+#[cfg(target_arch = "powerpc64")]
+pub const MINSIGSTKSZ: usize = 4096;
+#[cfg(target_arch = "powerpc64")]
+pub const SIGSTKSZ: usize = 10240;
+#[cfg(target_arch = "loongarch64")]
+pub const MINSIGSTKSZ: usize = 4096;
+#[cfg(target_arch = "loongarch64")]
+pub const SIGSTKSZ: usize = 16384;
+#[cfg(any(target_arch = "x86_64", target_arch = "riscv64"))]
 pub const MINSIGSTKSZ: usize = 2048;
-#[cfg(not(target_arch = "aarch64"))]
+#[cfg(any(target_arch = "x86_64", target_arch = "riscv64"))]
 pub const SIGSTKSZ: usize = 8192;
 
 pub const SI_USER: c_int = 0;

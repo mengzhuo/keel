@@ -99,13 +99,13 @@ jobs:
       # tests/libc_test_regression.rs and tests/libc_test_functional.rs.
       - name: Run libc-test API suite
         run: |
-          cd libc-test-harness
+          cd scripts/libc-test-harness
           ./run.sh api
 
       - name: Run libc-test math suite
         if: matrix.arch == 'x86_64'
         run: |
-          cd libc-test-harness
+          cd scripts/libc-test-harness
           ./run.sh math
 
   macro-parity:

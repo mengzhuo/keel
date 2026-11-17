@@ -34,7 +34,7 @@ fn libc_test_functional_networking_and_fcntl() {
     }
 
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let harness = manifest_dir.join("libc-test-harness/run.sh");
+    let harness = manifest_dir.join("scripts/libc-test-harness/run.sh");
 
     let output = Command::new(&harness)
         .arg("functional")

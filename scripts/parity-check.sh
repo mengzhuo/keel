@@ -30,13 +30,13 @@
 #   PARITY_RETRIES retries after a mismatching run (default 2)
 #   PARITY_SKIP    space-separated tests that are ABI-incompatible
 #   PARITY_KNOWN   space-separated tests with a documented difference
-#   PARITY_DIR     build/report directory (default libc-test-harness/parity)
+#   PARITY_DIR     build/report directory (default scripts/libc-test-harness/parity)
 #
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIBC_TEST_DIR="${LIBC_TEST_DIR:-$(dirname "$ROOT")/libc-test}"
-PARITY_DIR="${PARITY_DIR:-$ROOT/libc-test-harness/parity}"
+PARITY_DIR="${PARITY_DIR:-$ROOT/scripts/libc-test-harness/parity}"
 CC="${CC:-musl-gcc}"
 TIMEOUT="${TIMEOUT:-30}"
 RETRIES="${PARITY_RETRIES:-2}"

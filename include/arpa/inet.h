@@ -43,10 +43,11 @@ struct in_addr inet_makeaddr(in_addr_t, in_addr_t);
 in_addr_t inet_lnaof(struct in_addr);
 in_addr_t inet_netof(struct in_addr);
 
-/* keel historically exposes the raw 32-bit address in these two entry
- * points; keep both calling conventions source-compatible. */
+/* keel historically exposed the raw 32-bit address in inet_aton; keep the
+ * pointer cast source-compatible.  inet_ntoa uses the standard musl ABI and
+ * takes struct in_addr by value. */
 #define inet_aton(s, p) inet_aton((s), (void *)(p))
-#define inet_ntoa(addr) inet_ntoa((struct in_addr){ .s_addr = (in_addr_t)(addr) })
+char *inet_ntoa(struct in_addr);
 
 uint32_t htonl(uint32_t);
 uint16_t htons(uint16_t);

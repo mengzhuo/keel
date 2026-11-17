@@ -1,6 +1,6 @@
 # libc-test Integration Harness
 
-Builds and runs the [libc-test](https://git.musl-libc.org/cgit/libc-test) suite against keel's libc.so to produce a categorized failure report.
+Lives under `scripts/`. Builds and runs the [libc-test](https://git.musl-libc.org/cgit/libc-test) suite against keel's libc.so to produce a categorized failure report.
 
 ## How It Works
 
@@ -13,20 +13,36 @@ Builds and runs the [libc-test](https://git.musl-libc.org/cgit/libc-test) suite 
 ## Usage
 
 ```bash
-./run.sh              # functional tests only (default)
-./run.sh math         # math tests only
-./run.sh regression   # regression tests only
-./run.sh api          # API/header tests only
-./run.sh all          # all categories
+./run.sh              # native functional tests (default)
+./run.sh math         # native math tests
+./run.sh regression   # native regression tests
+./run.sh api          # native API/header tests
+./run.sh all          # native, all categories
+
+./cross-run.sh aarch64 functional
+./cross-run.sh riscv64 regression
+./cross-run.sh powerpc64le api
+./cross-run.sh loongarch64 functional
 ```
 
 Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `reports/latest-raw.txt` always point to the most recent run.
 
 ## Requirements
 
+Native:
+
 - musl-gcc (`apt install musl-tools`)
 - Rust stable toolchain (for building keel)
 - libc-test source in a sibling `libc-test/` checkout (override with the `LIBC_TEST_DIR` env var)
+
+Cross (`cross-run.sh`):
+
+- the target cross GCC and its `libc6-dev-*-cross` static libraries
+- the matching Rust `-gnu` target
+- `qemu-user`
+- e.g. `apt install gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user`
+
+`cross-run.sh` builds the test driver as a static cross-glibc binary and builds the test binaries against keel's headers/libc, then runs both through qemu.  `CROSS_CC`/`CROSS_QEMU`/`LIBC_TEST_DIR` override the defaults.
 
 ## Known Limitations
 
@@ -45,7 +61,15 @@ Reports are saved to `reports/`. Symlinks `reports/latest-summary.txt` and `repo
   binaries are built here; the root integration tests cover `libc.a`.
 - **Only the functional subset runs by default** — use `./run.sh all` for everything.
 
-Current baseline (x86_64, pinned `libc-test` checkout): `functional` 72/72,
+Cross baseline (qemu, pinned `libc-test` checkout): aarch64, powerpc64le,
+loongarch64 and riscv64 all report `functional` 70 PASS + 3 SKIP,
+`regression` 65 PASS + 3 SKIP as root (66 + 2 unprivileged) and `api`
+79/79.  The cross skips are the robust-futex tests (qemu-user) plus
+`strtold`/`tls_local_exec` on the 128-bit long-double/TLS-alignment
+targets.  Cross `math` is not part of the gate; the x86_64 math suite
+below still runs natively.
+
+Current native baseline (x86_64, pinned `libc-test` checkout): `functional` 72/72,
 `regression` 66 PASS + 2 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The
 regression skip is `pthread_atfork-errno-clobber`, which can only pass as an
 unprivileged user and also fails under musl when root. On aarch64,

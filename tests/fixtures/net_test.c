@@ -58,7 +58,9 @@ static void test_inet(void) {
     CHECK(p && strcmp(buf, "127.0.0.1") == 0, "inet_ntop v4");
 
     a.s_addr = htonl(0x0a00801f);
-    p = inet_ntoa(a.s_addr);
+    struct in_addr ia;
+    ia.s_addr = a.s_addr;
+    p = inet_ntoa(ia);
     CHECK(p && strcmp(p, "10.0.128.31") == 0, "inet_ntoa");
 
     /* inet_makeaddr uses musl's class thresholds (256/65536), and

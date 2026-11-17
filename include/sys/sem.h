@@ -23,6 +23,7 @@ typedef int pid_t;
 #define SETVAL		16
 #define SETALL		17
 
+#if defined(__x86_64__)
 struct semid_ds {
 	struct ipc_perm sem_perm;
 	time_t sem_otime;
@@ -34,6 +35,17 @@ struct semid_ds {
 	long __unused3;
 	long __unused4;
 };
+#else
+struct semid_ds {
+	struct ipc_perm sem_perm;
+	time_t sem_otime;
+	time_t sem_ctime;
+	unsigned short sem_nsems;
+	char __sem_nsems_pad[sizeof(long)-sizeof(short)];
+	long __unused3;
+	long __unused4;
+};
+#endif
 
 #define _SEM_SEMUN_UNDEFINED 1
 

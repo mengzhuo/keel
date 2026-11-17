@@ -15,7 +15,7 @@
 | `utils/` | Package `keel-utils`; Rust multicall binary for `getconf`, `getent`, `iconv`, `ldd`, `ldconfig`. |
 | `tools/header-check/` | Package `keel-header-check`; expands the headers for all three arches and compares every integer macro with the matching Rust constant. It is the first CI gate. |
 | `tests/` | Root-package integration tests; C fixtures live in `tests/fixtures/`. |
-| `libc-test-harness/` | Shell runner for upstream `libc-test`; reports in `libc-test-harness/reports/`. |
+| `scripts/libc-test-harness/` | Native and cross (`cross-run.sh`, qemu) upstream `libc-test` runner; reports in `scripts/libc-test-harness/reports/`. |
 | `scripts/local-ci.sh` | Runs `cargo build/test --workspace` in the Ubuntu CI image (it does not run the harness). |
 | `scripts/alpine-ci.sh` | Runs `cargo build/test --workspace` in latest Alpine with the stable musl toolchain and Debian-compatible shims. |
 | `scripts/riscv-smoke.sh` | Cross-builds and runs riscv64 fixtures under `qemu-riscv64`. |
@@ -80,7 +80,7 @@ Pass extra compiler flags through the `extra` slice. Math adds
 `common::compile_static(src, bin)` builds a static fixture against `libc.a`
 with the host musl CRT objects; tests then run it directly and through the
 standalone `loader`. Tests that build DSOs or custom loader layouts still
-invoke the toolchain directly. `tests/crypt.rs` compiles the checked-in `tests/fixtures/crypt_test.c`. `tests/libc_test_regression.rs` and `tests/libc_test_functional.rs` shell out to `libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup. They skip when `LIBC_TEST_DIR` (default: sibling `libc-test`) is absent, so set it to a nonexistent path when you only want the local fixtures.
+invoke the toolchain directly. `tests/crypt.rs` compiles the checked-in `tests/fixtures/crypt_test.c`. `tests/libc_test_regression.rs` and `tests/libc_test_functional.rs` shell out to `scripts/libc-test-harness/run.sh` and assert aggregate PASS/FAIL counts; they are slow and depend on the harness setup. They skip when `LIBC_TEST_DIR` (default: sibling `libc-test`) is absent, so set it to a nonexistent path when you only want the local fixtures.
 
 `libc` sets `test = false`; all coverage is through these root integration tests.
 
@@ -126,7 +126,7 @@ invoke the toolchain directly. `tests/crypt.rs` compiles the checked-in `tests/f
 - `libm = "0.2"` is intentional for f32/f64 functions where it matches musl's fenv and rounding behavior.  The local ports are kept where libm changes observable results: `log*`, `pow*`, `sin*`/`cos*`/`tan*`, `lgamma*`, `tgamma*`, `y0`, `sinh*`, `exp`/`expf`, and `round*`.
 - `long double`: keel's x86_64 ABI is 64-bit (fixtures pass `-mlong-double-64`); aarch64/riscv64 use `f128` signatures, though `math_long_double.rs` currently computes through `f64`.
 - `libc/build.rs` links `libc.so` with `-Wl,-Bsymbolic-functions`; keep `_start` as the weak `global_asm!` entry in `libc/src/ldso/mod.rs`. `_start` is a tiny per-arch stub that passes the kernel stack to `ldso_self_relocate()`, a shared Rust routine that walks AT_BASE/program headers/dynamic and applies the interpreter's RELATIVE relocations; the loader later resolves its non-RELATIVE entries and skips the RELATIVE ones. The interpreter registers itself as `libc.so` before dependencies so `DT_NEEDED libc.so` resolves to the existing mapping.
-- CI (`.github/workflows/ci.yml`) runs build + `cargo test --workspace` natively on x86_64 and aarch64 (`ubuntu-24.04-arm`). It caches libc-test by upstream HEAD SHA and sets `LIBC_TEST_DIR`, so `libc_test_regression`/`libc_test_functional` run regression/functional inside `cargo test`; the API suite runs on both arches and the math suite on x86_64. The native riscv64 entry (RISE `ubuntu-24.04-riscv`) is currently commented out because the runner does not come up; the x86-hosted `cross-arch` matrix cross-builds and runs the qemu smoke suites for riscv64, powerpc64le and loongarch64 (non-blocking, 30 minute cap).
+- CI (`.github/workflows/ci.yml`) runs build + `cargo test --workspace` natively on x86_64 and aarch64 (`ubuntu-24.04-arm`). It caches libc-test by upstream HEAD SHA and sets `LIBC_TEST_DIR`, so `libc_test_regression`/`libc_test_functional` run regression/functional inside `cargo test`; the API suite runs on both arches and the math suite on x86_64. The native riscv64 entry (RISE `ubuntu-24.04-riscv`) is currently commented out because the runner does not come up; the x86-hosted `cross-arch` matrix cross-builds and runs the qemu smoke suites for riscv64, powerpc64le and loongarch64 (non-blocking, 30 minute cap). A second `libc-test-cross` matrix runs the functional, regression and API suites through qemu for those targets (non-blocking, 60 minute cap); cross math is not gated.
 - `scripts/local-ci.sh` accepts `CI_RUNNER` (podman/docker) and `CI_IMAGE` overrides.
 - All public musl function symbols are exported from the combined `libc.so`. Because musl's `libc.so` is also its loader, `scripts/parity-check.sh symbols` compares the two single-library symbol sets. `libc.so` exports a `__tls_get_addr` entry so C++ linkers can resolve `libstdc++.so`; the loader installs its multi-module resolver through `__keel_set_tls_get_addr` before constructors, and static executables use the module-0 fallback. The resolver (`res_*`) and utmp/utmpx are real implementations; `_init`, `_fini`, and `_dl_debug_*` are linker internals and are intentionally absent.
 - `tests/compat.rs` exercises the non-libc-test ABI surface (resolver, netdb, passwd/group/shadow, utmp, AIO, glob/nftw/realpath, wordexp, fopencookie, DES crypt, dladdr, statfs, sysinfo, posix_getdents, pthread join variants, futimesat, mremap, etc.).
@@ -182,12 +182,15 @@ The default registry in this environment is a mirror; pass `--registry crates-io
 Run these inside the test container, after `cargo build --workspace`.
 
 ```bash
-cd libc-test-harness
-./run.sh              # functional (default)
-./run.sh math         # math subset
+cd scripts/libc-test-harness
+./run.sh              # native functional (default)
+./run.sh math         # native math subset
 ./run.sh regression
 ./run.sh api          # compile-only header/API checks
 ./run.sh all
+./cross-run.sh aarch64 functional     # cross via qemu; also riscv64,
+./cross-run.sh powerpc64le regression # powerpc64le and loongarch64
+./cross-run.sh loongarch64 api
 ```
 
 - Defaults to a sibling `libc-test` checkout; override it with `LIBC_TEST_DIR`.
@@ -282,5 +285,5 @@ math / mm / sched / nptl / ipc  # failure lists identical to musl
 
 - CI runs as an unprivileged user, so `pthread_atfork-errno-clobber` runs and
   passes there: `415 PASS, 4 SKIP`.
-- If a run shows a different result, first re-run sequentially and compare against the previous report in `libc-test-harness/reports/`.
+- If a run shows a different result, first re-run sequentially and compare against the previous report in `scripts/libc-test-harness/reports/`.  Cross reports are `cross_<arch>_*.txt`; the cross harness shares `libc-test/src/*_dso.so` symlinks, so run different architectures sequentially on one checkout.
 - The four math SKIPs are the only known expected non-passes; do not "fix" them by weakening the implementation.

@@ -124,6 +124,7 @@ size_t wcstombs(char *, const wchar_t *, size_t);
 char *mkdtemp(char *);
 int mkstemp(char *);
 int mkstemps(char *, int);
+char *mktemp(char *);
 int mkostemp(char *, int);
 int mkostemps(char *, int, int);
 int getsubopt(char **, char *const *, char **);
