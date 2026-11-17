@@ -1,6 +1,22 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
+# CI is also the release gate: release.yml calls this workflow through
+# workflow_call, so every job here must be blocking.
+#
+# Job graph:
+#
+#   header-consistency ──┬──> macro-parity
+#                        ├──> build-and-test   (native x86_64 + aarch64)
+#                        ├──> libc-test-cross  (qemu: aarch64/riscv64/ppc64le/loongarch64)
+#                        └──> cross-arch       (qemu smoke: riscv64/ppc64le/loongarch64)
+#                                     │
+#                                     v
+#                                 ci-status
+#
+# `ci-status` is the single check to require in branch protection: it only
+# succeeds when every job above succeeded.
+
 name: CI
 
 on:
@@ -8,6 +24,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,6 +53,27 @@ jobs:
       - name: Check headers against Rust constants
         run: cargo run -q -p keel-header-check -- --include include
 
+  macro-parity:
+    needs: header-consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu g++-aarch64-linux-gnu g++-riscv64-linux-gnu make curl
+
+      - name: Cache musl 1.2.6 headers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/keel
+          key: musl-1.2.6-headers-v1
+
+      - name: Check macro expansion parity
+        run: ./scripts/macro-parity.sh
+
   build-and-test:
     needs: header-consistency
     strategy:
@@ -51,9 +92,7 @@ jobs:
           # - arch: riscv64
           #   os: ubuntu-24.04-riscv
     runs-on: ${{ matrix.os }}
-    # RISC-V hardware is scarce and slower; keep it non-blocking and capped.
-    continue-on-error: ${{ matrix.arch == 'riscv64' }}
-    timeout-minutes: ${{ matrix.arch == 'riscv64' && 10 || 360 }}
+    timeout-minutes: 360
     env:
       LIBC_TEST_DIR: /tmp/libc-test
       # Pin upstream libc-test so an unrelated commit cannot change results.
@@ -129,12 +168,12 @@ jobs:
           cd scripts/libc-test-harness
           ./run.sh math
 
+  # Cross-arch libc-test suites. Both matrices are blocking: together with
+  # the native jobs they gate releases through ci-status.
   libc-test-cross:
     name: libc-test-cross (${{ matrix.arch }})
+    needs: header-consistency
     runs-on: ubuntu-latest
-    # The bring-up targets are still non-blocking; promote to blocking once
-    # they have a few green weeks.
-    continue-on-error: true
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -153,7 +192,8 @@ jobs:
             packages: gcc-powerpc64le-linux-gnu libc6-dev-ppc64el-cross
             cross_cc: powerpc64le-linux-gnu-gcc
           - arch: loongarch64
-            # Ubuntu has no unversioned gcc-loongarch64-linux-gnu meta package.
+            # Pin GCC 14: resolute's unversioned package selects GCC 15,
+            # which has not been validated for this port yet.
             targets: loongarch64-unknown-linux-gnu
             packages: gcc-14-loongarch64-linux-gnu libc6-dev-loong64-cross
             cross_cc: loongarch64-linux-gnu-gcc-14
@@ -194,30 +234,10 @@ jobs:
           ./scripts/libc-test-harness/cross-run.sh ${{ matrix.arch }} regression
           ./scripts/libc-test-harness/cross-run.sh ${{ matrix.arch }} api
 
-  macro-parity:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install cross compilers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu g++-aarch64-linux-gnu g++-riscv64-linux-gnu make curl
-
-      - name: Cache musl 1.2.6 headers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/keel
-          key: musl-1.2.6-headers-v1
-
-      - name: Check macro expansion parity
-        run: ./scripts/macro-parity.sh
-
   cross-arch:
     name: cross-arch (${{ matrix.arch }})
+    needs: header-consistency
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -236,8 +256,9 @@ jobs:
             cross_cc: ""
             script: ./scripts/cross-smoke.sh powerpc64le
           - arch: loongarch64
+            # Pin GCC 14: resolute's unversioned package selects GCC 15,
+            # which has not been validated for this port yet.
             targets: loongarch64-unknown-linux-gnu,loongarch64-unknown-linux-musl
-            # Ubuntu has no unversioned gcc-loongarch64-linux-gnu meta package.
             packages: gcc-14-loongarch64-linux-gnu libc6-dev-loong64-cross
             cross_cc: loongarch64-linux-gnu-gcc-14
             script: ./scripts/cross-smoke.sh loongarch64
@@ -256,3 +277,34 @@ jobs:
         env:
           CROSS_CC: ${{ matrix.cross_cc }}
         run: ${{ matrix.script }}
+
+  # Aggregate gate. `if: always()` makes this run even when an upstream job
+  # failed or was skipped, so the workflow (and a release that calls it)
+  # cannot pass on a partial matrix.
+  ci-status:
+    name: CI status
+    if: always()
+    needs: [header-consistency, macro-parity, build-and-test, libc-test-cross, cross-arch]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to succeed
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS='=' read -r name result; do
+            if [ "$result" != "success" ]; then
+              echo "::error::$name did not succeed (result: $result)"
+              failed=1
+            fi
+          done <<'RESULTS'
+          header-consistency=${{ needs.header-consistency.result }}
+          macro-parity=${{ needs.macro-parity.result }}
+          build-and-test=${{ needs.build-and-test.result }}
+          libc-test-cross=${{ needs.libc-test-cross.result }}
+          cross-arch=${{ needs.cross-arch.result }}
+          RESULTS
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All CI jobs succeeded."

@@ -131,3 +131,13 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
 
 `scripts/build-utils.sh` builds a static musl multicall binary for each
 target; riscv64 uses `rust-lld` and Rust's self-contained musl sysroot.
+
+## Releasing
+
+Packages are published by `.github/workflows/release.yml` on `v*` tags. The
+workflow first verifies that the tag matches all three crate manifests, then
+runs the complete CI workflow (`.github/workflows/ci.yml`) as a required
+gate. The `publish` job, including every release build and APK smoke test,
+only starts after the native x86_64/aarch64 jobs, macro/header checks,
+cross-arch smoke tests and cross-architecture libc-test suites all pass. A
+failed or skipped CI job prevents any crate or APK from being published.
