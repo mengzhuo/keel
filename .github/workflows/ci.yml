@@ -149,25 +149,44 @@ jobs:
       - name: Check macro expansion parity
         run: ./scripts/macro-parity.sh
 
-  riscv64-cross:
+  cross-arch:
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 10
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: riscv64
+            targets: riscv64gc-unknown-linux-musl
+            packages: gcc-riscv64-linux-gnu
+            cross_cc: ""
+            script: ./scripts/riscv-smoke.sh
+          - arch: powerpc64le
+            # libc.so is built for the gnu target: the stable musl targets
+            # cannot emit a cdylib.  The musl target supplies the CRT objects.
+            targets: powerpc64le-unknown-linux-gnu,powerpc64le-unknown-linux-musl
+            packages: gcc-powerpc64le-linux-gnu libc6-dev-ppc64el-cross
+            cross_cc: ""
+            script: ./scripts/cross-smoke.sh powerpc64le
+          - arch: loongarch64
+            targets: loongarch64-unknown-linux-gnu,loongarch64-unknown-linux-musl
+            # Ubuntu has no unversioned gcc-loongarch64-linux-gnu meta package.
+            packages: gcc-14-loongarch64-linux-gnu libc6-dev-loong64-cross
+            cross_cc: loongarch64-linux-gnu-gcc-14
+            script: ./scripts/cross-smoke.sh loongarch64
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install stable Rust + riscv64 target
+      - name: Install stable Rust + cross targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: riscv64gc-unknown-linux-musl
+          targets: ${{ matrix.targets }}
 
-      - name: Install riscv64 cross compiler and qemu
-        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-linux-gnu qemu-user
+      - name: Install ${{ matrix.arch }} cross compiler and qemu
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }} qemu-user
 
-      - name: Cross-build all artifacts
+      - name: Cross-build and smoke-test ${{ matrix.arch }} under qemu
         env:
-          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER: riscv64-linux-gnu-gcc
-        run: cargo build --workspace --target riscv64gc-unknown-linux-musl
-
-      - name: Smoke-test riscv64 under qemu
-        run: ./scripts/riscv-smoke.sh
+          CROSS_CC: ${{ matrix.cross_cc }}
+        run: ${{ matrix.script }}
