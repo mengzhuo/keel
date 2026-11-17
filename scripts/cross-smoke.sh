@@ -29,6 +29,9 @@ setup_arch() {
             MUSL_TARGET=powerpc64le-unknown-linux-musl
             QEMU_BIN="${CROSS_QEMU:-qemu-ppc64le}"
             ENV_PREFIX=CARGO_TARGET_POWERPC64LE_UNKNOWN_LINUX_GNU_LINKER
+            # Ubuntu 26.04's GCC defaults to IEEE binary128 long double.
+            # keel and musl's ppc64le port follow the IBM double-double ABI.
+            ABI_FLAGS=(-mabi=ibmlongdouble)
             ;;
         loongarch64)
             CC_BIN="${CROSS_CC:-loongarch64-linux-gnu-gcc}"
@@ -36,6 +39,7 @@ setup_arch() {
             MUSL_TARGET=loongarch64-unknown-linux-musl
             QEMU_BIN="${CROSS_QEMU:-qemu-loongarch64}"
             ENV_PREFIX=CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER
+            ABI_FLAGS=()
             ;;
         *)
             echo "unknown architecture: $1" >&2
@@ -87,7 +91,7 @@ smoke_one() {
         ln -sf "$T/libc.so" "$LIBS/$l.so"
     done
 
-    local CC=("$CC_BIN" -fPIE -pie -fno-builtin -nostdinc -isystem "$GCCINC"
+    local CC=("$CC_BIN" "${ABI_FLAGS[@]}" -fPIE -pie -fno-builtin -nostdinc -isystem "$GCCINC"
         -I "$ROOT/include" -D_GNU_SOURCE -Wl,--no-as-needed)
 
     run() {
@@ -149,7 +153,7 @@ smoke_one() {
     run ucontext "$ROOT/tests/fixtures/ucontext_test.c" "ucontext ok"
 
     # Standalone loader: a static PIE with raw syscalls.
-    if "$CC_BIN" -static-pie -nostdlib -fPIE \
+    if "$CC_BIN" "${ABI_FLAGS[@]}" -static-pie -nostdlib -fPIE \
         "$ROOT/tests/fixtures/tiny.c" -o "$TMP/tiny" >/dev/null 2>&1 \
         && [ "$(timeout 10 "$QEMU_BIN" "$T/keel" "$TMP/tiny" 2>/dev/null)" = Hello ]; then
         echo "PASS tiny-loader"
@@ -164,10 +168,10 @@ smoke_one() {
     # dlopen a DSO that uses dynamic TLS.
     # Global-dynamic (ppc64le DTPMOD/DTPREL, loongarch64 TLSDESC) and
     # initial-exec (TPREL64) TLS in a dlopen'ed DSO.
-    "$CC_BIN" -shared -nostdlib -fPIC -nostdinc -isystem "$GCCINC" \
+    "$CC_BIN" "${ABI_FLAGS[@]}" -shared -nostdlib -fPIC -nostdinc -isystem "$GCCINC" \
         -I "$ROOT/include" -D_GNU_SOURCE \
         "$ROOT/tests/fixtures/dlopen_b.c" -o "$TMP/libb.so" >/dev/null 2>&1
-    "$CC_BIN" -shared -nostdlib -fPIC -ftls-model=initial-exec \
+    "$CC_BIN" "${ABI_FLAGS[@]}" -shared -nostdlib -fPIC -ftls-model=initial-exec \
         -nostdinc -isystem "$GCCINC" -I "$ROOT/include" -D_GNU_SOURCE \
         "$ROOT/tests/fixtures/dlopen_b.c" -o "$TMP/libb_ie.so" >/dev/null 2>&1
     if (cd "$ROOT" && "${CC[@]}" -nostartfiles -Wl,--dynamic-linker="$T/libc.so" \

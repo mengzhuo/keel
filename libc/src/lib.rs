@@ -102,6 +102,14 @@ fn f128_to_f64(x: f128) -> f64 {
     x.hi + x.lo
 }
 
+#[cfg(target_arch = "powerpc64")]
+unsafe fn valist_read_f128(args: &mut VaList<'_>) -> f128 {
+    // IBM double-double occupies two consecutive FPR save slots.
+    let hi = args.next_arg::<f64>();
+    let lo = args.next_arg::<f64>();
+    f128 { hi, lo }
+}
+
 #[cfg(target_arch = "riscv64")]
 unsafe fn valist_read_f128(args: &mut VaList<'_>) -> f128 {
     // RISC-V va_list is an opaque pointer to the next argument. A 16-byte
@@ -7415,9 +7423,9 @@ macro_rules! impl_format {
                         }
                         (b'L', b'f') | (b'L', b'F') | (b'L', b'e') | (b'L', b'E')
                         | (b'L', b'g') | (b'L', b'G') | (b'L', b'a') | (b'L', b'A') => {
-                            #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+                            #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64"))]
                             let val = f128_to_f64(valist_read_f128(args));
-                            #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64", target_arch = "loongarch64"))]
+                            #[cfg(any(target_arch = "x86_64", target_arch = "loongarch64"))]
                             let val = args.next_arg::<f64>();
                             let mut wbuf = [0u8; FMT_FLOAT_BUF];
                             let total = format_float_into(wbuf.as_mut_ptr(), val, spec, precision, width, flags);
@@ -11249,9 +11257,9 @@ unsafe fn vswprintf_impl(
                     },
                     (b'L', b'f') | (b'L', b'F') | (b'L', b'e') | (b'L', b'E')
                     | (b'L', b'g') | (b'L', b'G') | (b'L', b'a') | (b'L', b'A') => {
-                        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+                        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "powerpc64"))]
                         let val = f128_to_f64(valist_read_f128(&mut args));
-                        #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64", target_arch = "loongarch64"))]
+                        #[cfg(any(target_arch = "x86_64", target_arch = "loongarch64"))]
                         let val = args.next_arg::<f64>();
                         let mut wbuf = [0u8; FMT_FLOAT_BUF];
                         let wlen = format_float_into(wbuf.as_mut_ptr(), val, spec, precision, width, flags);

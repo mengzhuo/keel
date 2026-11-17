@@ -112,6 +112,17 @@ regressions.  It is not an exhaustive security review.
   the function signatures match those ABIs, but `math_long_double.rs`,
   `strtold` and `printf`'s `%Lf` convert through `f64`, so results lose
   precision and range beyond double.
+- **powerpc64le follows the IBM double-double long-double ABI.**  This is
+  the historical ppc64le default and what musl toolchains built with GCC 14
+  or older use.  GCC configured with `--with-long-double-format=ieee`
+  (Ubuntu 26.04's cross compiler) must compile against keel with
+  `-mabi=ibmlongdouble`; `scripts/cross-smoke.sh` does this for its
+  fixtures.  Mixing IEEE and IBM long-double objects is not supported.
+- **loongarch64 `printf("%Lf")` reads variadic long doubles as one `f64`.**
+  The value and alignment of a 16-byte variadic long double in the
+  loongarch64 va_list are not decoded yet, so multiple or 128-bit long
+  double arguments can print wrong values.  The other targets use the
+  correct 16-byte vararg convention.
 - **`vfork` forwards to `fork` and `posix_spawn` uses `fork`.**  The
   semantics are the portable ones; the copy-on-write/`vfork` performance
   optimisation is not implemented.
