@@ -1,12 +1,17 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Precheck group: header consistency, Rust formatting, clippy and macro
-# parity.  ci.yml calls this workflow as the single `precheck` job, and the
-# heavier build/test jobs only start after the whole group succeeds.
+# Precheck group: ci.yml calls this workflow as the single `precheck` job,
+# and the heavier build/test jobs only start after the whole group succeeds.
 #
-# Formatting is checked before macro-parity: rustfmt must see the source as
-# written, not the expanded headers/macros.
+# It contains two ordered groups:
+#
+#   fmt-lint:     fmt  -> lint
+#   header-macro: header -> macro-parity
+#
+# fmt runs before header, so formatting is known-good before the header and
+# macro checks start.  rustfmt therefore sees the source before any macro
+# expansion.
 
 name: Precheck
 
@@ -23,7 +28,8 @@ jobs:
   # The hand-maintained headers and the Rust sources are independent sources
   # of truth, so fail fast if a numeric macro drifts.
   header:
-    name: header
+    name: header-macro / header
+    needs: fmt
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -41,7 +47,7 @@ jobs:
         run: cargo run -q -p keel-header-check -- --include include
 
   fmt:
-    name: fmt
+    name: fmt-lint / fmt
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -59,8 +65,8 @@ jobs:
   # keel-libc's correctness lints while allowing the intentional style lints
   # from its literal musl port.
   lint:
-    name: lint
-    needs: [header, fmt]
+    name: fmt-lint / lint
+    needs: fmt
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -81,8 +87,8 @@ jobs:
         run: ./scripts/lint.sh
 
   macro-parity:
-    name: macro-parity
-    needs: [header, fmt]
+    name: header-macro / macro-parity
+    needs: header
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

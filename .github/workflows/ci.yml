@@ -6,7 +6,9 @@
 #
 # Job graph:
 #
-#   precheck (header, fmt, lint, macro-parity)
+#   precheck
+#     ├── fmt-lint:     fmt -> lint
+#     └── header-macro: header -> macro-parity   (header waits for fmt)
 #          │
 #          ├──> build-and-test    (native x86_64 + aarch64)
 #          ├──> libc-test-cross   (qemu: aarch64/riscv64/ppc64le/loongarch64)
