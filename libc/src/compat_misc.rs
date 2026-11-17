@@ -720,20 +720,6 @@ pub unsafe extern "C" fn remap_file_pages(addr: *mut core::ffi::c_void, size: us
     syscall_ret(<Arch as Syscalls>::syscall5(SYS_REMAP_FILE_PAGES, addr as i64, size as i64, prot as i64, pgoff as i64, flags as i64)) as i32
 }
 
-// ============================================================
-// nan functions
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn nan(_tagp: *const core::ffi::c_char) -> f64 {
-    f64::NAN
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn nanf(_tagp: *const core::ffi::c_char) -> f32 {
-    f32::NAN
-}
-
 include!("compat_symbols.rs");
 // ============================================================
 // Final missing symbols
@@ -952,115 +938,6 @@ pub unsafe extern "C" fn mincore(addr: *mut u8, len: usize, vec: *mut u8) -> i32
 }
 
 // ============================================================
-
-// ============================================================
-// Missing math functions
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn drem(x: f64, y: f64) -> f64 {
-    remainder(x, y)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn dremf(x: f32, y: f32) -> f32 {
-    remainderf(x, y)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn pow10(x: f64) -> f64 {
-    libm::pow(10.0, x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn pow10f(x: f32) -> f32 {
-    libm::powf(10.0, x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn pow10l(x: f64) -> f64 {
-    libm::pow(10.0, x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isless(x: f64, y: f64) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x < y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn islessf(x: f32, y: f32) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x < y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn lgamma_r(x: f64, signgamp: *mut i32) -> f64 {
-    lgamma_r_impl(x, signgamp)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn lgammaf_r(x: f32, signgamp: *mut i32) -> f32 {
-    if x.is_nan() {
-        if !signgamp.is_null() { *signgamp = 1; }
-        return x;
-    }
-    if x == 0.0 {
-        if !signgamp.is_null() { *signgamp = if x.is_sign_negative() { -1 } else { 1 }; }
-        feraiseexcept(FE_DIVBYZERO);
-        return f32::INFINITY;
-    }
-    let (r, sign) = libm::lgammaf_r(x);
-    if !signgamp.is_null() { *signgamp = sign; }
-    r
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn lgammal_r(x: f64, signgamp: *mut i32) -> f64 {
-    lgamma_r(x, signgamp)
-}
-
-// ============================================================
-// Comparison macros
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn islessequal(x: f64, y: f64) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x <= y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn islessequalf(x: f32, y: f32) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x <= y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn islessgreater(x: f64, y: f64) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x < y || x > y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn islessgreaterf(x: f32, y: f32) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x < y || x > y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isgreater(x: f64, y: f64) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x > y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isgreaterf(x: f32, y: f32) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x > y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isgreaterequal(x: f64, y: f64) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x >= y) as i32 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isgreaterequalf(x: f32, y: f32) -> i32 {
-    if x.is_nan() || y.is_nan() { 0 } else { (x >= y) as i32 }
-}
 
 include!("compat_abi.rs");
 include!("resolver.rs");

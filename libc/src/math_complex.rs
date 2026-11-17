@@ -969,16 +969,16 @@ pub unsafe extern "C" fn erfcf(x: f32) -> f32 {
 #[no_mangle]
 pub unsafe extern "C" fn lgammaf(x: f32) -> f32 {
     if x.is_nan() {
-        crate::set_signgam(1);
+        set_signgam(1);
         return x;
     }
     if x == 0.0 {
-        crate::set_signgam(if x.is_sign_negative() { -1 } else { 1 });
+        set_signgam(if x.is_sign_negative() { -1 } else { 1 });
         feraiseexcept(FE_DIVBYZERO);
         return f32::INFINITY;
     }
     let (r, sign) = libm::lgammaf_r(x);
-    crate::set_signgam(sign);
+    set_signgam(sign);
     r
 }
 

@@ -189,22 +189,30 @@ macro_rules! H_ERRNO {
 }
 
 include!("encoding_tables.rs");
-include!("math_helpers.rs");
-include!("math_bitmanip.rs");
-include!("math_sqrtfmod.rs");
-include!("math_trig.rs");
-include!("math_exp.rs");
-include!("math_lgamma.rs");
-include!("math_tgamma.rs");
-include!("math_bessel.rs");
+mod math {
+    #[allow(unused_imports)]
+    use super::*;
+
+    include!("math_helpers.rs");
+    include!("math_bitmanip.rs");
+    include!("math_sqrtfmod.rs");
+    include!("math_trig.rs");
+    include!("math_exp.rs");
+    include!("math_lgamma.rs");
+    include!("math_tgamma.rs");
+    include!("math_bessel.rs");
+    include!("math_log.rs");
+    include!("math_pow.rs");
+    include!("math_hypot.rs");
+    include!("math_hyperbolic.rs");
+    include!("math_invtrig.rs");
+    include!("math_lrint.rs");
+    include!("math_long_double.rs");
+    include!("math_complex.rs");
+    include!("math_extra.rs");
+}
+pub use math::*;
 include!("alloc.rs");
-include!("math_log.rs");
-include!("math_pow.rs");
-include!("math_hypot.rs");
-include!("math_hyperbolic.rs");
-include!("math_invtrig.rs");
-include!("math_lrint.rs");
-include!("math_long_double.rs");
 include!("string_fast.rs");
 include!("vdso.rs");
 include!("iconv_iso8859.rs");
@@ -860,7 +868,6 @@ include!("tz.rs");
 #[allow(dead_code, deref_nullptr)]
 mod ldso;
 
-include!("math_complex.rs");
 include!("wchar_misc.rs");
 include!("sys_misc.rs");
 include!("compat_syscalls.rs");

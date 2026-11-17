@@ -213,6 +213,6 @@ pub(crate) unsafe fn lgamma_r_impl(x: f64, signgamp: *mut i32) -> f64 {
 pub(crate) unsafe fn lgamma_impl(x: f64) -> f64 {
     let mut sign = 1;
     let r = lgamma_r_impl(x, &mut sign);
-    crate::set_signgam(sign);
+    set_signgam(sign);
     r
 }

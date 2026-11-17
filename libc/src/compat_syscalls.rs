@@ -595,20 +595,6 @@ pub unsafe extern "C" fn fpathconf(_fd: i32, name: i32) -> i64 {
 }
 
 // ============================================================
-// exp10 functions
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn exp10(x: f64) -> f64 {
-    libm::pow(10.0, x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn exp10f(x: f32) -> f32 {
-    libm::powf(10.0, x)
-}
-
-// ============================================================
 // memory functions
 // ============================================================
 
@@ -2164,117 +2150,8 @@ pub unsafe extern "C" fn ptsname(fd: i32) -> *mut core::ffi::c_char {
 }
 
 // ============================================================
-// fpclassify functions
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn finite(x: f64) -> i32 {
-    (!x.is_nan() && !x.is_infinite()) as i32
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn finitef(x: f32) -> i32 {
-    (!x.is_nan() && !x.is_infinite()) as i32
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn __fpclassifyl(x: f64) -> i32 {
-    __fpclassify(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn __signbitl(x: f64) -> i32 {
-    __signbit(x)
-}
-
-// ============================================================
 // ftw functions
 // ============================================================
-
-// ============================================================
-// Bessel functions
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn j0(x: f64) -> f64 {
-    libm::j0(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn j0f(x: f32) -> f32 {
-    libm::j0f(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn j1(x: f64) -> f64 {
-    libm::j1(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn j1f(x: f32) -> f32 {
-    libm::j1f(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn jn(n: i32, x: f64) -> f64 {
-    libm::jn(n, x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn jnf(n: i32, x: f32) -> f32 {
-    libm::jnf(n, x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn y0(x: f64) -> f64 {
-    y0_impl(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn y0f(x: f32) -> f32 {
-    if x.is_nan() { return x; }
-    if x < 0.0 { return __math_invalidf(x); }
-    if x == 0.0 { feraiseexcept(FE_DIVBYZERO); return f32::NEG_INFINITY; }
-    libm::y0f(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn y1(x: f64) -> f64 {
-    if x.is_nan() { return x; }
-    if x < 0.0 { return __math_invalid(x); }
-    if x == 0.0 { feraiseexcept(FE_DIVBYZERO); return f64::NEG_INFINITY; }
-    libm::y1(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn y1f(x: f32) -> f32 {
-    if x.is_nan() { return x; }
-    if x < 0.0 { return __math_invalidf(x); }
-    if x == 0.0 { feraiseexcept(FE_DIVBYZERO); return f32::NEG_INFINITY; }
-    libm::y1f(x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn yn(n: i32, x: f64) -> f64 {
-    if x.is_nan() { return x; }
-    if x < 0.0 { return __math_invalid(x); }
-    if x == 0.0 {
-        feraiseexcept(FE_DIVBYZERO);
-        if n >= 0 { return f64::NEG_INFINITY; }
-    }
-    libm::yn(n, x)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn ynf(n: i32, x: f32) -> f32 {
-    if x.is_nan() { return x; }
-    if x < 0.0 { return __math_invalidf(x); }
-    if x == 0.0 {
-        feraiseexcept(FE_DIVBYZERO);
-        if n >= 0 { return f32::NEG_INFINITY; }
-    }
-    libm::ynf(n, x)
-}
 
 // ============================================================
 // ctype locale functions
