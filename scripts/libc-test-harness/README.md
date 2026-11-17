@@ -69,8 +69,10 @@ robust-futex tests and `raise-race` (qemu-user's real-time signal/fork
 behavior), `strtold`/`tls_local_exec` on the 128-bit
 long-double/TLS-alignment targets, and `functional/stat` on loongarch64:
 QEMU 10.2 writes the 32-bit `stat64` layout for `newfstatat` (the 64-bit
-ABI struct is correct on real hardware).  Cross `math` is not part of the
-gate; the x86_64 math suite below still runs natively.
+ABI struct is correct on real hardware).  `functional/tls_init_dlopen` is
+retried up to five times because ppc64le TLS initialization in a freshly
+dlopen'ed module occasionally segfaults under qemu.  Cross `math` is not
+part of the gate; the x86_64 math suite below still runs natively.
 
 Current native baseline (x86_64, pinned `libc-test` checkout): `functional` 72/72,
 `regression` 66 PASS + 2 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The

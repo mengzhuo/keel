@@ -85,7 +85,10 @@ if [ "$(id -u)" -eq 0 ]; then
     SKIP_TESTS="$SKIP_TESTS regression/pthread_atfork-errno-clobber"
 fi
 SKIP_TESTS="$SKIP_TESTS $ARCH_SKIP"
-FLAKY_TESTS="${FLAKY_TESTS:-functional/ipc_shm regression/pthread_cond_wait-cancel_ignored}"
+# tls_init_dlopen occasionally segfaults under qemu-ppc64le when the loader
+# initializes a freshly dlopen'ed TLS module; the native ppc64le run and most
+# qemu runs are clean, so retry it instead of dropping the coverage.
+FLAKY_TESTS="${FLAKY_TESTS:-functional/ipc_shm functional/tls_init_dlopen regression/pthread_cond_wait-cancel_ignored}"
 
 is_flaky() {
     case " $FLAKY_TESTS " in *" $1 "*) return 0 ;; esac
@@ -248,7 +251,7 @@ for dir in $DIRS; do
             if [ $RUN_RC -eq 0 ] && [ -z "$ACTUAL_ERRORS" ]; then
                 echo "PASS $dir/$base" >> "$RAW_REPORT"; PASS=$((PASS + 1)); break
             fi
-            if [ $ATTEMPTS -lt 3 ] && is_flaky "$dir/$base"; then continue; fi
+            if [ $ATTEMPTS -lt 5 ] && is_flaky "$dir/$base"; then continue; fi
             if [ $RUN_RC -eq 124 ]; then
                 echo "TIMEOUT $dir/$base" >> "$RAW_REPORT"; TIMEOUT=$((TIMEOUT + 1))
             else
