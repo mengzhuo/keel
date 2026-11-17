@@ -121,8 +121,20 @@ int main(void) {
     if (llrint(2.7) != 3) return 93;
     if (lrintf(2.3f) != 2) return 94;
     if (llrintf(2.7f) != 3) return 95;
-    if (lrintl(2.3L) != 2) return 96;
-    if (llrintl(2.7L) != 3) return 97;
+    {
+        long r = lrintl(2.3L);
+        if (r != 2) {
+            printf("lrintl(2.3L)=%ld\n", r);
+            return 96;
+        }
+    }
+    {
+        long long r = llrintl(2.7L);
+        if (r != 3) {
+            printf("llrintl(2.7L)=%lld\n", r);
+            return 97;
+        }
+    }
     if (check(sinh(0x1.d3e0d2f5d98d6p-2), 0x1.e45428082fb8cp-2, 1e-15)) return 98;
 
     /* signgam and __signgam are aliases in musl. */

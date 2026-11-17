@@ -179,7 +179,10 @@ int main(void) {
     CHECK(fd >= 0, "lchmod mkstemp");
     if (fd >= 0) {
         close(fd);
-        CHECK(lchmod(mpath, 0600) == 0, "lchmod regular file");
+        errno = 0;
+        int lr = lchmod(mpath, 0600);
+        if (lr != 0) printf("lchmod errno=%d\n", errno);
+        CHECK(lr == 0, "lchmod regular file");
         unlink(mpath);
     }
 

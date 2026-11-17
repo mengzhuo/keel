@@ -55,7 +55,8 @@ smoke_one() {
     local TMP
     TMP="$(mktemp -d "/tmp/keel-$arch-smoke.XXXXXX")"
     trap 'rm -rf "$TMP"' RETURN
-    local T="$ROOT/target/$RUST_TARGET/debug"
+    local CARGO_TARGET="${CARGO_TARGET_DIR:-$ROOT/target}"
+    local T="$CARGO_TARGET/$RUST_TARGET/debug"
     local LIBS="$TMP/libs"
     local CRT="$TMP/crt"
     local GCCINC

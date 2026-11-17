@@ -150,6 +150,7 @@ jobs:
         run: ./scripts/macro-parity.sh
 
   cross-arch:
+    name: cross-arch (${{ matrix.arch }})
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 30

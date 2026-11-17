@@ -217,6 +217,7 @@ const ENXIO: c_int = 6;
 const EBADF: c_int = 9;
 const ERANGE: c_int = 34;
 const ENOSYS: c_int = 38;
+const EOPNOTSUPP: c_int = 95;
 const ENOENT: c_int = 2;
 const EEXIST: c_int = 17;
 const ENOTDIR: c_int = 20;
@@ -6181,6 +6182,8 @@ const O_DIRECTORY: i32 = if cfg!(any(target_arch = "aarch64", target_arch = "pow
 } else {
     0o200000
 };
+const O_NOCTTY: i32 = 0o400;
+const O_PATH: i32 = 0o10000000;
 const O_CLOEXEC: i32 = 0x80000;
 
 const F_GETFD: i32 = 1;
@@ -18991,12 +18994,63 @@ pub unsafe extern "C" fn fchmodat(dirfd: i32, pathname: *const core::ffi::c_char
     if flags == 0 {
         return syscall_ret(<Arch as Syscalls>::syscall4(SYS_FCHMODAT, dirfd as i64, pathname as i64, mode as i64, 0)) as i32;
     }
+    let r = <Arch as Syscalls>::syscall4(SYS_FCHMODAT2, dirfd as i64, pathname as i64, mode as i64, flags as i64);
+    if r != -(ENOSYS as i64) {
+        return syscall_ret(r) as i32;
+    }
     if flags != AT_SYMLINK_NOFOLLOW {
         // Only AT_SYMLINK_NOFOLLOW is defined for fchmodat.
         ERRNO!() = EINVAL;
         return -1;
     }
-    syscall_ret(<Arch as Syscalls>::syscall4(SYS_FCHMODAT2, dirfd as i64, pathname as i64, mode as i64, flags as i64)) as i32
+    // Kernel without fchmodat2 (or an emulator that does not translate it):
+    // chmod the /proc/self/fd handle instead, as musl does.
+    let mut st: Stat = core::mem::zeroed();
+    if fstatat(dirfd, pathname, &mut st, AT_SYMLINK_NOFOLLOW) != 0 {
+        return -1;
+    }
+    if st.st_mode & S_IFMT == S_IFLNK {
+        ERRNO!() = EOPNOTSUPP;
+        return -1;
+    }
+    let fd2 = openat(
+        dirfd,
+        pathname,
+        O_RDONLY | O_PATH | O_NOFOLLOW | O_NOCTTY | O_CLOEXEC,
+        0,
+    );
+    if fd2 < 0 {
+        if ERRNO!() == ELOOP {
+            ERRNO!() = EOPNOTSUPP;
+        }
+        return -1;
+    }
+    const PREFIX: &[u8] = b"/proc/self/fd/";
+    let mut proc = [0u8; 32];
+    proc[..PREFIX.len()].copy_from_slice(PREFIX);
+    let n = PREFIX.len()
+        + write_decimal(
+            proc.as_mut_ptr().add(PREFIX.len()) as *mut core::ffi::c_char,
+            fd2 as usize,
+        );
+    proc[n] = 0;
+    let mut st2: Stat = core::mem::zeroed();
+    let mut res: i32 = -1;
+    if stat(proc.as_ptr() as *const core::ffi::c_char, &mut st2) == 0 {
+        if st2.st_mode & S_IFMT == S_IFLNK {
+            ERRNO!() = EOPNOTSUPP;
+        } else {
+            res = syscall_ret(<Arch as Syscalls>::syscall4(
+                SYS_FCHMODAT,
+                AT_FDCWD as i64,
+                proc.as_ptr() as i64,
+                mode as i64,
+                0,
+            )) as i32;
+        }
+    }
+    close(fd2);
+    res
 }
 
 #[no_mangle]
@@ -23191,8 +23245,6 @@ pub unsafe extern "C" fn posix_getdents(fd: c_int, buf: *mut c_void, len: usize,
 }
 
 const SYS_RISCV_FLUSH_ICACHE: i64 = 259;
-const SYS_FCHMODAT2: i64 = 452;
-
 #[no_mangle]
 pub unsafe extern "C" fn riscv_flush_icache(start: *mut c_void, end: *mut c_void, flags: c_ulong) -> c_int {
     #[cfg(target_arch = "riscv64")]

@@ -714,6 +714,7 @@ mod sysnr {
     pub const SYS_SYMLINKAT: i64 = 266;
     pub const SYS_READLINKAT: i64 = 267;
     pub const SYS_FCHMODAT: i64 = 268;
+    pub const SYS_FCHMODAT2: i64 = 452;
     pub const SYS_SET_ROBUST_LIST: i64 = 273;
     pub const SYS_UTIMENSAT: i64 = 280;
     pub const SYS_OPENAT: i64 = 257;
@@ -970,6 +971,7 @@ mod sysnr {
     pub const SYS_SYMLINKAT: i64 = 36;
     pub const SYS_READLINKAT: i64 = 78;
     pub const SYS_FCHMODAT: i64 = 53;
+    pub const SYS_FCHMODAT2: i64 = 452;
     pub const SYS_SET_ROBUST_LIST: i64 = 99;
     pub const SYS_UTIMENSAT: i64 = 88;
     pub const SYS_OPENAT: i64 = 56;
@@ -1218,6 +1220,7 @@ mod sysnr {
     pub const SYS_SYMLINKAT: i64 = 36;
     pub const SYS_READLINKAT: i64 = 78;
     pub const SYS_FCHMODAT: i64 = 53;
+    pub const SYS_FCHMODAT2: i64 = 452;
     pub const SYS_SET_ROBUST_LIST: i64 = 99;
     pub const SYS_UTIMENSAT: i64 = 88;
     pub const SYS_OPENAT: i64 = 56;
