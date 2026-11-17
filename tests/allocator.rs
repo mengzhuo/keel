@@ -8,6 +8,6 @@ fn allocator_basics_alignment_threads_and_fork() {
     let output = common::run_fixture("alloc", &["-D_GNU_SOURCE", "-pthread"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let _stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(stdout, "allocator ok\n");
 }

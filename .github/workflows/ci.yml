@@ -6,10 +6,11 @@
 #
 # Job graph:
 #
-#   header-consistency ──┬──> macro-parity
-#                        ├──> build-and-test   (native x86_64 + aarch64)
-#                        ├──> libc-test-cross  (qemu: aarch64/riscv64/ppc64le/loongarch64)
-#                        └──> cross-arch       (qemu smoke: riscv64/ppc64le/loongarch64)
+#   header-consistency ──┬──> lint               (clippy / rustc warnings)
+#                        ├──> macro-parity
+#                        ├──> build-and-test     (native x86_64 + aarch64)
+#                        ├──> libc-test-cross    (qemu: aarch64/riscv64/ppc64le/loongarch64)
+#                        └──> cross-arch         (qemu smoke: riscv64/ppc64le/loongarch64)
 #                                     │
 #                                     v
 #                                 ci-status
@@ -52,6 +53,31 @@ jobs:
 
       - name: Check headers against Rust constants
         run: cargo run -q -p keel-header-check -- --include include
+
+  # Clippy gate.  scripts/lint.sh holds the normal Rust crates to
+  # -D warnings and checks keel-libc's correctness lints while allowing the
+  # intentional style lints from its literal musl port.
+  lint:
+    name: rust-lint
+    needs: header-consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust with clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-x86_64-cargo-registry-${{ hashFiles('**/Cargo.toml', 'rust-toolchain.toml') }}
+
+      - name: Run Rust lints
+        run: ./scripts/lint.sh
 
   macro-parity:
     needs: header-consistency
@@ -294,7 +320,7 @@ jobs:
   ci-status:
     name: CI status
     if: always()
-    needs: [header-consistency, macro-parity, build-and-test, libc-test-cross, cross-arch]
+    needs: [header-consistency, lint, macro-parity, build-and-test, libc-test-cross, cross-arch]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -309,6 +335,7 @@ jobs:
             fi
           done <<'RESULTS'
           header-consistency=${{ needs.header-consistency.result }}
+          lint=${{ needs.lint.result }}
           macro-parity=${{ needs.macro-parity.result }}
           build-and-test=${{ needs.build-and-test.result }}
           libc-test-cross=${{ needs.libc-test-cross.result }}

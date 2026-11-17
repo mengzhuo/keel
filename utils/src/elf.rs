@@ -157,18 +157,18 @@ impl ElfFile {
                     let strtab_end = strtab_off.saturating_add(strsz).min(data.len());
                     let strtab = &data[strtab_off..strtab_end];
                     for off in needed_offsets {
-                        if let Some(name) = strtab_string(&strtab, off) {
+                        if let Some(name) = strtab_string(strtab, off) {
                             needed.push(name);
                         }
                     }
                     if let Some(off) = soname_off {
-                        soname = strtab_string(&strtab, off);
+                        soname = strtab_string(strtab, off);
                     }
                     if let Some(off) = rpath_off {
-                        rpath = strtab_string(&strtab, off);
+                        rpath = strtab_string(strtab, off);
                     }
                     if let Some(off) = runpath_off {
-                        runpath = strtab_string(&strtab, off);
+                        runpath = strtab_string(strtab, off);
                     }
                 }
             }

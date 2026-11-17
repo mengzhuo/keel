@@ -8,9 +8,8 @@ fn parse_count(stdout: &str, label: &str) -> i32 {
         .lines()
         .find(|l| l.trim_start().starts_with(label))
         .and_then(|l| {
-            l.splitn(2, label)
-                .nth(1)
-                .map(|v| v.trim().parse::<i32>().unwrap_or(0))
+            l.split_once(label)
+                .map(|x| x.1.trim().parse::<i32>().unwrap_or(0))
         })
         .unwrap_or(0)
 }

@@ -8,6 +8,6 @@ fn lrand48_musl_vectors_under_libc() {
     let output = common::run_fixture("lrand48", &["-D_GNU_SOURCE"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let _stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(stdout.trim(), "lrand48 ok", "expected lrand48 ok in: {}", stdout);
 }

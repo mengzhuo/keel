@@ -8,6 +8,6 @@ fn va_list_abi_under_libc() {
     let output = common::run_fixture("va_list_abi", &["-D_GNU_SOURCE"]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let _stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stdout.contains("OK"), "expected OK in: {}", stdout);
 }

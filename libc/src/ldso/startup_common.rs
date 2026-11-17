@@ -68,7 +68,7 @@ pub unsafe fn build_initial_stack(
     let aux_bytes = aux_count.checked_mul(16)?;
     let envc = envp.len();
     let pointer_bytes = argc.checked_add(envc)?.checked_add(3)?.checked_mul(8)?;
-    let pad = if (argc + envc) % 2 == 0 { 8 } else { 0 };
+    let pad = if (argc + envc).is_multiple_of(2) { 8 } else { 0 };
     sp = sp.checked_sub(aux_bytes.checked_add(pointer_bytes)?.checked_add(pad)?)?;
     if sp < bottom {
         return None;

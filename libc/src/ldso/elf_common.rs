@@ -308,11 +308,11 @@ pub fn parse_phdrs<'a>(data: &'a [u8], ehdr: &Ehdr) -> Result<&'a [Phdr], &'stat
         return Err("phdr table extends past EOF");
     }
     let off = ehdr.e_phoff as usize;
-    if off % core::mem::align_of::<Phdr>() != 0 {
+    if !off.is_multiple_of(core::mem::align_of::<Phdr>()) {
         return Err("unaligned phdr table");
     }
     let base = unsafe { data.as_ptr().add(off) as *const Phdr };
-    if (base as usize) % core::mem::align_of::<Phdr>() != 0 {
+    if !(base as usize).is_multiple_of(core::mem::align_of::<Phdr>()) {
         return Err("unaligned phdr table");
     }
     Ok(unsafe { core::slice::from_raw_parts(base, count) })

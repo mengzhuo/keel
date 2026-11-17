@@ -30,6 +30,6 @@ fn pthread_full_test() {
     let output = common::run_fixture("pthread_full", &[]);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let _stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stdout.contains("pthread_full ok"), "unexpected output: {}", stdout);
 }

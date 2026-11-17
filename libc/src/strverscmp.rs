@@ -4,6 +4,11 @@
 // strverscmp() - ported from musl/src/string/strverscmp.c
 // Included from libc/src/lib.rs in the "String/memory functions" section.
 
+/// Compare two version strings using natural ordering.
+///
+/// # Safety
+///
+/// `a` and `b` must point to valid NUL-terminated strings.
 #[no_mangle]
 pub unsafe extern "C" fn strverscmp(a: *const c_char, b: *const c_char) -> c_int {
     let l = a as *const u8;
