@@ -1,0 +1,103 @@
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Precheck group: header consistency, Rust formatting, clippy and macro
+# parity.  ci.yml calls this workflow as the single `precheck` job, and the
+# heavier build/test jobs only start after the whole group succeeds.
+#
+# Formatting is checked before macro-parity: rustfmt must see the source as
+# written, not the expanded headers/macros.
+
+name: Precheck
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The hand-maintained headers and the Rust sources are independent sources
+  # of truth, so fail fast if a numeric macro drifts.
+  header:
+    name: header
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu
+
+      - name: Check headers against Rust constants
+        run: cargo run -q -p keel-header-check -- --include include
+
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust with rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+
+  # scripts/lint.sh holds the normal Rust crates to -D warnings and checks
+  # keel-libc's correctness lints while allowing the intentional style lints
+  # from its literal musl port.
+  lint:
+    name: lint
+    needs: [header, fmt]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust with clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-x86_64-cargo-registry-${{ hashFiles('**/Cargo.toml', 'rust-toolchain.toml') }}
+
+      - name: Run Rust lints
+        run: ./scripts/lint.sh
+
+  macro-parity:
+    name: macro-parity
+    needs: [header, fmt]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu g++-aarch64-linux-gnu g++-riscv64-linux-gnu make curl
+
+      - name: Cache musl 1.2.6 headers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/keel
+          key: musl-1.2.6-headers-v1
+
+      - name: Check macro expansion parity
+        run: ./scripts/macro-parity.sh

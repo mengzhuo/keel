@@ -6,13 +6,8 @@
 #
 # Job graph:
 #
-#   header-consistency
+#   precheck (header, fmt, lint, macro-parity)
 #          │
-#          ▼
-#      rust-fmt                 (cargo fmt --all --check)
-#          │
-#          ├──> rust-lint         (clippy / rustc warnings)
-#          ├──> macro-parity      (after formatting is known-good)
 #          ├──> build-and-test    (native x86_64 + aarch64)
 #          ├──> libc-test-cross   (qemu: aarch64/riscv64/ppc64le/loongarch64)
 #          └──> cross-arch        (qemu smoke: riscv64/ppc64le/loongarch64)
@@ -21,7 +16,7 @@
 #                 ci-status
 #
 # `ci-status` is the single check to require in branch protection: it only
-# succeeds when every job above succeeded.
+# succeeds when the precheck group and every build/test job succeeded.
 
 name: CI
 
@@ -40,91 +35,16 @@ env:
   RUST_TEST_THREADS: "1"
 
 jobs:
-  # First gate: the hand-maintained headers and the Rust sources are
-  # independent sources of truth, so fail fast if a numeric macro drifts.
-  header-consistency:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cross compilers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu
-
-      - name: Check headers against Rust constants
-        run: cargo run -q -p keel-header-check -- --include include
-
-  # Formatting gate.  This is deliberately before macro-parity: rustfmt must
-  # see the source as written, not the expanded headers/macros.
-  rust-fmt:
-    name: rust-fmt
-    needs: header-consistency
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install stable Rust with rustfmt
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Check Rust formatting
-        run: cargo fmt --all --check
-
-  # Clippy gate.  scripts/lint.sh holds the normal Rust crates to
-  # -D warnings and checks keel-libc's correctness lints while allowing the
-  # intentional style lints from its literal musl port.
-  lint:
-    name: rust-lint
-    needs: [header-consistency, rust-fmt]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install stable Rust with clippy
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache cargo registry
-        uses: actions/cache@v6
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-x86_64-cargo-registry-${{ hashFiles('**/Cargo.toml', 'rust-toolchain.toml') }}
-
-      - name: Run Rust lints
-        run: ./scripts/lint.sh
-
-  macro-parity:
-    needs: [header-consistency, rust-fmt]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install cross compilers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu g++-aarch64-linux-gnu g++-riscv64-linux-gnu make curl
-
-      - name: Cache musl 1.2.6 headers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/keel
-          key: musl-1.2.6-headers-v1
-
-      - name: Check macro expansion parity
-        run: ./scripts/macro-parity.sh
+  # Precheck is a reusable workflow so the four fast correctness gates stay
+  # one unit in the CI graph: header, fmt, lint and macro-parity.
+  precheck:
+    name: precheck
+    permissions:
+      contents: read
+    uses: ./.github/workflows/precheck.yml
 
   build-and-test:
-    needs: [header-consistency, rust-fmt]
+    needs: precheck
     strategy:
       fail-fast: false
       matrix:
@@ -224,7 +144,7 @@ jobs:
   # the native jobs they gate releases through ci-status.
   libc-test-cross:
     name: libc-test-cross (${{ matrix.arch }})
-    needs: [header-consistency, rust-fmt]
+    needs: precheck
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -295,7 +215,7 @@ jobs:
 
   cross-arch:
     name: cross-arch (${{ matrix.arch }})
-    needs: [header-consistency, rust-fmt]
+    needs: precheck
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -343,7 +263,7 @@ jobs:
   ci-status:
     name: CI status
     if: always()
-    needs: [header-consistency, rust-fmt, lint, macro-parity, build-and-test, libc-test-cross, cross-arch]
+    needs: [precheck, build-and-test, libc-test-cross, cross-arch]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -357,10 +277,7 @@ jobs:
               failed=1
             fi
           done <<'RESULTS'
-          header-consistency=${{ needs.header-consistency.result }}
-          rust-fmt=${{ needs.rust-fmt.result }}
-          lint=${{ needs.lint.result }}
-          macro-parity=${{ needs.macro-parity.result }}
+          precheck=${{ needs.precheck.result }}
           build-and-test=${{ needs.build-and-test.result }}
           libc-test-cross=${{ needs.libc-test-cross.result }}
           cross-arch=${{ needs.cross-arch.result }}

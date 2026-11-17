@@ -77,7 +77,10 @@ fi
 
 # qemu-user does not complete the robust-futex waiter handshake reliably;
 # the native aarch64 CI still runs this test.
-SKIP_TESTS="math/acoshl math/asinhl math/lgammal math/tgammal regression/malloc-brk-fail functional/pthread_robust regression/pthread-robust-detach"
+# qemu-user also does not model real-time signal queueing closely enough for
+# raise-race's fork-in-handler counts, which flake between otherwise
+# identical runs.  Keep it in the native suite.
+SKIP_TESTS="math/acoshl math/asinhl math/lgammal math/tgammal regression/malloc-brk-fail functional/pthread_robust regression/pthread-robust-detach regression/raise-race"
 if [ "$(id -u)" -eq 0 ]; then
     SKIP_TESTS="$SKIP_TESTS regression/pthread_atfork-errno-clobber"
 fi

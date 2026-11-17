@@ -52,8 +52,9 @@ jobs:
           echo "Publishing version $version"
 
   # The release gate is the exact workflow that runs on main and pull
-  # requests: header/macro checks, native x86_64 + aarch64 tests,
-  # cross-arch smoke tests and libc-test on all four qemu targets.
+  # requests: the precheck group (header, rustfmt, clippy, macro parity),
+  # native x86_64 + aarch64 tests, cross-arch smoke tests and libc-test on
+  # all four qemu targets.
   # GitHub reports this job as failed if any job in ci.yml fails, including
   # the aggregate `ci-status` job.
   tests:

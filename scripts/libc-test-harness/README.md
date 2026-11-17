@@ -63,9 +63,10 @@ Cross (`cross-run.sh`):
 
 Cross baseline (qemu, pinned `libc-test` checkout): aarch64, riscv64 and
 powerpc64le report `functional` 69 PASS + 3 SKIP; loongarch64 reports
-68 PASS + 4 SKIP.  All four report `regression` 65 PASS + 3 SKIP as root
-(66 + 2 unprivileged) and `api` 79/79.  The cross skips are the
-robust-futex tests (qemu-user), `strtold`/`tls_local_exec` on the 128-bit
+68 PASS + 4 SKIP.  All four report `regression` 64 PASS + 4 SKIP as root
+(65 + 3 unprivileged) and `api` 79/79.  The cross skips are the
+robust-futex tests and `raise-race` (qemu-user's real-time signal/fork
+behavior), `strtold`/`tls_local_exec` on the 128-bit
 long-double/TLS-alignment targets, and `functional/stat` on loongarch64:
 QEMU 10.2 writes the 32-bit `stat64` layout for `newfstatat` (the 64-bit
 ABI struct is correct on real hardware).  Cross `math` is not part of the
