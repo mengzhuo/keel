@@ -6,14 +6,19 @@
 #
 # Job graph:
 #
-#   header-consistency ──┬──> lint               (clippy / rustc warnings)
-#                        ├──> macro-parity
-#                        ├──> build-and-test     (native x86_64 + aarch64)
-#                        ├──> libc-test-cross    (qemu: aarch64/riscv64/ppc64le/loongarch64)
-#                        └──> cross-arch         (qemu smoke: riscv64/ppc64le/loongarch64)
-#                                     │
-#                                     v
-#                                 ci-status
+#   header-consistency
+#          │
+#          ▼
+#      rust-fmt                 (cargo fmt --all --check)
+#          │
+#          ├──> rust-lint         (clippy / rustc warnings)
+#          ├──> macro-parity      (after formatting is known-good)
+#          ├──> build-and-test    (native x86_64 + aarch64)
+#          ├──> libc-test-cross   (qemu: aarch64/riscv64/ppc64le/loongarch64)
+#          └──> cross-arch        (qemu smoke: riscv64/ppc64le/loongarch64)
+#                     │
+#                     v
+#                 ci-status
 #
 # `ci-status` is the single check to require in branch protection: it only
 # succeeds when every job above succeeded.
@@ -54,12 +59,30 @@ jobs:
       - name: Check headers against Rust constants
         run: cargo run -q -p keel-header-check -- --include include
 
+  # Formatting gate.  This is deliberately before macro-parity: rustfmt must
+  # see the source as written, not the expanded headers/macros.
+  rust-fmt:
+    name: rust-fmt
+    needs: header-consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust with rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+
   # Clippy gate.  scripts/lint.sh holds the normal Rust crates to
   # -D warnings and checks keel-libc's correctness lints while allowing the
   # intentional style lints from its literal musl port.
   lint:
     name: rust-lint
-    needs: header-consistency
+    needs: [header-consistency, rust-fmt]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -80,7 +103,7 @@ jobs:
         run: ./scripts/lint.sh
 
   macro-parity:
-    needs: header-consistency
+    needs: [header-consistency, rust-fmt]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -101,7 +124,7 @@ jobs:
         run: ./scripts/macro-parity.sh
 
   build-and-test:
-    needs: header-consistency
+    needs: [header-consistency, rust-fmt]
     strategy:
       fail-fast: false
       matrix:
@@ -201,7 +224,7 @@ jobs:
   # the native jobs they gate releases through ci-status.
   libc-test-cross:
     name: libc-test-cross (${{ matrix.arch }})
-    needs: header-consistency
+    needs: [header-consistency, rust-fmt]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -272,7 +295,7 @@ jobs:
 
   cross-arch:
     name: cross-arch (${{ matrix.arch }})
-    needs: header-consistency
+    needs: [header-consistency, rust-fmt]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -320,7 +343,7 @@ jobs:
   ci-status:
     name: CI status
     if: always()
-    needs: [header-consistency, lint, macro-parity, build-and-test, libc-test-cross, cross-arch]
+    needs: [header-consistency, rust-fmt, lint, macro-parity, build-and-test, libc-test-cross, cross-arch]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -335,6 +358,7 @@ jobs:
             fi
           done <<'RESULTS'
           header-consistency=${{ needs.header-consistency.result }}
+          rust-fmt=${{ needs.rust-fmt.result }}
           lint=${{ needs.lint.result }}
           macro-parity=${{ needs.macro-parity.result }}
           build-and-test=${{ needs.build-and-test.result }}

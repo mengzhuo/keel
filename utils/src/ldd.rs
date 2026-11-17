@@ -23,8 +23,8 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         match s.as_ref() {
             // --list is the default output mode.
             "--list" => {}
-            "--verify" | "-v" | "--verbose" | "-r" | "--function-relocs" | "-u"
-            | "--unused" | "-d" | "--data-relocs" => {
+            "--verify" | "-v" | "--verbose" | "-r" | "--function-relocs" | "-u" | "--unused"
+            | "-d" | "--data-relocs" => {
                 eprintln!("ldd: option not supported: {s}");
                 return ExitCode::from(1);
             }

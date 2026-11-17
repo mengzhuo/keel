@@ -37,19 +37,31 @@ pub struct f128 {
     lo: f64,
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
 #[inline]
 fn f128_from_bits(bits: u128) -> f128 {
     unsafe { core::mem::transmute::<u128, f128>(bits) }
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
 #[inline]
 fn f128_to_bits(x: f128) -> u128 {
     unsafe { core::mem::transmute::<f128, u128>(x) }
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
 fn f128_is_nan(x: f128) -> bool {
     let bits = f128_to_bits(x);
     ((bits >> 112) & 0x7fff) == 0x7fff && (bits & ((1u128 << 112) - 1)) != 0
@@ -60,7 +72,11 @@ fn f128_is_nan(x: f128) -> bool {
     x.hi.is_nan() || x.lo.is_nan()
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
 fn f128_to_f64(x: f128) -> f64 {
     let bits = f128_to_bits(x);
     let sign = (bits >> 127) as u64;
@@ -68,29 +84,48 @@ fn f128_to_f64(x: f128) -> f64 {
     let frac = bits & ((1u128 << 112) - 1);
     let signbit = sign << 63;
     if exp == 0x7fff {
-        let m = if frac == 0 { 0x7ff0_0000_0000_0000 } else { 0x7ff8_0000_0000_0000 };
+        let m = if frac == 0 {
+            0x7ff0_0000_0000_0000
+        } else {
+            0x7ff8_0000_0000_0000
+        };
         return f64::from_bits(signbit | m);
     }
-    if exp == 0 { return f64::from_bits(signbit); }
+    if exp == 0 {
+        return f64::from_bits(signbit);
+    }
     let e = exp - 16383;
-    if e > 1023 { return f64::from_bits(signbit | 0x7ff0_0000_0000_0000); }
-    if e < -1074 { return f64::from_bits(signbit); }
+    if e > 1023 {
+        return f64::from_bits(signbit | 0x7ff0_0000_0000_0000);
+    }
+    if e < -1074 {
+        return f64::from_bits(signbit);
+    }
     let sig = (1u128 << 112) | frac;
     if e >= -1022 {
         let mut m = (sig >> 60) as u64;
         let rem = sig & ((1u128 << 60) - 1);
         let half = 1u128 << 59;
-        if rem > half || (rem == half && (m & 1) != 0) { m += 1; }
+        if rem > half || (rem == half && (m & 1) != 0) {
+            m += 1;
+        }
         let mut ef = (e + 1023) as u64;
-        if m == (1u64 << 53) { m >>= 1; ef += 1; }
-        if ef >= 0x7ff { return f64::from_bits(signbit | 0x7ff0_0000_0000_0000); }
+        if m == (1u64 << 53) {
+            m >>= 1;
+            ef += 1;
+        }
+        if ef >= 0x7ff {
+            return f64::from_bits(signbit | 0x7ff0_0000_0000_0000);
+        }
         return f64::from_bits(signbit | (ef << 52) | (m & ((1u64 << 52) - 1)));
     }
     let rshift = (-(e + 962)) as u32;
     let mut m = (sig >> rshift) as u64;
     let rem = sig & ((1u128 << rshift) - 1);
     let half = 1u128 << (rshift - 1);
-    if rem > half || (rem == half && (m & 1) != 0) { m += 1; }
+    if rem > half || (rem == half && (m & 1) != 0) {
+        m += 1;
+    }
     if m >= (1u64 << 52) {
         return f64::from_bits(signbit | (1u64 << 52));
     }
@@ -152,18 +187,28 @@ fn f64_to_f128(v: f64) -> f128 {
     f128 { hi: v, lo: 0.0 }
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64"))]
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
 fn f64_to_f128(v: f64) -> f128 {
     let bits = v.to_bits();
     let sign = (bits >> 63) as u128;
     let exp = ((bits >> 52) & 0x7ff) as i32;
     let frac = bits & ((1u64 << 52) - 1);
     if exp == 0x7ff {
-        let m = if frac == 0 { 0 } else { ((frac as u128) << 60) | (1u128 << 111) };
+        let m = if frac == 0 {
+            0
+        } else {
+            ((frac as u128) << 60) | (1u128 << 111)
+        };
         return f128_from_bits((sign << 127) | (0x7fff_u128 << 112) | m);
     }
     if exp == 0 {
-        if frac == 0 { return f128_from_bits(sign << 127); }
+        if frac == 0 {
+            return f128_from_bits(sign << 127);
+        }
         let msb = 63 - frac.leading_zeros() as i32; // 0..51
         let e = msb - 1074;
         let f = ((frac as u128) << (112 - msb as u32)) & ((1u128 << 112) - 1);
@@ -178,14 +223,18 @@ use core::ptr::null_mut;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicUsize, Ordering};
 
 macro_rules! ERRNO {
-    () => { *errno_ptr() };
+    () => {
+        *errno_ptr()
+    };
 }
 
 // h_errno shares the TCB with errno: 0x30 is errno, 0x34 is the free slot
 // before the vDSO getrandom state at 0x38.  The exported `h_errno` symbol is
 // the fallback for static programs and threads without a TCB, matching musl.
 macro_rules! H_ERRNO {
-    () => { *h_errno_ptr() };
+    () => {
+        *h_errno_ptr()
+    };
 }
 
 include!("encoding_tables.rs");
@@ -245,7 +294,13 @@ unsafe fn sys_read(fd: i64, buf: *mut u8, count: usize) -> i64 {
 
 #[inline]
 unsafe fn sys_open(path: *const u8, flags: i64, mode: i64) -> i64 {
-    <Arch as Syscalls>::syscall4(SYS_OPENAT, AT_FDCWD as i64, path as i64, flags as i64, mode as i64)
+    <Arch as Syscalls>::syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as i64,
+        path as i64,
+        flags as i64,
+        mode as i64,
+    )
 }
 
 #[inline]
@@ -266,7 +321,15 @@ unsafe fn sys_mmap(
     fd: i32,
     offset: i64,
 ) -> *mut u8 {
-    let result = <Arch as Syscalls>::syscall6(SYS_MMAP, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, offset);
+    let result = <Arch as Syscalls>::syscall6(
+        SYS_MMAP,
+        addr as i64,
+        length as i64,
+        prot as i64,
+        flags as i64,
+        fd as i64,
+        offset,
+    );
     if result < 0 && result > -crate::SYSCALL_ERR_MAX {
         ERRNO!() = (-result) as c_int;
         return MMAP_FAILED;
@@ -534,8 +597,21 @@ unsafe fn sys_unlinkat(dirfd: i32, path: *const u8, flags: i32) -> i64 {
 }
 
 #[inline]
-unsafe fn sys_renameat2(olddirfd: i32, oldpath: *const u8, newdirfd: i32, newpath: *const u8, flags: u32) -> i64 {
-    <Arch as Syscalls>::syscall5(SYS_RENAMEAT2, olddirfd as i64, oldpath as i64, newdirfd as i64, newpath as i64, flags as i64)
+unsafe fn sys_renameat2(
+    olddirfd: i32,
+    oldpath: *const u8,
+    newdirfd: i32,
+    newpath: *const u8,
+    flags: u32,
+) -> i64 {
+    <Arch as Syscalls>::syscall5(
+        SYS_RENAMEAT2,
+        olddirfd as i64,
+        oldpath as i64,
+        newdirfd as i64,
+        newpath as i64,
+        flags as i64,
+    )
 }
 
 include!("stdio.rs");
@@ -615,140 +691,140 @@ include!("system.rs");
 
 // static error string table indexed by errno
 static ERR_STRS: [&[u8]; 134] = [
-    b"Success\0",                     // 0
-    b"Operation not permitted\0",     // 1
-    b"No such file or directory\0",   // 2
-    b"No such process\0",             // 3
-    b"Interrupted system call\0",     // 4
-    b"Input/output error\0",          // 5
-    b"No such device or address\0",   // 6
-    b"Argument list too long\0",      // 7
-    b"Exec format error\0",           // 8
-    b"Bad file descriptor\0",         // 9
-    b"No child processes\0",          // 10
-    b"Resource temporarily unavailable\0", // 11
-    b"Cannot allocate memory\0",      // 12
-    b"Permission denied\0",           // 13
-    b"Bad address\0",                 // 14
-    b"Block device required\0",       // 15
-    b"Device or resource busy\0",     // 16
-    b"File exists\0",                 // 17
-    b"Invalid cross-device link\0",   // 18
-    b"No such device\0",              // 19
-    b"Not a directory\0",             // 20
-    b"Is a directory\0",              // 21
-    b"Invalid argument\0",            // 22
-    b"Too many open files in system\0", // 23
-    b"Too many open files\0",         // 24
-    b"Inappropriate ioctl for device\0", // 25
-    b"Text file busy\0",              // 26
-    b"File too large\0",              // 27
-    b"No space left on device\0",     // 28
-    b"Illegal seek\0",                // 29
-    b"Read-only file system\0",       // 30
-    b"Too many links\0",              // 31
-    b"Broken pipe\0",                 // 32
-    b"Numerical argument out of domain\0", // 33
-    b"Numerical result out of range\0", // 34
-    b"Resource deadlock avoided\0",   // 35
-    b"File name too long\0",          // 36
-    b"No locks available\0",          // 37
-    b"Function not implemented\0",    // 38
-    b"Directory not empty\0",         // 39
-    b"Too many levels of symbolic links\0", // 40
-    b"Unknown error 41\0",            // 41
-    b"No message of desired type\0",  // 42
-    b"Identifier removed\0",          // 43
-    b"Channel number out of range\0", // 44
-    b"Level 2 not synchronized\0",    // 45
-    b"Level 3 halted\0",              // 46
-    b"Level 3 reset\0",               // 47
-    b"Link number out of range\0",    // 48
-    b"Protocol driver not attached\0", // 49
-    b"No CSI structure available\0",  // 50
-    b"Level 2 halted\0",              // 51
-    b"Invalid exchange\0",            // 52
-    b"Invalid request descriptor\0",  // 53
-    b"Exchange full\0",               // 54
-    b"No anode\0",                    // 55
-    b"Invalid request code\0",        // 56
-    b"Invalid slot\0",                // 57
-    b"Unknown error 58\0",            // 58
-    b"Bad font file format\0",        // 59
-    b"Device not a stream\0",         // 60
-    b"No data available\0",           // 61
-    b"Timer expired\0",               // 62
-    b"Out of streams resources\0",    // 63
-    b"Machine is not on the network\0", // 64
-    b"Package not installed\0",       // 65
-    b"Object is remote\0",            // 66
-    b"Link has been severed\0",       // 67
-    b"Advertise error\0",             // 68
-    b"Srmount error\0",               // 69
-    b"Communication error on send\0", // 70
-    b"Protocol error\0",              // 71
-    b"Multihop attempted\0",          // 72
-    b"RFS specific error\0",          // 73
-    b"Bad message\0",                 // 74
-    b"Value too large for defined data type\0", // 75
-    b"Name not unique on network\0",  // 76
-    b"File descriptor in bad state\0", // 77
-    b"Remote address changed\0",      // 78
-    b"Can not access a needed shared library\0", // 79
-    b"Accessing a corrupted shared library\0", // 80
-    b".lib section in a.out corrupted\0", // 81
-    b"Attempting to link in too many shared libraries\0", // 82
-    b"Cannot exec a shared library directly\0", // 83
+    b"Success\0",                                           // 0
+    b"Operation not permitted\0",                           // 1
+    b"No such file or directory\0",                         // 2
+    b"No such process\0",                                   // 3
+    b"Interrupted system call\0",                           // 4
+    b"Input/output error\0",                                // 5
+    b"No such device or address\0",                         // 6
+    b"Argument list too long\0",                            // 7
+    b"Exec format error\0",                                 // 8
+    b"Bad file descriptor\0",                               // 9
+    b"No child processes\0",                                // 10
+    b"Resource temporarily unavailable\0",                  // 11
+    b"Cannot allocate memory\0",                            // 12
+    b"Permission denied\0",                                 // 13
+    b"Bad address\0",                                       // 14
+    b"Block device required\0",                             // 15
+    b"Device or resource busy\0",                           // 16
+    b"File exists\0",                                       // 17
+    b"Invalid cross-device link\0",                         // 18
+    b"No such device\0",                                    // 19
+    b"Not a directory\0",                                   // 20
+    b"Is a directory\0",                                    // 21
+    b"Invalid argument\0",                                  // 22
+    b"Too many open files in system\0",                     // 23
+    b"Too many open files\0",                               // 24
+    b"Inappropriate ioctl for device\0",                    // 25
+    b"Text file busy\0",                                    // 26
+    b"File too large\0",                                    // 27
+    b"No space left on device\0",                           // 28
+    b"Illegal seek\0",                                      // 29
+    b"Read-only file system\0",                             // 30
+    b"Too many links\0",                                    // 31
+    b"Broken pipe\0",                                       // 32
+    b"Numerical argument out of domain\0",                  // 33
+    b"Numerical result out of range\0",                     // 34
+    b"Resource deadlock avoided\0",                         // 35
+    b"File name too long\0",                                // 36
+    b"No locks available\0",                                // 37
+    b"Function not implemented\0",                          // 38
+    b"Directory not empty\0",                               // 39
+    b"Too many levels of symbolic links\0",                 // 40
+    b"Unknown error 41\0",                                  // 41
+    b"No message of desired type\0",                        // 42
+    b"Identifier removed\0",                                // 43
+    b"Channel number out of range\0",                       // 44
+    b"Level 2 not synchronized\0",                          // 45
+    b"Level 3 halted\0",                                    // 46
+    b"Level 3 reset\0",                                     // 47
+    b"Link number out of range\0",                          // 48
+    b"Protocol driver not attached\0",                      // 49
+    b"No CSI structure available\0",                        // 50
+    b"Level 2 halted\0",                                    // 51
+    b"Invalid exchange\0",                                  // 52
+    b"Invalid request descriptor\0",                        // 53
+    b"Exchange full\0",                                     // 54
+    b"No anode\0",                                          // 55
+    b"Invalid request code\0",                              // 56
+    b"Invalid slot\0",                                      // 57
+    b"Unknown error 58\0",                                  // 58
+    b"Bad font file format\0",                              // 59
+    b"Device not a stream\0",                               // 60
+    b"No data available\0",                                 // 61
+    b"Timer expired\0",                                     // 62
+    b"Out of streams resources\0",                          // 63
+    b"Machine is not on the network\0",                     // 64
+    b"Package not installed\0",                             // 65
+    b"Object is remote\0",                                  // 66
+    b"Link has been severed\0",                             // 67
+    b"Advertise error\0",                                   // 68
+    b"Srmount error\0",                                     // 69
+    b"Communication error on send\0",                       // 70
+    b"Protocol error\0",                                    // 71
+    b"Multihop attempted\0",                                // 72
+    b"RFS specific error\0",                                // 73
+    b"Bad message\0",                                       // 74
+    b"Value too large for defined data type\0",             // 75
+    b"Name not unique on network\0",                        // 76
+    b"File descriptor in bad state\0",                      // 77
+    b"Remote address changed\0",                            // 78
+    b"Can not access a needed shared library\0",            // 79
+    b"Accessing a corrupted shared library\0",              // 80
+    b".lib section in a.out corrupted\0",                   // 81
+    b"Attempting to link in too many shared libraries\0",   // 82
+    b"Cannot exec a shared library directly\0",             // 83
     b"Invalid or incomplete multibyte or wide character\0", // 84
-    b"Interrupted system call should be restarted\0", // 85
-    b"Streams pipe error\0",          // 86
-    b"Too many users\0",              // 87
-    b"Socket operation on non-socket\0", // 88
-    b"Destination address required\0", // 89
-    b"Message too long\0",            // 90
-    b"Protocol wrong type for socket\0", // 91
-    b"Protocol not available\0",      // 92
-    b"Protocol not supported\0",      // 93
-    b"Socket type not supported\0",   // 94
-    b"Operation not supported\0",     // 95
-    b"Protocol family not supported\0", // 96
-    b"Address family not supported by protocol\0", // 97
-    b"Address already in use\0",      // 98
-    b"Cannot assign requested address\0", // 99
-    b"Network is down\0",             // 100
-    b"Network is unreachable\0",      // 101
-    b"Network dropped connection on reset\0", // 102
-    b"Software caused connection abort\0", // 103
-    b"Connection reset by peer\0",    // 104
-    b"No buffer space available\0",   // 105
-    b"Transport endpoint is already connected\0", // 106
-    b"Transport endpoint is not connected\0", // 107
-    b"Cannot send after transport endpoint shutdown\0", // 108
-    b"Too many references: cannot splice\0", // 109
-    b"Connection timed out\0",        // 110
-    b"Connection refused\0",          // 111
-    b"Host is down\0",                // 112
-    b"No route to host\0",            // 113
-    b"Operation already in progress\0", // 114
-    b"Operation now in progress\0",   // 115
-    b"Stale file handle\0",           // 116
-    b"Structure needs cleaning\0",    // 117
-    b"Not a XENIX named type file\0", // 118
-    b"No XENIX semaphores available\0", // 119
-    b"Is a named type file\0",        // 120
-    b"Remote I/O error\0",            // 121
-    b"Quota exceeded\0",              // 122
-    b"No medium found\0",             // 123
-    b"Wrong medium type\0",           // 124
-    b"Operation canceled\0",          // 125
-    b"Required key not available\0",  // 126
-    b"Key has expired\0",             // 127
-    b"Key has been revoked\0",        // 128
-    b"Key was rejected by service\0", // 129
-    b"Owner died\0",                  // 130
-    b"State not recoverable\0",       // 131
-    b"Operation not possible due to RF-kill\0", // 132
-    b"Memory page has hardware error\0", // 133
+    b"Interrupted system call should be restarted\0",       // 85
+    b"Streams pipe error\0",                                // 86
+    b"Too many users\0",                                    // 87
+    b"Socket operation on non-socket\0",                    // 88
+    b"Destination address required\0",                      // 89
+    b"Message too long\0",                                  // 90
+    b"Protocol wrong type for socket\0",                    // 91
+    b"Protocol not available\0",                            // 92
+    b"Protocol not supported\0",                            // 93
+    b"Socket type not supported\0",                         // 94
+    b"Operation not supported\0",                           // 95
+    b"Protocol family not supported\0",                     // 96
+    b"Address family not supported by protocol\0",          // 97
+    b"Address already in use\0",                            // 98
+    b"Cannot assign requested address\0",                   // 99
+    b"Network is down\0",                                   // 100
+    b"Network is unreachable\0",                            // 101
+    b"Network dropped connection on reset\0",               // 102
+    b"Software caused connection abort\0",                  // 103
+    b"Connection reset by peer\0",                          // 104
+    b"No buffer space available\0",                         // 105
+    b"Transport endpoint is already connected\0",           // 106
+    b"Transport endpoint is not connected\0",               // 107
+    b"Cannot send after transport endpoint shutdown\0",     // 108
+    b"Too many references: cannot splice\0",                // 109
+    b"Connection timed out\0",                              // 110
+    b"Connection refused\0",                                // 111
+    b"Host is down\0",                                      // 112
+    b"No route to host\0",                                  // 113
+    b"Operation already in progress\0",                     // 114
+    b"Operation now in progress\0",                         // 115
+    b"Stale file handle\0",                                 // 116
+    b"Structure needs cleaning\0",                          // 117
+    b"Not a XENIX named type file\0",                       // 118
+    b"No XENIX semaphores available\0",                     // 119
+    b"Is a named type file\0",                              // 120
+    b"Remote I/O error\0",                                  // 121
+    b"Quota exceeded\0",                                    // 122
+    b"No medium found\0",                                   // 123
+    b"Wrong medium type\0",                                 // 124
+    b"Operation canceled\0",                                // 125
+    b"Required key not available\0",                        // 126
+    b"Key has expired\0",                                   // 127
+    b"Key has been revoked\0",                              // 128
+    b"Key was rejected by service\0",                       // 129
+    b"Owner died\0",                                        // 130
+    b"State not recoverable\0",                             // 131
+    b"Operation not possible due to RF-kill\0",             // 132
+    b"Memory page has hardware error\0",                    // 133
 ];
 
 #[no_mangle]
@@ -831,7 +907,13 @@ struct kernel_stat64 {
 // sys_stat = 4 on x86_64
 #[inline]
 unsafe fn sys_stat(path: *const u8, statbuf: *mut kernel_stat64) -> i64 {
-    <Arch as Syscalls>::syscall4(SYS_NEWFSTATAT, AT_FDCWD as i64, path as i64, statbuf as i64, 0)
+    <Arch as Syscalls>::syscall4(
+        SYS_NEWFSTATAT,
+        AT_FDCWD as i64,
+        path as i64,
+        statbuf as i64,
+        0,
+    )
 }
 
 include!("search.rs");

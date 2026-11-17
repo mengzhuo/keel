@@ -129,5 +129,3 @@ pub fn apply_relocations_from_dynamic(
 
     Ok(())
 }
-
-

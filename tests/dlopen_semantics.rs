@@ -57,7 +57,12 @@ fn dlopen_musl_semantics() {
     assert!(status.success(), "building libdlopen_a.so failed");
 
     let status = Command::new("musl-gcc")
-        .args(["-shared", "-nostdlib", "-fPIC", "-Wl,-soname,libdlopen_b.so"])
+        .args([
+            "-shared",
+            "-nostdlib",
+            "-fPIC",
+            "-Wl,-soname,libdlopen_b.so",
+        ])
         .arg(&b_src)
         .arg("-o")
         .arg(&b)
@@ -68,7 +73,12 @@ fn dlopen_musl_semantics() {
     // Build a DSO with a DT_NEEDED entry, then remove the dependency so
     // dlopen() has to fail gracefully and roll back.
     let status = Command::new("musl-gcc")
-        .args(["-shared", "-nostdlib", "-fPIC", "-Wl,-soname,libdlopen_ghost.so"])
+        .args([
+            "-shared",
+            "-nostdlib",
+            "-fPIC",
+            "-Wl,-soname,libdlopen_ghost.so",
+        ])
         .arg(&dep_src)
         .arg("-o")
         .arg(&ghost)
@@ -129,5 +139,8 @@ fn dlopen_musl_semantics() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "dlopen semantics ok\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "dlopen semantics ok\n"
+    );
 }

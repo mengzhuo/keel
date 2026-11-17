@@ -7,8 +7,5 @@ mod common;
 fn wordexp_under_libc_so() {
     let output = common::run_fixture("wordexp", &["-D_GNU_SOURCE"]);
 
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "wordexp ok\n"
-    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "wordexp ok\n");
 }

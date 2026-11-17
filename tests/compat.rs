@@ -7,8 +7,5 @@ mod common;
 fn musl_compat_symbols_work() {
     let output = common::run_fixture("compat", &["-D_GNU_SOURCE", "-lpthread", "-lm"]);
 
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "compat ok\n"
-    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "compat ok\n");
 }

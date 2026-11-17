@@ -77,11 +77,7 @@ fn packed_relative_relocations_work() {
         "test binary has no DT_RELR section"
     );
 
-    let path = format!(
-        "{}:{}",
-        debug.to_str().unwrap(),
-        out.to_str().unwrap()
-    );
+    let path = format!("{}:{}", debug.to_str().unwrap(), out.to_str().unwrap());
     let output = Command::new(&exe)
         .env("LD_LIBRARY_PATH", path)
         .output()

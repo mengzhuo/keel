@@ -219,10 +219,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
                 // Accept the portable POSIX/XBS5 specification names. keel
                 // reports the default C-locale values regardless of -v.
                 if !args[i].starts_with("POSIX_") && !args[i].starts_with("XBS5_") {
-                    return fail(&format!(
-                        "getconf: unsupported specification: {}",
-                        args[i]
-                    ));
+                    return fail(&format!("getconf: unsupported specification: {}", args[i]));
                 }
             }
             "--" => {
@@ -312,8 +309,9 @@ fn query(var: &Var, path: Option<&str>) -> Result<Option<String>, String> {
                 return Ok(None);
             }
             let mut buf = vec![0u8; needed];
-            let written =
-                unsafe { posix::confstr(id, buf.as_mut_ptr() as *mut std::os::raw::c_char, buf.len()) };
+            let written = unsafe {
+                posix::confstr(id, buf.as_mut_ptr() as *mut std::os::raw::c_char, buf.len())
+            };
             if written == 0 {
                 return Ok(None);
             }

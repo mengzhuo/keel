@@ -52,9 +52,7 @@ impl InBuf {
             return None;
         }
         // SAFETY: off..off+2 is inside the constructor's readable range.
-        Some(unsafe {
-            ((*self.base.add(off) as u16) << 8) | *self.base.add(off + 1) as u16
-        })
+        Some(unsafe { ((*self.base.add(off) as u16) << 8) | *self.base.add(off + 1) as u16 })
     }
 
     pub(crate) fn peek_u32_be(&self, off: usize) -> Option<u32> {
@@ -130,7 +128,9 @@ impl OutBuf {
         }
         // SAFETY: pos < cap and the constructor established that the whole
         // range is writable.
-        unsafe { *self.base.add(self.pos) = b; }
+        unsafe {
+            *self.base.add(self.pos) = b;
+        }
         self.pos += 1;
         true
     }

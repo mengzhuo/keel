@@ -34,12 +34,10 @@ pub struct X86_64;
 // x86_64
 include!("arch_syscalls.rs");
 
-
 #[cfg(target_arch = "aarch64")]
 pub struct Aarch64;
 
 // aarch64
-
 
 #[cfg(target_arch = "riscv64")]
 pub struct Riscv64;
@@ -50,17 +48,13 @@ pub struct LoongArch64;
 
 // riscv64
 
-
 // ============================================================
 // Selected architecture
 // ============================================================
 
 // powerpc64
 
-
 // loongarch64
-
-
 
 // x86_64
 #[cfg(target_arch = "x86_64")]

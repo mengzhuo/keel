@@ -52,7 +52,10 @@ fn dso_tls_works_in_main_and_pthread_threads() {
     assert!(status.success(), "musl-gcc dso_tls_test compilation failed");
 
     let output = Command::new(&bin)
-        .env("LD_LIBRARY_PATH", manifest_dir.join("target/debug").to_str().unwrap())
+        .env(
+            "LD_LIBRARY_PATH",
+            manifest_dir.join("target/debug").to_str().unwrap(),
+        )
         .output()
         .expect("failed to run dso_tls_test");
 

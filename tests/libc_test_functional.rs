@@ -50,7 +50,11 @@ fn libc_test_functional_networking_and_fcntl() {
         stderr
     );
 
-    for test in ["functional/inet_pton", "functional/fcntl", "functional/socket"] {
+    for test in [
+        "functional/inet_pton",
+        "functional/fcntl",
+        "functional/socket",
+    ] {
         assert!(
             stdout.contains(&format!("  {}\n", test)),
             "expected {} to PASS:\n{}",
@@ -67,9 +71,16 @@ fn libc_test_functional_networking_and_fcntl() {
     let timeout = parse_count(&stdout, "TIMEOUT:");
     let other = parse_count(&stdout, "Other:");
     assert!(total > 0, "expected a non-empty test total:\n{stdout}");
-    assert_eq!(pass, total - skip, "expected every non-skipped test to pass:\n{stdout}");
+    assert_eq!(
+        pass,
+        total - skip,
+        "expected every non-skipped test to pass:\n{stdout}"
+    );
     assert_eq!(fail, 0, "expected FAIL count of 0, got {fail}");
-    assert_eq!(builderror, 0, "expected BUILDERROR count of 0, got {builderror}");
+    assert_eq!(
+        builderror, 0,
+        "expected BUILDERROR count of 0, got {builderror}"
+    );
     assert_eq!(timeout, 0, "expected TIMEOUT count of 0, got {timeout}");
     assert_eq!(other, 0, "expected Other count of 0, got {other}");
 }
