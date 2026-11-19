@@ -111,6 +111,13 @@ unsafe fn putenv_internal(s: *mut c_char, l: usize, r: *mut c_char) -> c_int {
         while !(*e).is_null() {
             if strncmp(s as *const u8, *e as *const u8, l + 1) == 0 {
                 let tmp = *e;
+                // putenv() was handed the very string already stored in
+                // environ (a setenv-allocated entry).  It is still live and
+                // tracked, so it must not be freed as a replaced allocation:
+                // environ would keep pointing at freed storage.
+                if tmp == s {
+                    return 0;
+                }
                 *e = s;
                 env_rm_add(tmp, r);
                 return 0;

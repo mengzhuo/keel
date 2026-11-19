@@ -59,6 +59,15 @@ static void test_env(void) {
     v = getenv("TEST_VAR");
     if (!v || strcmp(v, "world") != 0) { puts("setenv overwrite check fail"); exit(1); }
 
+    /* putenv() with the exact setenv-allocated entry already in environ
+       must keep it alive and tracked, not free it as a replaced string. */
+    char *entry = v - strlen("TEST_VAR=");
+    if (putenv(entry) != 0) { puts("putenv self entry fail"); exit(1); }
+    if (setenv("TEST_VAR2", "x", 1) != 0) { puts("setenv reuse fail"); exit(1); }
+    v = getenv("TEST_VAR");
+    if (!v || strcmp(v, "world") != 0) { puts("putenv self entry UAF"); exit(1); }
+    if (unsetenv("TEST_VAR2") != 0) { puts("unsetenv reuse fail"); exit(1); }
+
     if (unsetenv("TEST_VAR") != 0) { puts("unsetenv fail"); exit(1); }
     if (getenv("TEST_VAR") != NULL) { puts("unsetenv check fail"); exit(1); }
 
