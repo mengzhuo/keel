@@ -202,7 +202,7 @@ pub unsafe extern "C" fn fmemopen(buf: *mut c_void, size: usize, mode: *const c_
     } else if m == b'a' as c_char {
         (*c).len = strnlen(actual_buf, size);
         (*c).pos = (*c).len;
-    } else if has_plus {
+    } else if has_plus && size > 0 {
         *actual_buf = 0;
     }
     f
