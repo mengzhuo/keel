@@ -20,7 +20,7 @@ WORK=${2:?usage: run-workload.sh <workload> <work-dir>}
 # workload that needs the external HTTPS check; leave its environment alone
 # and make sure localhost still bypasses the proxy.
 if [[ $NAME != curl ]]; then
-    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+    unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 fi
 export no_proxy="${no_proxy:+$no_proxy,}127.0.0.1,localhost"
 export NO_PROXY="$no_proxy"
@@ -127,8 +127,12 @@ run_one() {
     fi
 }
 
-run_one "$ROOT" musl
-run_one "$KEEL" keel
+FAILED=0
+run_one "$ROOT" musl || FAILED=1
+run_one "$KEEL" keel || FAILED=1
+if [[ $FAILED -ne 0 ]]; then
+    exit 1
+fi
 
 # Redis logs a PID and timestamp in its overcommit warning.  Everything else
 # in the matrix is deterministic within a run.

@@ -8,6 +8,7 @@ busybox grep -c root /etc/passwd
 busybox awk 'BEGIN { print "awk", 1+1 }'
 busybox sed -n '1p' /etc/passwd
 busybox find /etc -maxdepth 1 -name passwd
+echo wget-start
 busybox wget -qO- -T 10 http://127.0.0.1:18080/
 echo wget-ok
 # Only print stable columns: PID 1's CPU time and command vary by host.

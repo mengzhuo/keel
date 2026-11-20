@@ -17,7 +17,7 @@ large part of the libc surface through one binary. The test covers:
 - version banner and applet enumeration;
 - `sh` (fork/exec, redirection, pipelines, builtins);
 - `ls`, `grep`, `sed`, `awk`, `find`, `ps`;
-- `wget` against a local HTTP server;
+- `wget` against a local HTTP server (`wget-start` / `wget-ok`);
 - file I/O, `stat`, `opendir`/`readdir`, `getpw*`, and process listing.
 
 ## Commands
@@ -31,6 +31,7 @@ busybox grep -c root /etc/passwd
 busybox awk 'BEGIN { print "awk", 1+1 }'
 busybox sed -n '1p' /etc/passwd
 busybox find /etc -maxdepth 1 -name passwd
+echo wget-start
 busybox wget -qO- -T 10 http://127.0.0.1:18080/
 echo wget-ok
 busybox ps | awk 'NR == 1 { print $1, $2, $4 } $1 == 1 { print $1, $2 }'
@@ -48,6 +49,7 @@ awk 2
 root:x:0:0:root:/root:/bin/sh
 /etc/passwd
 hello from keel workload test
+wget-start
 wget-ok
 PID USER COMMAND
 1 root
