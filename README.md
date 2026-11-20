@@ -28,6 +28,36 @@ matrix, and the CPython/Git/nginx upstream suites are recorded on x86\_64.
 riscv64, powerpc64le and loongarch64 are covered by cross-builds and the
 qemu smoke suites (`scripts/riscv-smoke.sh`, `scripts/cross-smoke.sh`).
 
+## Workload validation
+
+The [real workload matrix](docs/workloads.md) runs thirteen stock Alpine
+programs in two identical chroots: one with the stock musl loader and one
+with keel's `libc.so`. For each program the exit status and observable output
+must match musl.
+
+The current set is BusyBox, Bash, curl, Git, SQLite, nginx, Redis, CPython,
+PHP, Ruby, Node.js, FFmpeg and PostgreSQL.  It exercises `dlopen`, TLS and
+threads, `fork`/`exec`, sockets, `epoll`, SysV IPC, regular expressions,
+`scandir`, termios/job control and the dynamic loader's dependency and
+relocation paths.
+
+The scripts live in `scripts/workloads/`.  CI runs one parallel job per
+program after `build-and-test` through
+[`.github/workflows/workloads.yml`](.github/workflows/workloads.yml), so a
+failure in any program blocks `ci-status` and the release gate.
+
+To run a workload locally:
+
+```bash
+cargo build --release -p keel-libc --target x86_64-unknown-linux-gnu
+sudo ./scripts/workloads/setup-rootfs.sh /tmp/keel-workload
+sudo ./scripts/workloads/run-workload.sh php /tmp/keel-workload
+```
+
+`setup-rootfs.sh` pins Alpine 3.23.8 and verifies the minirootfs checksum.
+Set `ALPINE_MIRROR` to use a mirror, and `LIBC` if the release `libc.so` is in
+a different target directory.
+
 ## Build
 
 The toolchain is pinned to stable Rust by `rust-toolchain.toml`; Rust 1.99 or newer is required for stable C varargs.  The

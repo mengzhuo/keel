@@ -32,7 +32,7 @@ busybox awk 'BEGIN { print "awk", 1+1 }'
 busybox sed -n '1p' /etc/passwd
 busybox find /etc -maxdepth 1 -name passwd
 busybox wget -qO- http://127.0.0.1:18080/
-busybox ps | head -2
+busybox ps | awk 'NR == 1 { print $1, $2, $4 } NR > 1 && $1 == 1 { print $1, $2, $4 }'
 ```
 
 ## Output under keel
@@ -47,13 +47,15 @@ awk 2
 root:x:0:0:root:/root:/bin/sh
 /etc/passwd
 hello from keel workload test
-PID   USER     TIME  COMMAND
-    1 root      0:04 {systemd} /sbin/init
+PID USER COMMAND
+1 root {systemd}
 BUSYBOX_OK
 ```
 
 The `ps` line shows the host's PID 1 because `/proc` is bind-mounted into the
-chroot; this is identical under the musl baseline.
+chroot; this is identical under the musl baseline. Only the stable
+PID/user/command columns are printed, because the CPU-time column changes
+between runs.
 
 ## Baseline comparison
 

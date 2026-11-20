@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| Package | `git-2.52.0-r0` (Alpine 3.23) |
-| Version | `git version 2.52.0` |
+| Package | `git-2.52.1-r0` (Alpine 3.23) |
+| Version | `git version 2.52.1` |
 | Baseline | same package with stock musl 1.2.6 |
 
 ## What was tested
@@ -53,7 +53,7 @@ git fsck --no-progress
 ## Output under keel
 
 ```text
-git version 2.52.0
+git version 2.52.1
 33d215a first
  a.txt | 1 +
  1 file changed, 1 insertion(+)

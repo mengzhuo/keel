@@ -48,16 +48,18 @@ redis-cli -p 16379 shutdown nosave
 ## Output under keel
 
 ```text
-Redis server v=8.4.2 sha=00000000:1 malloc=libc bits=64 build=%llx
+Redis server v=8.4.2 sha=00000000:1 malloc=libc bits=64 build=b16f4b7dfcd86229
 redis-cli 8.4.2
-1308735:C 06 Nov 2026 10:16:27.769 # WARNING Memory overcommit must be enabled! \
+689345:C 19 Nov 2026 10:10:14.295 # WARNING Memory overcommit must be enabled! \
 Without it, a background save or replication may fail under low memory condition. …
 PONG
 OK
 hello
 1
 3
-a b c
+a
+b
+c
 1
 v
 OK
@@ -66,9 +68,10 @@ REDIS_OK
 ```
 
 The `vm.overcommit_memory` warning comes from the stock configuration and is
-also printed by the musl baseline. The process id and timestamp in the warning
-vary per run.  The literal `build=%llx` field is part of this Alpine package's
-version banner, not a keel formatting error; the musl baseline prints it too.
+also printed by the musl baseline; `…` elides the rest of the line. The process
+id and timestamp vary per run. The `build=` hash identifies the package build
+and is identical under musl. `redis-cli` prints each list element on its own
+line when stdout is not a TTY, so `LRANGE` shows `a`, `b`, `c` separately.
 
 ## Baseline comparison
 

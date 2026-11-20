@@ -11,6 +11,8 @@
 #     └── header-macro: header -> macro-parity   (header waits for fmt)
 #          │
 #          ├──> build-and-test    (native x86_64 + aarch64)
+#          │         │
+#          │         └──> workloads (13 parallel Alpine programs)
 #          ├──> libc-test-cross   (qemu: aarch64/riscv64/ppc64le/loongarch64)
 #          └──> cross-arch        (qemu smoke: riscv64/ppc64le/loongarch64)
 #                     │
@@ -18,7 +20,8 @@
 #                 ci-status
 #
 # `ci-status` is the single check to require in branch protection: it only
-# succeeds when the precheck group and every build/test job succeeded.
+# succeeds when the precheck group, every build/test job and the workload
+# matrix succeeded.
 
 name: CI
 
@@ -141,6 +144,15 @@ jobs:
         run: |
           cd scripts/libc-test-harness
           ./run.sh math
+
+  # Real Alpine workloads.  The reusable workflow builds one rootfs and then
+  # runs every program in its own matrix job, all in parallel.
+  workloads:
+    name: workloads
+    needs: build-and-test
+    permissions:
+      contents: read
+    uses: ./.github/workflows/workloads.yml
 
   # Cross-arch libc-test suites. Both matrices are blocking: together with
   # the native jobs they gate releases through ci-status.
@@ -265,7 +277,7 @@ jobs:
   ci-status:
     name: CI status
     if: always()
-    needs: [precheck, build-and-test, libc-test-cross, cross-arch]
+    needs: [precheck, build-and-test, workloads, libc-test-cross, cross-arch]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -281,6 +293,7 @@ jobs:
           done <<'RESULTS'
           precheck=${{ needs.precheck.result }}
           build-and-test=${{ needs.build-and-test.result }}
+          workloads=${{ needs.workloads.result }}
           libc-test-cross=${{ needs.libc-test-cross.result }}
           cross-arch=${{ needs.cross-arch.result }}
           RESULTS

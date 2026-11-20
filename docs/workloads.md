@@ -1,46 +1,48 @@
 # Real workload matrix
 
 This page answers a single question: **do real, unmodified musl-linked programs
-run under keel?** Nine applications from Alpine 3.23 are executed in two
+run under keel?** Thirteen applications from Alpine 3.23 are executed in two
 identical chroots — one with the stock musl loader, one with keel's
 `libc.so` — and the observable output is compared.
 
-Everything below is a snapshot from **2026-11-06** on x86\_64, taken with
-the pre-rename `crabc` 0.4.2.  Versioning restarted at 0.1.0 and the current
-release is 0.1.1; the later loader/libc changes preserve the behavior
-recorded here.  The results are reproducible with the commands in each
+Everything below is a snapshot from **2026-11-19** on x86\_64, taken with
+keel **0.1.4** plus the `scandir` and regex-capture fixes recorded in the
+Bash and PHP reports.  The results are reproducible with the commands in each
 report.
 
 ## Result
 
-✅ **All nine workloads pass.** For every application, keel produces the same
-exit status and the same relevant stdout as the musl baseline.
+✅ **All thirteen workloads pass.** For every application, keel produces the
+same exit status and the same relevant stdout as the musl baseline.
 
 | Workload | Version | Status | Report | Scope |
 |---|---|---:|:---:|---|
 | BusyBox | 1.37.0 | ✅ | [busybox.md](workloads/busybox.md) | 304 applets available; representative set includes `sh`, `ls`, `grep`, `awk`, `sed`, `find`, `wget`, `ps` |
 | curl | 8.23.0 | ✅ | [curl.md](workloads/curl.md) | `file://`, HTTP, HTTPS (OpenSSL), proxy |
-| Git | 2.52.0 | ✅ | [git.md](workloads/git.md) | init, add, commit, log, diff, status, clone, fsck |
+| Git | 2.52.1 | ✅ | [git.md](workloads/git.md) | init, add, commit, log, diff, status, clone, fsck |
 | SQLite | 3.53.4 | ✅ | [sqlite.md](workloads/sqlite.md) | SQL, WAL mode, indexes, in-memory DB |
 | nginx | 1.28.3 | ✅ | [nginx.md](workloads/nginx.md) | config test, master/worker, HTTP 1.1, graceful shutdown |
 | Redis | 8.4.2 | ✅ | [redis.md](workloads/redis.md) | strings, counters, lists, hashes, `SAVE`, shutdown |
 | CPython | 3.12.16 | ✅ | [python.md](workloads/python.md) | pure Python, `ssl`, `sqlite3`, `ctypes`, `zlib`/`bz2`/`lzma` |
-| Node.js | 24.22.1 | ✅ | [node.md](workloads/node.md) | JS runtime, `fs`, HTTP client, `zlib`, `crypto` |
-| PostgreSQL | 18.6 | ✅ | [postgres.md](workloads/postgres.md) | initdb, server start/stop, DDL, DML, index, `psql` |
+| Node.js | 24.22.3 | ✅ | [node.md](workloads/node.md) | JS runtime, `fs`, HTTP client, `zlib`, `crypto` |
+| PostgreSQL | 18.7 | ✅ | [postgres.md](workloads/postgres.md) | initdb, server start/stop, DDL, DML, index, `psql` |
+| Bash | 5.3.3 | ✅ | [bash.md](workloads/bash.md) | arrays, process substitution, job control, `coproc`, regex captures |
+| PHP | 8.3.36 | ✅ | [php.md](workloads/php.md) | CLI, `dlopen` extensions, PCRE, OpenSSL, SQLite, `pcntl`, streams |
+| Ruby | 3.4.12 | ✅ | [ruby.md](workloads/ruby.md) | threads, fibers (`libucontext`), OpenSSL, zlib, YAML, sockets |
+| FFmpeg | 8.0.1 | ✅ | [ffmpeg.md](workloads/ffmpeg.md) | `libav*`, filters, threaded encode/decode, raw and MD5 output |
 
 ## Environment
 
-- Alpine Linux **3.23**, x86\_64, musl 1.2.6 ABI.
+- Alpine Linux **3.23.8**, x86\_64, musl 1.2.6 ABI.
 - All binaries are the stock Alpine packages (`apk add`), unmodified.
-- pre-rename `crabc` **0.4.2** (historical measurement; current release is
-  0.1.1).
+- keel **0.1.4** plus the fixes recorded below (`cargo build --release -p
+  keel-libc`).
 - Two chroots:
   - `alpine-root`: pristine musl loader and libc.
   - `alpine-keel`: same files, but `/lib/ld-musl-x86_64.so.1` is keel's
-    `libc.so`, and `/lib/libc.musl-x86_64.so.1` points at the same file,
-    and `LD_LIBRARY_PATH=/opt/keel`.
+    `libc.so`, and `/lib/libc.musl-x86_64.so.1` points at the same file.
 - `/proc`, `/dev`, `/sys` and a shared `/work` directory are bind-mounted into
-  both chroots. PostgreSQL runs as uid 1000 (its package user); the other
+  both chroots. PostgreSQL runs as its package user (uid/gid 70); the other
   workloads run as root inside the chroot, as they would in a container.
 
 ## Method
@@ -53,6 +55,10 @@ exit status and the same relevant stdout as the musl baseline.
 
 The scripts use only the packaged binaries; no recompilation, no patches and no
 keel-specific build flags are involved.
+
+The same scripts live under `scripts/workloads/` and are used by CI. The
+`workloads` workflow prepares one Alpine rootfs and then runs every program in
+its own matrix job, all in parallel, after `build-and-test` succeeds.
 
 This matrix is a smoke test.  For the programs' own test suites — CPython's
 `test` package, Git's `t/` scripts and `nginx-tests` — see
@@ -80,6 +86,16 @@ describe what was *not* exercised, so the matrix is not over-read:
   trade-off, not a functional failure.
 - **Redis** prints the stock `vm.overcommit_memory` warning in the container;
   the musl baseline prints it too.
+- **Bash**: the script runs non-interactively; readline line editing was not
+  exercised through a TTY. Job control is limited to `set -m`, a background
+  child, `kill -0` and `wait`.
+- **PHP**: only the CLI SAPI and the listed extensions are installed. FPM,
+  Apache, `gd`/`intl`/`zip` and other optional extensions were not exercised.
+- **Ruby**: the base interpreter and its standard-library extensions are
+  covered; third-party native gems were not installed.
+- **FFmpeg**: a synthetic `testsrc`/`sine` encode-decode round trip; hardware
+  acceleration, network protocols and real-world media containers were not
+  exercised.
 
 ## Reproducing
 
@@ -94,8 +110,11 @@ docker run --rm --network host -v "$PWD/alpine-root:/rootfs" alpine:3.23 \
   sh -c 'apk --root /rootfs --initdb --arch x86_64 -U --allow-untrusted \
     -X https://dl-cdn.alpinelinux.org/alpine/v3.23/main \
     -X https://dl-cdn.alpinelinux.org/alpine/v3.23/community \
-    add alpine-baselayout busybox curl git sqlite nginx redis python3 nodejs \
-        postgresql postgresql-client openssl ca-certificates'
+    add alpine-baselayout busybox bash curl git sqlite nginx redis python3 \
+        nodejs postgresql postgresql-client openssl ca-certificates \
+        php83 php83-openssl php83-sqlite3 php83-pdo_sqlite php83-mbstring \
+        php83-iconv php83-curl php83-phar php83-posix php83-pcntl \
+        php83-sockets ruby ffmpeg'
 
 # 3. Clone it and install keel as the runtime
 cp -a alpine-root alpine-keel
@@ -106,7 +125,7 @@ cp alpine-keel/opt/keel/libc.so alpine-keel/lib/ld-musl-x86_64.so.1
 ln -sfn /opt/keel/libc.so alpine-keel/lib/libc.musl-x86_64.so.1
 
 # 4. Run a script in a chroot
-LD_LIBRARY_PATH=/opt/keel chroot alpine-keel /bin/sh /work/busybox.sh
+chroot alpine-keel /bin/sh /work/busybox.sh
 chroot alpine-root /bin/sh /work/busybox.sh   # baseline
 ```
 

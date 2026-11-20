@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| Package | `nodejs-24.22.1-r0` (Alpine 3.23) |
-| Version | `v24.22.1` |
+| Package | `nodejs-24.22.3-r0` (Alpine 3.23) |
+| Version | `v24.22.3` |
 | Baseline | same package with stock musl 1.2.6 |
 
 ## What was tested
@@ -45,8 +45,8 @@ console.log("crypto",
 ## Output under keel
 
 ```text
-v24.22.1
-core v24.22.1 2 linux
+v24.22.3
+core v24.22.3 2 linux
 fs hello
 http hello from keel workload test
 zlib 25

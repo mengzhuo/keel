@@ -19,8 +19,9 @@ uses threads, DNS, sockets, TLS, and stdio.
   resolution across the whole graph;
 - `file://` reads;
 - plain HTTP GET against a local server;
-- an HTTPS GET through the lab proxy, exercising OpenSSL and the system trust
-  store.
+- an HTTPS GET against `example.com`, exercising OpenSSL and the system trust
+  store. The lab run uses the lab proxy through `HTTP(S)_PROXY`; CI runs
+  directly.
 
 ## Commands
 
@@ -30,8 +31,8 @@ curl --version | head -1
 curl -sS file:///etc/passwd | head -1
 curl -sS http://127.0.0.1:18080/
 curl -sS -o /dev/null -w 'http_code=%{http_code}\n' http://127.0.0.1:18080/
-https_proxy=http://10.0.0.1:8123 http_proxy=http://10.0.0.1:8123 \
-  curl -sS -o /dev/null -w 'https_code=%{http_code}\n' https://example.com/
+# Export HTTP(S)_PROXY first if the network requires one.
+curl -sS -o /dev/null -w 'https_code=%{http_code}\n' https://example.com/
 ```
 
 ## Output under keel

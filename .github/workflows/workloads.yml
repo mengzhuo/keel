@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Real Alpine workloads, split into one parallel CI job per program.
+#
+# ci.yml calls this workflow as the single `workloads` job after
+# build-and-test.  A prepare job builds keel and creates one pristine Alpine
+# rootfs; the matrix jobs then clone it, install keel as the interpreter and
+# compare each program's output with the same program under stock musl.
+#
+# The workload set is the same one documented in docs/workloads.md.
+
+name: Workloads
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  ALPINE_MIRROR: ${{ vars.ALPINE_MIRROR || 'https://dl-cdn.alpinelinux.org' }}
+  ALPINE_VERSION: "3.23.8"
+
+jobs:
+  prepare:
+    name: workloads / prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-x86_64-cargo-registry-${{ hashFiles('**/Cargo.toml', 'rust-toolchain.toml') }}
+
+      - name: Build release libc
+        run: cargo build --release -p keel-libc --target x86_64-unknown-linux-gnu
+
+      - name: Create pristine Alpine rootfs
+        run: |
+          sudo ALPINE_MIRROR="$ALPINE_MIRROR" ALPINE_VERSION="$ALPINE_VERSION" \
+            ./scripts/workloads/setup-rootfs.sh "$RUNNER_TEMP/workload"
+
+      - name: Package rootfs
+        run: |
+          mkdir -p "$RUNNER_TEMP/artifact"
+          cp "$RUNNER_TEMP/workload/libc.so" "$RUNNER_TEMP/artifact/libc.so"
+          chmod 755 "$RUNNER_TEMP/artifact/libc.so"
+          sudo tar -C "$RUNNER_TEMP/workload" -czf \
+            "$RUNNER_TEMP/artifact/alpine-root.tar.gz" alpine-root
+          sudo chmod 644 "$RUNNER_TEMP/artifact/alpine-root.tar.gz"
+
+      - name: Upload rootfs
+        uses: actions/upload-artifact@v4
+        with:
+          name: workload-rootfs
+          path: ${{ runner.temp }}/artifact/
+          if-no-files-found: error
+          retention-days: 3
+
+  workload:
+    name: workload / ${{ matrix.workload }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        workload:
+          - busybox
+          - curl
+          - git
+          - sqlite
+          - nginx
+          - redis
+          - python
+          - node
+          - postgres
+          - bash
+          - php
+          - ruby
+          - ffmpeg
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: workload-rootfs
+          path: ${{ runner.temp }}/workload
+
+      - name: Unpack rootfs
+        run: |
+          sudo tar -C "$RUNNER_TEMP/workload" -xzf \
+            "$RUNNER_TEMP/workload/alpine-root.tar.gz"
+          chmod 755 "$RUNNER_TEMP/workload/libc.so"
+
+      - name: Run ${{ matrix.workload }}
+        run: sudo -E ./scripts/workloads/run-workload.sh \
+          "${{ matrix.workload }}" "$RUNNER_TEMP/workload"
+
+      - name: Upload workload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workload-${{ matrix.workload }}-logs
+          path: ${{ runner.temp }}/workload/results/
+          retention-days: 7

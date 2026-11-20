@@ -15,7 +15,7 @@ Last checked: 2026-11-09.
 powerpc64le and loongarch64.
 - `no_std`; `unsafe` is confined to the syscall and pointer boundary.
 - Validated with musl's own libc-test, LTP, a differential harness against
-  musl 1.2.6, and nine real Alpine workloads.
+  musl 1.2.6, and thirteen real Alpine workloads.
 - Experimental (`0.1.x`), not a production-ready drop-in replacement.
 
 ## What keel is not
@@ -33,7 +33,7 @@ powerpc64le and loongarch64.
 
 | Project | Status | Scope | Notes |
 |---|---|---|---|
-| **keel** | active, `0.1.x` | musl 1.2.6; x86\_64, aarch64, riscv64, ppc64le, loongarch64; combined `libc.so` | 9/9 Alpine workloads, shared LTP suites have identical failure lists, libc-test 412 PASS + 6 SKIP as root, full public macro surface checked |
+| **keel** | active, `0.1.x` | musl 1.2.6; x86\_64, aarch64, riscv64, ppc64le, loongarch64; combined `libc.so` | 13/13 Alpine workloads, shared LTP suites have identical failure lists, libc-test 412 PASS + 6 SKIP as root, full public macro surface checked |
 | [anp/rusl](https://github.com/anp/rusl) | inactive (2018) | x86\_64; partial musl port | historical, proof-of-concept port |
 | [SrDicov/zlibc](https://github.com/SrDicov/zlibc) | pre-alpha (2026-10) | x86\_64; musl ABI | phase 1 skeleton; does not link or run yet; no ldso |
 | [starkross/mytilus](https://github.com/starkross/mytilus) | pre-alpha (2026-05) | aarch64 only; musl 1.2.6 | empty crate scaffolds; no working libc; no ldso |
@@ -110,8 +110,8 @@ actively maintained. They are not drop-in replacements for each other.
 
 Both are pre-alpha: they do not have a working libc or dynamic linker yet and
 are limited to one architecture. keel has a working combined `libc.so`, three
-architectures, nine real Alpine workloads, and identical LTP failure lists on
-the shared suites. More Rust libc projects are good for the ecosystem; these
+architectures, thirteen real Alpine workloads, and identical LTP failure
+lists on the shared suites. More Rust libc projects are good for the ecosystem; these
 are simply at an earlier stage.
 
 ### Is keel the first Rust libc?
@@ -148,7 +148,7 @@ a different ABI implementation.
 
 | Claim | Where to verify |
 |---|---|
-| Nine real Alpine workloads pass | [workloads.md](workloads.md) |
+| Thirteen real Alpine workloads pass | [workloads.md](workloads.md) |
 | LTP failure lists match musl | [ltp.md](ltp.md) |
 | libc-test: 412 PASS / 6 SKIP / 0 FAIL as root; 413 PASS / 5 SKIP as unprivileged CI (pinned `libc-test`, 2026-11-15) | `scripts/libc-test-harness/reports/` |
 | 0 unexpected parity diffs vs musl 1.2.6 | `scripts/parity-check.sh` |

@@ -96,6 +96,13 @@ regressions.  It is not an exhaustive security review.
   `RTLD_NOW`; both are valid ABI behaviour, but the loader does not defer
   `JUMP_SLOT` resolution.
 
+## Regular expressions
+
+- **The regex engine implements POSIX BRE/ERE matching and capture groups,
+  but not backreferences or collating/equivalence classes.**  `REG_NEWLINE`
+  is accepted but does not change `^`/`$` or `.` handling.  Patterns outside
+  this subset may compile differently from musl.
+
 ## Math
 
 - **x86\_64 `long double` is 64-bit.**  keel does not use the 80-bit x87

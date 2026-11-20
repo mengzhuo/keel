@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| Package | `postgresql-18.6-r0` / `postgresql-client` (Alpine 3.23) |
-| Version | `PostgreSQL 18.6 on x86_64-alpine-linux-musl` |
+| Package | `postgresql18-18.7-r0` / `postgresql18-client` (Alpine 3.23) |
+| Version | `PostgreSQL 18.7 on x86_64-alpine-linux-musl` |
 | Baseline | same package with stock musl 1.2.6 |
 
 ## What was tested
@@ -23,10 +23,13 @@ file locking and a large amount of formatting and locale code.
 - `pg_database_size(current_database()) > 0`;
 - fast shutdown with `pg_ctl -m fast -w stop`.
 
-The server runs as uid/gid 1000 (the `postgres` user), as required by the
-package; it refuses to run as root.
+The server runs as its package user, `postgres` (uid/gid 70), as required by
+the package; it refuses to run as root.
 
 ## Commands
+
+Run the script as the package user, for example with
+`chroot --userspec=70:70 <rootfs> /bin/sh /work/postgres.sh`.
 
 ```sh
 export PATH=/usr/libexec/postgresql18:/usr/bin:/bin
@@ -54,11 +57,12 @@ pg_ctl -D "$PGDATA" -m fast -w stop
 ## Output under keel
 
 ```text
+(initdb bootstrap log omitted)
 INITDB_OK
 waiting for server to start.... done
 server started
 pg_ctl start rc=0
-PostgreSQL 18.6 on x86_64-alpine-linux-musl, compiled by cc (Alpine 15.2.0) 15.2.0, 64-bit
+PostgreSQL 18.7 on x86_64-alpine-linux-musl, compiled by cc (Alpine 15.2.0) 15.2.0, 64-bit
 2
 CREATE TABLE
 INSERT 0 3
@@ -71,6 +75,10 @@ server stopped
 pg_ctl stop rc=0
 PG_OK
 ```
+
+`initdb` prints its standard bootstrap log (locale, encoding, shared-memory
+selection, and the trust-authentication warning) before `INITDB_OK`; it is
+omitted here for readability and is identical under musl.
 
 ## Baseline comparison
 
@@ -85,7 +93,7 @@ and the fast shutdown.
   pointer was 8 bytes off. After `longjmp`, the caller ran with a misaligned
   stack and `vmovdqa` faulted. `sigsetjmp` now preserves the musl stack
   layout, and a standalone SIGSEGV/SIGALRM test covers it.
-- `initdb` needs a writable `PGDATA` owned by uid 1000, and `/tmp` writable
+- `initdb` needs a writable `PGDATA` owned by uid 70, and `/tmp` writable
   for the unix socket.
 - Locale support is minimal (`--no-locale`); ICU collations and TLS
   connections to the server were not exercised.

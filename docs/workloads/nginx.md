@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Package | `nginx-1.28.3-r0` (Alpine 3.23) |
+| Package | `nginx-1.28.3-r8` (Alpine 3.23) |
 | Version | `nginx/1.28.3` |
 | Baseline | same package with stock musl 1.2.6 |
 
