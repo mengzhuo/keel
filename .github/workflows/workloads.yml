@@ -104,8 +104,17 @@ jobs:
           chmod 755 "$RUNNER_TEMP/workload/libc.so"
 
       - name: Run ${{ matrix.workload }}
-        run: sudo -E ./scripts/workloads/run-workload.sh \
-          "${{ matrix.workload }}" "$RUNNER_TEMP/workload"
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/workload/results"
+          if ! sudo -E bash -x ./scripts/workloads/run-workload.sh \
+              "${{ matrix.workload }}" "$RUNNER_TEMP/workload" \
+              2>&1 | tee "$RUNNER_TEMP/workload/results/run.log"; then
+            while IFS= read -r line; do
+              echo "::error::$line"
+            done < <(tail -40 "$RUNNER_TEMP/workload/results/run.log")
+            exit 1
+          fi
 
       - name: Upload workload logs
         if: failure()
