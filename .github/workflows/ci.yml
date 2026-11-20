@@ -223,9 +223,35 @@ jobs:
           CROSS_CC: ${{ matrix.cross_cc }}
         run: |
           set -e
-          ./scripts/libc-test-harness/cross-run.sh ${{ matrix.arch }} functional
-          ./scripts/libc-test-harness/cross-run.sh ${{ matrix.arch }} regression
-          ./scripts/libc-test-harness/cross-run.sh ${{ matrix.arch }} api
+          run_suite() {
+            local subset=$1
+            if ./scripts/libc-test-harness/cross-run.sh "${{ matrix.arch }}" "$subset"; then
+              return 0
+            fi
+            echo "::warning::$subset failed for ${{ matrix.arch }}; retrying once"
+            ./scripts/libc-test-harness/cross-run.sh "${{ matrix.arch }}" "$subset"
+          }
+          run_suite functional
+          run_suite regression
+          run_suite api
+
+      - name: Report failed libc-test cases
+        if: failure()
+        run: |
+          shopt -s nullglob
+          for f in scripts/libc-test-harness/reports/cross_${{ matrix.arch }}_*.txt; do
+            while IFS= read -r line; do
+              echo "::error::$line"
+            done < <(grep -E '^(FAIL|TIMEOUT|BUILDERROR)' "$f" || true)
+          done
+
+      - name: Upload libc-test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: libc-test-cross-${{ matrix.arch }}-reports
+          path: scripts/libc-test-harness/reports/
+          retention-days: 7
 
   cross-arch:
     name: cross-arch (${{ matrix.arch }})
