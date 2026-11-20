@@ -6,9 +6,9 @@ identical chroots — one with the stock musl loader, one with keel's
 `libc.so` — and the observable output is compared.
 
 Everything below is a snapshot from **2026-11-19** on x86\_64, taken with
-keel **0.1.4** plus the `scandir` and regex-capture fixes recorded in the
-Bash and PHP reports.  The results are reproducible with the commands in each
-report.
+keel **0.1.5**, which includes the `scandir` and regex-capture fixes recorded
+in the Bash and PHP reports.  The results are reproducible with the commands
+in each report.
 
 ## Result
 
@@ -35,8 +35,7 @@ same exit status and the same relevant stdout as the musl baseline.
 
 - Alpine Linux **3.23.8**, x86\_64, musl 1.2.6 ABI.
 - All binaries are the stock Alpine packages (`apk add`), unmodified.
-- keel **0.1.4** plus the fixes recorded below (`cargo build --release -p
-  keel-libc`).
+- keel **0.1.5** (`cargo build --release -p keel-libc`).
 - Two chroots:
   - `alpine-root`: pristine musl loader and libc.
   - `alpine-keel`: same files, but `/lib/ld-musl-x86_64.so.1` is keel's
