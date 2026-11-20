@@ -16,6 +16,15 @@ set -euo pipefail
 NAME=${1:?usage: run-workload.sh <workload> <work-dir>}
 WORK=${2:?usage: run-workload.sh <workload> <work-dir>}
 
+# Localhost clients must not use a runner or lab proxy.  curl is the only
+# workload that needs the external HTTPS check; leave its environment alone
+# and make sure localhost still bypasses the proxy.
+if [[ $NAME != curl ]]; then
+    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+fi
+export no_proxy="${no_proxy:+$no_proxy,}127.0.0.1,localhost"
+export NO_PROXY="$no_proxy"
+
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$WORK/alpine-root
 KEEL=$WORK/alpine-keel
@@ -91,6 +100,10 @@ for _ in {1..25}; do
     fi
     sleep 0.2
 done
+if ! curl -fsS -o /dev/null http://127.0.0.1:18080/ 2>/dev/null; then
+    echo "error: local HTTP server did not start" >&2
+    exit 1
+fi
 
 PG_UID=70
 PG_GID=70
@@ -106,8 +119,8 @@ run_one() {
     [[ $NAME == postgres ]] && userspec=(--userspec="$PG_UID:$PG_GID")
 
     echo "==> $NAME ($tag)"
-    if ! timeout 300 chroot "${userspec[@]}" "$root" "$shell" "/work/$NAME.sh" \
-        >"$RESULTS/$tag.out" 2>&1; then
+    if ! { echo "### $tag"; timeout 300 chroot "${userspec[@]}" "$root" \
+        "$shell" "/work/$NAME.sh"; } >"$RESULTS/$tag.out" 2>&1; then
         echo "error: $NAME failed under $tag" >&2
         cat "$RESULTS/$tag.out" >&2
         return 1
@@ -120,7 +133,7 @@ run_one "$KEEL" keel
 # Redis logs a PID and timestamp in its overcommit warning.  Everything else
 # in the matrix is deterministic within a run.
 normalize() {
-    sed -E '/^[0-9]+:C .* # WARNING Memory overcommit/d' "$1"
+    sed -E '/^### (musl|keel)$/d; /^[0-9]+:C .* # WARNING Memory overcommit/d' "$1"
 }
 
 if ! diff -u <(normalize "$RESULTS/musl.out") <(normalize "$RESULTS/keel.out") \
