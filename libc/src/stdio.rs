@@ -178,8 +178,16 @@ unsafe fn buf_ptr(f: *mut FILE) -> *mut u8 {
 
 unsafe extern "C" fn __stdio_read(f: *mut FILE, buf: *mut u8, len: usize) -> usize {
     let n = sys_read((*f).fd as i64, buf, len);
-    if n <= 0 {
-        if n == 0 { (*f).flags |= F_EOF; } else { (*f).flags |= F_ERR; (*f)._err = 1; }
+    if n < 0 {
+        // Keep the syscall error visible to callers that use nonblocking
+        // streams (BusyBox wget checks errno == EAGAIN after a short fread).
+        ERRNO!() = (-n) as c_int;
+        (*f).flags |= F_ERR;
+        (*f)._err = 1;
+        return 0;
+    }
+    if n == 0 {
+        (*f).flags |= F_EOF;
         return 0;
     }
     n as usize
@@ -202,6 +210,7 @@ unsafe extern "C" fn __stdio_write(f: *mut FILE, buf: *const u8, len: usize) -> 
         let cnt = iov[idx].1;
         if cnt == 0 { idx += 1; continue; }
         let n = sys_write((*f).fd as i64, ptr, cnt);
+        if n < 0 { ERRNO!() = (-n) as c_int; }
         if n <= 0 {
             (*f).wpos = core::ptr::null_mut();
             (*f).wbase = core::ptr::null_mut();
@@ -221,7 +230,9 @@ unsafe extern "C" fn __stdio_write(f: *mut FILE, buf: *const u8, len: usize) -> 
 }
 
 unsafe extern "C" fn __stdio_seek(f: *mut FILE, off: i64, whence: c_int) -> i64 {
-    sys_lseek((*f).fd as i64, off, whence as i64)
+    let r = sys_lseek((*f).fd as i64, off, whence as i64);
+    if r < 0 { ERRNO!() = (-r) as c_int; }
+    r
 }
 
 unsafe fn init_file(
