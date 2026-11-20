@@ -21,7 +21,7 @@ int main(void)
 {
     struct passwd pw, pw2, *pres;
     struct group gr, g2, *gres;
-    char pbuf[1024], pbuf2[1024], gbuf[2048];
+    char pbuf[1024], pbuf2[1024], gbuf[8192];
     int r;
 
     memset(&pw, 0, sizeof pw);
@@ -87,9 +87,22 @@ int main(void)
     r = getgrnam_r("root", &gr, tinyg, sizeof tinyg, &gres);
     CHECK(r == ERANGE);
 
-    int neg = -1;
-    unsigned int groups1[1];
-    CHECK(getgrouplist("root", 0, groups1, &neg) == -1);
+    /* The host decides how many groups root belongs to.  Query the count
+       first, then exercise the too-small buffer only when it exists. */
+    int neg = 256;
+    unsigned int groups256[256];
+    int total = getgrouplist("root", 0, groups256, &neg);
+    CHECK(total > 0 && total == neg);
+    if (total > 1) {
+        int one = 1;
+        unsigned int groups1[1];
+        CHECK(getgrouplist("root", 0, groups1, &one) == -1);
+        CHECK(one == total);
+    } else {
+        int one = 1;
+        unsigned int groups1[1];
+        CHECK(getgrouplist("root", 0, groups1, &one) == 1);
+    }
 
     /* getserv*_r must return the caller's struct, not a dead stack copy. */
     {

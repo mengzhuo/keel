@@ -124,8 +124,9 @@ pub fn run_fixture(name: &str, extra: &[&str]) -> Output {
     let output = run_binary(&bin);
     assert!(
         output.status.success(),
-        "{name}_test exited with {:?}, stderr: {}",
+        "{name}_test exited with {:?}, stdout: {}, stderr: {}",
         output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     output
