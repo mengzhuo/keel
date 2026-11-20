@@ -116,6 +116,15 @@ jobs:
             exit 1
           fi
 
+      - name: Report workload diff
+        if: failure()
+        run: |
+          if [[ -f "$RUNNER_TEMP/workload/results/diff.txt" ]]; then
+            while IFS= read -r line; do
+              echo "::error::$line"
+            done < "$RUNNER_TEMP/workload/results/diff.txt"
+          fi
+
       - name: Upload workload logs
         if: failure()
         uses: actions/upload-artifact@v4
