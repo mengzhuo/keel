@@ -133,9 +133,13 @@ pub unsafe extern "C" fn scandir(
             list = p;
             cap = new_cap;
         }
-        let name = (ent as *const u8).add(core::mem::offset_of!(linux_dirent64, d_name))
-            as *const core::ffi::c_char;
-        let copy = crate::strdup(name);
+        // scandir returns an array of `struct dirent *`, not an array of name
+        // strings.  Copy the whole kernel dirent record so callers can read
+        // d_ino/d_off/d_reclen/d_type as well as d_name.
+        let reclen = (* (ent as *const linux_dirent64)).d_reclen as usize;
+        let name_off = core::mem::offset_of!(linux_dirent64, d_name);
+        if reclen <= name_off { continue; }
+        let copy = crate::malloc(reclen);
         if copy.is_null() {
             for i in 0..count { crate::free(*list.add(i)); }
             crate::free(list as *mut c_void);
@@ -143,7 +147,8 @@ pub unsafe extern "C" fn scandir(
             ERRNO!() = ENOMEM;
             return -1;
         }
-        *list.add(count) = copy as *mut c_void;
+        core::ptr::copy_nonoverlapping(ent as *const u8, copy as *mut u8, reclen);
+        *list.add(count) = copy;
         count += 1;
     }
     closedir(dir);
@@ -164,16 +169,18 @@ pub unsafe extern "C" fn scandir(
 
 #[no_mangle]
 pub unsafe extern "C" fn alphasort(a: *const *const core::ffi::c_void, b: *const *const core::ffi::c_void) -> i32 {
-    let s1 = *a as *const core::ffi::c_char;
-    let s2 = *b as *const core::ffi::c_char;
+    let name_off = core::mem::offset_of!(crate::DirentCopy, d_name);
+    let s1 = (*a as *const u8).add(name_off) as *const core::ffi::c_char;
+    let s2 = (*b as *const u8).add(name_off) as *const core::ffi::c_char;
     crate::strcmp(s1 as *const u8, s2 as *const u8)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn versionsort(a: *const *const core::ffi::c_void, b: *const *const core::ffi::c_void) -> i32 {
-    let s1 = *a as *const core::ffi::c_char;
-    let s2 = *b as *const core::ffi::c_char;
-    crate::strcmp(s1 as *const u8, s2 as *const u8)
+    let name_off = core::mem::offset_of!(crate::DirentCopy, d_name);
+    let s1 = (*a as *const u8).add(name_off) as *const core::ffi::c_char;
+    let s2 = (*b as *const u8).add(name_off) as *const core::ffi::c_char;
+    crate::strverscmp(s1, s2)
 }
 
 // ============================================================

@@ -26,6 +26,7 @@ const OP_SPLIT: u8 = 5;
 const OP_BOL: u8 = 6;
 const OP_EOL: u8 = 7;
 const OP_ANY: u8 = 8;
+const OP_SAVE: u8 = 9;
 
 // regex_t layout: re_nsub(8) + __opaque(8) + __padding[4](32) + __nsub2(8) + __padding2(1) = 57 bytes
 // __opaque is at offset 8
@@ -50,6 +51,8 @@ struct CompiledRegex {
     code_cap: usize,
     icase: bool,
     extended: bool,
+    nosub: bool,
+    nsub: usize,
     n_brackets: usize,
     brackets: *mut BracketData,
     brackets_cap: usize,
@@ -59,6 +62,7 @@ struct RegexCContext {
     code: *mut CompiledRegex,
     pos: usize,
     last_atom_start: usize,
+    groups: usize,
     err: c_int,
     extended: bool,
     icase: bool,
@@ -69,6 +73,21 @@ struct MatchFrame {
     pc: usize,
     sp: usize,
     at_bol: bool,
+    undo: usize,
+}
+
+#[derive(Copy, Clone)]
+struct CaptureUndo {
+    slot: usize,
+    old: usize,
+}
+
+struct CaptureState {
+    slots: *mut usize,
+    nslots: usize,
+    undo: *mut CaptureUndo,
+    nundo: usize,
+    undo_cap: usize,
 }
 
 #[inline]
@@ -131,6 +150,10 @@ unsafe fn patch32(code: *mut u8, at: usize, val: u32) {
 
 fn emit_char(ctx: &mut RegexCContext, b: u8) -> bool {
     emit(ctx, OP_CHAR) && emit(ctx, b)
+}
+
+fn emit_save(ctx: &mut RegexCContext, slot: usize) -> bool {
+    emit(ctx, OP_SAVE) && emit32(ctx, slot as u32)
 }
 
 fn case_fold_byte(b: u8) -> u8 {
@@ -307,7 +330,9 @@ fn compile_sequence(
             let prev_start = ctx.last_atom_start;
             let prev_len = ctx.pos - prev_start;
             let op = unsafe { *(*ctx.code).code.add(prev_start) };
-            if op == OP_CHAR || op == OP_BRACKET || op == OP_ANY || op == OP_BOL || op == OP_EOL {
+            if op == OP_CHAR || op == OP_BRACKET || op == OP_ANY || op == OP_BOL
+                || op == OP_EOL || op == OP_SAVE
+            {
                 let prev = unsafe { crate::malloc(prev_len) as *mut u8 };
                 if prev.is_null() { return false; }
                 unsafe {
@@ -358,7 +383,11 @@ fn compile_group(
         if depth > 0 { j += 1; }
     }
     if depth != 0 { return false; }
+    ctx.groups += 1;
+    let group = ctx.groups;
+    if !emit_save(ctx, group * 2) { return false; }
     if !compile_expr(ctx, pat, plen, start, j, true) { return false; }
+    if !emit_save(ctx, group * 2 + 1) { return false; }
     *i = j + 1;
     true
 }
@@ -483,6 +512,56 @@ unsafe fn read32(code: *const u8, at: usize) -> usize {
         | ((*code.add(at + 3) as usize) << 24)
 }
 
+const CAPTURE_NONE: usize = usize::MAX;
+
+impl CaptureState {
+    unsafe fn save(&mut self, slot: usize, value: usize) -> bool {
+        if slot >= self.nslots { return true; }
+        if self.nundo == self.undo_cap {
+            let cap = if self.undo_cap == 0 { 32 } else { self.undo_cap * 2 };
+            let p = crate::realloc(
+                self.undo as *mut c_void,
+                cap * core::mem::size_of::<CaptureUndo>(),
+            ) as *mut CaptureUndo;
+            if p.is_null() { return false; }
+            self.undo = p;
+            self.undo_cap = cap;
+        }
+        *self.undo.add(self.nundo) = CaptureUndo { slot, old: *self.slots.add(slot) };
+        self.nundo += 1;
+        *self.slots.add(slot) = value;
+        true
+    }
+
+    unsafe fn restore(&mut self, target: usize) {
+        while self.nundo > target {
+            self.nundo -= 1;
+            let u = *self.undo.add(self.nundo);
+            *self.slots.add(u.slot) = u.old;
+        }
+    }
+
+    unsafe fn reset(&mut self) {
+        self.nundo = 0;
+        for i in 0..self.nslots {
+            *self.slots.add(i) = CAPTURE_NONE;
+        }
+    }
+}
+
+impl Drop for CaptureState {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.slots.is_null() {
+                crate::free(self.slots as *mut c_void);
+            }
+            if !self.undo.is_null() {
+                crate::free(self.undo as *mut c_void);
+            }
+        }
+    }
+}
+
 struct MatchStack {
     frames: *mut MatchFrame,
     cap: usize,
@@ -524,9 +603,33 @@ fn match_regex_inner(
     let bytecode = code.code;
     let ncode = code.ncode;
 
+    let nslots = match code.nsub.checked_add(1).and_then(|n| n.checked_mul(2)) {
+        Some(n) => n,
+        None => return REG_ESPACE,
+    };
+    let slots = unsafe { crate::malloc(nslots * core::mem::size_of::<usize>()) } as *mut usize;
+    if slots.is_null() { return REG_ESPACE; }
+    let undo_cap = 32usize;
+    let undo = unsafe {
+        crate::malloc(undo_cap * core::mem::size_of::<CaptureUndo>())
+    } as *mut CaptureUndo;
+    if undo.is_null() {
+        unsafe { crate::free(slots as *mut c_void) };
+        return REG_ESPACE;
+    }
+    let mut caps = CaptureState { slots, nslots, undo, nundo: 0, undo_cap };
+
     for start in 0..=slen {
         let mut top: usize = 0;
-        unsafe { *stack.frames.add(top) = MatchFrame { pc: 0, sp: start, at_bol: start == 0 }; }
+        unsafe { caps.reset() };
+        unsafe {
+            *stack.frames.add(top) = MatchFrame {
+                pc: 0,
+                sp: start,
+                at_bol: start == 0,
+                undo: 0,
+            };
+        }
         top += 1;
         let mut found = false;
         let mut match_end = 0usize;
@@ -534,6 +637,7 @@ fn match_regex_inner(
         while top > 0 {
             top -= 1;
             let frame = unsafe { *stack.frames.add(top) };
+            unsafe { caps.restore(frame.undo) };
             let mut pc = frame.pc;
             let mut sp = frame.sp;
             let mut at_bol = frame.at_bol;
@@ -607,12 +711,29 @@ fn match_regex_inner(
                             stack.cap = cap;
                         }
                         unsafe {
-                            *stack.frames.add(top) = MatchFrame { pc: alt, sp, at_bol };
+                            *stack.frames.add(top) = MatchFrame {
+                                pc: alt,
+                                sp,
+                                at_bol,
+                                undo: caps.nundo,
+                            };
                             top += 1;
-                            *stack.frames.add(top) = MatchFrame { pc: next, sp, at_bol };
+                            *stack.frames.add(top) = MatchFrame {
+                                pc: next,
+                                sp,
+                                at_bol,
+                                undo: caps.nundo,
+                            };
                         }
                         top += 1;
                         break;
+                    }
+                    OP_SAVE => {
+                        let slot = unsafe { read32(bytecode, pc + 1) };
+                        if !unsafe { caps.save(slot, sp) } {
+                            return REG_ESPACE;
+                        }
+                        pc += 5;
                     }
                     OP_BOL => {
                         if !at_bol && !(start == 0 && !notbol) { break; }
@@ -629,10 +750,23 @@ fn match_regex_inner(
         }
 
         if found {
-            if !pmatch.is_null() && nmatch > 0 {
+            if !code.nosub && !pmatch.is_null() && nmatch > 0 {
+                let count = nmatch.min(code.nsub + 1);
                 unsafe {
-                    (*pmatch).rm_so = start as crate::regoff_t;
-                    (*pmatch).rm_eo = match_end as crate::regoff_t;
+                    *caps.slots.add(0) = start;
+                    *caps.slots.add(1) = match_end;
+                    for i in 0..count {
+                        let so = *caps.slots.add(i * 2);
+                        let eo = *caps.slots.add(i * 2 + 1);
+                        let m = pmatch.add(i);
+                        if so == CAPTURE_NONE || eo == CAPTURE_NONE {
+                            (*m).rm_so = -1;
+                            (*m).rm_eo = -1;
+                        } else {
+                            (*m).rm_so = so as crate::regoff_t;
+                            (*m).rm_eo = eo as crate::regoff_t;
+                        }
+                    }
                 }
             }
             return REG_OK;
@@ -673,6 +807,8 @@ pub unsafe extern "C" fn regcomp(preg: *mut crate::regex_t, pattern: *const c_ch
         return rc;
     }
     crate::memset(preg as *mut c_void, 0, core::mem::size_of::<crate::regex_t>());
+    (*preg).re_nsub = (*code).nsub;
+    (*preg).__nsub2 = (*code).nsub;
     (*preg).__opaque = code as *mut c_void;
     REG_OK
 }
@@ -685,11 +821,13 @@ fn compile_regex_into(pat: *const c_char, flags: c_int, code: *mut CompiledRegex
         crate::memset(code as *mut c_void, 0, core::mem::size_of::<CompiledRegex>());
         (*code).icase = (flags & REG_ICASE) != 0;
         (*code).extended = (flags & REG_EXTENDED) != 0;
+        (*code).nosub = (flags & REG_NOSUB) != 0;
 
         let mut ctx = RegexCContext {
             code,
             pos: 0,
             last_atom_start: 0,
+            groups: 0,
             err: REG_OK,
             extended: (*code).extended,
             icase: (*code).icase,
@@ -704,6 +842,7 @@ fn compile_regex_into(pat: *const c_char, flags: c_int, code: *mut CompiledRegex
         }
 
         (*code).ncode = ctx.pos;
+        (*code).nsub = ctx.groups;
         REG_OK
     }
 }
