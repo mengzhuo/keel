@@ -249,7 +249,7 @@ jobs:
 
       - name: Upload libc-test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: libc-test-cross-${{ matrix.arch }}-reports
           path: scripts/libc-test-harness/reports/
