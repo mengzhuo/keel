@@ -182,6 +182,8 @@ const TCB_GENERATION: usize = 1;
 const TCB_TLS_SIZE: usize = 2;
 const TCB_MODULE_COUNT: usize = 3;
 const TCB_TLSDESC: usize = 4;
+const TCB_CANARY: usize = 5;
+const TCB_ERRNO: usize = 6;
 const TCB_GETRANDOM: usize = 7;
 const TCB_THREAD: usize = 8;
 const DSO_BASE_START: u64 = 0x200000000;
@@ -220,6 +222,8 @@ struct LoadedObject {
     ino: u64,
     map_start: u64,
     map_end: u64,
+    relro_start: u64,
+    relro_size: u64,
     needed_by: usize,
     dep_count: usize,
     dep_cap: usize,
@@ -257,6 +261,8 @@ const EMPTY_OBJ: LoadedObject = LoadedObject {
     ino: 0,
     map_start: 0,
     map_end: 0,
+    relro_start: 0,
+    relro_size: 0,
     needed_by: NO_IDX,
     dep_count: 0,
     dep_cap: 0,
@@ -288,6 +294,12 @@ static mut STATIC_TLS_COUNT: usize = 0;
 static mut TLS_GENERATION: u64 = 1;
 static TLS_LOCK: AtomicBool = AtomicBool::new(false);
 static mut LD_LIBRARY_PATH: *const u8 = core::ptr::null();
+// Set when the process is setuid/setgid (AT_SECURE or a uid/gid mismatch).
+// musl ignores LD_LIBRARY_PATH and non-absolute $ORIGIN entries in this mode.
+static mut SECURE_MODE: bool = false;
+// Process-wide stack canary installed in every TCB (0x28 on x86_64).  musl
+// derives one value per process and copies it into each thread's TCB.
+static mut MAIN_CANARY: u64 = 0;
 static mut RUNPATH: *const u8 = core::ptr::null();
 static mut RUNPATH_LEN: usize = 0;
 static mut ORIGIN_DIR: *mut u8 = core::ptr::null_mut();
@@ -697,14 +709,44 @@ unsafe fn str_len(s: *const u8) -> usize {
     }
 }
 
-unsafe fn sym_count_from_gnu_hash(gh: usize) -> usize {
+/// Bounded variant used for DT_RPATH/DT_RUNPATH, which must stay inside
+/// DT_STRTAB..DT_STRTAB+DT_STRSZ even when the DSO is malformed.
+unsafe fn strn_len(s: *const u8, max: usize) -> usize {
+    let mut i = 0usize;
+    while i < max && *s.add(i) != 0 {
+        i += 1;
+    }
+    i
+}
+
+unsafe fn sym_count_from_gnu_hash(gh: usize, image_end: usize) -> usize {
+    // The table is part of a mapped object, but a malformed DSO must not make
+    // the loader walk arbitrary memory.  Cap the bucket/bloom/chain counts and
+    // keep every access inside the object's image.
+    const MAX_HASH_ENTRIES: usize = 1 << 22;
+    if gh.checked_add(16).is_none_or(|v| v > image_end) {
+        return 0;
+    }
     let nb = u32::from_le_bytes(core::ptr::read_unaligned(gh as *const [u8; 4])) as usize;
     let symoffset =
         u32::from_le_bytes(core::ptr::read_unaligned((gh + 4) as *const [u8; 4])) as usize;
     let bloom_size =
         u32::from_le_bytes(core::ptr::read_unaligned((gh + 8) as *const [u8; 4])) as usize;
-    let buckets = gh + 16 + bloom_size * 8;
-    let chain = buckets + nb * 4;
+    if nb == 0 || nb > MAX_HASH_ENTRIES || bloom_size > MAX_HASH_ENTRIES {
+        return 0;
+    }
+    let buckets = match gh
+        .checked_add(16)
+        .and_then(|v| v.checked_add(bloom_size * 8))
+    {
+        Some(v) => v,
+        None => return 0,
+    };
+    let chain = match buckets.checked_add(nb * 4) {
+        Some(v) if v <= image_end => v,
+        _ => return 0,
+    };
+    let chain_entries = (image_end - chain) / 4;
     let mut max_idx = 0usize;
     let mut has_any = false;
     for i in 0..nb {
@@ -715,8 +757,16 @@ unsafe fn sym_count_from_gnu_hash(gh: usize) -> usize {
             continue;
         }
         let mut idx = symidx;
+        let mut steps = 0usize;
         loop {
+            if steps >= MAX_HASH_ENTRIES {
+                break;
+            }
+            steps += 1;
             let cidx = idx - symoffset;
+            if cidx >= chain_entries {
+                break;
+            }
             if cidx > max_idx {
                 max_idx = cidx;
             }
@@ -737,9 +787,16 @@ unsafe fn sym_count_from_gnu_hash(gh: usize) -> usize {
     }
 }
 
-unsafe fn sym_count_from_hash(h: usize) -> usize {
+unsafe fn sym_count_from_hash(h: usize, image_end: usize) -> usize {
+    if h.checked_add(8).is_none_or(|v| v > image_end) {
+        return 0;
+    }
     let nchain = u32::from_le_bytes(core::ptr::read_unaligned((h + 4) as *const [u8; 4])) as usize;
-    nchain
+    if nchain > (image_end - h) / 4 {
+        0
+    } else {
+        nchain
+    }
 }
 
 unsafe fn memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
@@ -1214,7 +1271,27 @@ unsafe fn find_library_fd(
         let (rp, rp_len) = ((**LOADED.add(idx)).rpath, (**LOADED.add(idx)).rpath_len);
         if !rp.is_null() && rp_len > 0 {
             let (origin, origin_len) = object_origin(idx);
+            // In a setuid/setgid process the executable's pathname (and thus
+            // $ORIGIN) is chosen by the caller of execve, so musl refuses to
+            // expand $ORIGIN from the main program.  Libraries are safe: their
+            // path came from a trusted search or dlopen().
+            let allow_origin = !(SECURE_MODE && idx == 0);
             let fd = find_in_path_list(rp, rp_len, |dir, dir_len| unsafe {
+                if !allow_origin && dir_len >= 7 {
+                    let mut is_origin = true;
+                    let pat = b"$ORIGIN";
+                    let mut k = 0usize;
+                    while k < 7 {
+                        if *dir.add(k) != pat[k] {
+                            is_origin = false;
+                            break;
+                        }
+                        k += 1;
+                    }
+                    if is_origin {
+                        return -1;
+                    }
+                }
                 try_open_expanded_origin(dir, dir_len, lib_name, lib_name_len, origin, origin_len)
             });
             if fd >= 0 {
@@ -1248,6 +1325,49 @@ unsafe fn find_library_fd(
 /// Registers it in the LOADED array. Returns true on success.
 fn sys_munmap(addr: *mut u8, length: usize) -> i64 {
     unsafe { <Arch as Syscalls>::syscall2(SYS_MUNMAP, addr as i64, length as i64) }
+}
+
+fn sys_mprotect(addr: *mut u8, length: usize, prot: i32) -> i64 {
+    unsafe { <Arch as Syscalls>::syscall3(SYS_MPROTECT, addr as i64, length as i64, prot as i64) }
+}
+
+/// Make a loaded object's PT_GNU_RELRO range read-only after relocations have
+/// been applied.  Without this the GOT/.data.rel.ro stay writable for the
+/// lifetime of the process.
+unsafe fn apply_relro(idx: usize) {
+    if idx >= LOADED_COUNT {
+        return;
+    }
+    let obj = &**LOADED.add(idx);
+    if obj.relro_size == 0 || obj.relro_start == 0 {
+        return;
+    }
+    let relro_end = match obj.relro_start.checked_add(obj.relro_size) {
+        Some(v) => v,
+        None => return,
+    };
+    // A malformed RELRO range must not mprotect arbitrary pages.
+    if obj.relro_start < obj.map_start || relro_end > obj.map_end {
+        return;
+    }
+    let page = PAGE_SIZE;
+    let start = (obj.relro_start as usize) & !(page - 1);
+    let end = match (obj.relro_start as usize)
+        .checked_add(obj.relro_size as usize)
+        .and_then(|e| e.checked_add(page - 1))
+    {
+        Some(e) => e & !(page - 1),
+        None => return,
+    };
+    if end > start {
+        let _ = sys_mprotect(start as *mut u8, end - start, PROT_READ);
+    }
+}
+
+unsafe fn apply_all_relro() {
+    for i in 0..LOADED_COUNT {
+        apply_relro(i);
+    }
 }
 
 unsafe fn fd_identity(fd: i64) -> (u64, u64) {
@@ -1354,7 +1474,14 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
 
     let e_phoff = u64::from_le_bytes(buf[32..40].try_into().unwrap());
     let e_phnum = u16::from_le_bytes(buf[56..58].try_into().unwrap()) as usize;
-    let phdr_end = e_phoff as usize + e_phnum * PHDR_SIZE;
+    let phdr_bytes = match e_phnum.checked_mul(PHDR_SIZE) {
+        Some(v) => v,
+        None => return None,
+    };
+    let phdr_end = match (e_phoff as usize).checked_add(phdr_bytes) {
+        Some(v) => v,
+        None => return None,
+    };
     if phdr_end > n as usize {
         return None;
     }
@@ -1383,6 +1510,8 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
     let mut tls_filesz: u64 = 0;
     let mut tls_memsz: u64 = 0;
     let mut tls_align: u64 = 0;
+    let mut relro_vaddr: u64 = 0;
+    let mut relro_memsz: u64 = 0;
 
     for i in 0..e_phnum {
         let ph = buf.as_ptr().add(e_phoff as usize + i * PHDR_SIZE);
@@ -1392,6 +1521,11 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             tls_filesz = phdr_u64(ph, PH_FILESZ);
             tls_memsz = phdr_u64(ph, PH_MEMSZ);
             tls_align = phdr_u64(ph, PH_ALIGN);
+            continue;
+        }
+        if p_type == PT_GNU_RELRO {
+            relro_vaddr = phdr_u64(ph, PH_VADDR);
+            relro_memsz = phdr_u64(ph, PH_MEMSZ);
             continue;
         }
         if p_type != PT_LOAD {
@@ -1576,24 +1710,59 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
         }
     }
 
-    let symtab_ptr = (actual_base + dt_symtab) as *const u8;
-    let strtab_ptr = (actual_base + dt_strtab) as *const u8;
-    let strsz = dt_strsz as usize;
-    let (rpath, rpath_len) = if dt_runpath_present {
-        let p = (actual_base + dt_strtab + dt_runpath_off) as *const u8;
-        (p, str_len(p))
-    } else if dt_rpath_present {
-        let p = (actual_base + dt_strtab + dt_rpath_off) as *const u8;
-        (p, str_len(p))
+    let image_end = actual_base + total_size as u64;
+    let in_image = |v: u64| v != 0 && v < total_size as u64;
+
+    let symtab_ptr = if in_image(dt_symtab) {
+        (actual_base + dt_symtab) as *const u8
+    } else {
+        core::ptr::null()
+    };
+    let strsz = if in_image(dt_strtab) && dt_strsz <= total_size as u64 - dt_strtab {
+        dt_strsz as usize
+    } else {
+        0
+    };
+    let strtab_ptr = if strsz > 0 {
+        (actual_base + dt_strtab) as *const u8
+    } else {
+        core::ptr::null()
+    };
+    let (rpath, rpath_len) = if strsz > 0 && dt_runpath_present && dt_runpath_off < dt_strsz {
+        let off = dt_runpath_off as usize;
+        let p = strtab_ptr.add(off);
+        (p, strn_len(p, strsz - off))
+    } else if strsz > 0 && dt_rpath_present && dt_rpath_off < dt_strsz {
+        let off = dt_rpath_off as usize;
+        let p = strtab_ptr.add(off);
+        (p, strn_len(p, strsz - off))
     } else {
         (core::ptr::null(), 0)
     };
 
+    // Reject out-of-image dynamic tables outright; a malformed DSO must not
+    // leave dangling pointers in the loaded-object table.
+    for table in [dt_gnu_hash, dt_hash, dt_versym, dt_init_array] {
+        if table != 0 && table >= total_size as u64 {
+            return None;
+        }
+    }
+    if dt_init != 0 && dt_init >= total_size as u64 {
+        return None;
+    }
+    if dt_init_array != 0
+        && (dt_init_array_sz > total_size as u64
+            || dt_init_array > total_size as u64 - dt_init_array_sz)
+    {
+        return None;
+    }
+
     let mut sym_count: usize = 0;
     if dt_gnu_hash != 0 {
-        sym_count = sym_count_from_gnu_hash((actual_base + dt_gnu_hash) as usize);
+        sym_count =
+            sym_count_from_gnu_hash((actual_base + dt_gnu_hash) as usize, image_end as usize);
     } else if dt_hash != 0 {
-        sym_count = sym_count_from_hash((actual_base + dt_hash) as usize);
+        sym_count = sym_count_from_hash((actual_base + dt_hash) as usize, image_end as usize);
     } else if dt_strtab > dt_symtab && dt_strtab - dt_symtab >= SYMTAB_ENT_SIZE as u64 {
         sym_count = ((dt_strtab - dt_symtab) / SYMTAB_ENT_SIZE as u64) as usize;
     }
@@ -1637,6 +1806,12 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             ino: object_ino,
             map_start: actual_base + min_vaddr,
             map_end: actual_base + max_vaddr_end,
+            relro_start: if relro_memsz != 0 {
+                actual_base + relro_vaddr
+            } else {
+                0
+            },
+            relro_size: relro_memsz,
             needed_by: NO_IDX,
             dep_count: 0,
             dep_cap: 0,
@@ -2635,9 +2810,11 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
         old_fs as *mut u8
     };
     let old_tcb = (old_fs as isize + tls_tcb_offset_from_tp()) as *const u64;
-    let old_tlsdesc = core::ptr::read_unaligned(old_tcb.add(4));
-    let old_getrandom = core::ptr::read_unaligned(old_tcb.add(7));
-    let old_thread = core::ptr::read_unaligned(old_tcb.add(8));
+    let old_tlsdesc = core::ptr::read_unaligned(old_tcb.add(TCB_TLSDESC));
+    let old_canary = core::ptr::read_unaligned(old_tcb.add(TCB_CANARY));
+    let old_errno = core::ptr::read_unaligned(old_tcb.add(TCB_ERRNO));
+    let old_getrandom = core::ptr::read_unaligned(old_tcb.add(TCB_GETRANDOM));
+    let old_thread = core::ptr::read_unaligned(old_tcb.add(TCB_THREAD));
     if old_total > 0 {
         core::ptr::copy_nonoverlapping(
             old_var_base,
@@ -2675,6 +2852,8 @@ unsafe fn expand_thread_tls(old_total: usize, old_module_count: usize) {
     // it would leak the page and force a fresh kernel reseed.  0x40 is the
     // pointer to the thread's Thread record and moves with the block.
     core::ptr::write_unaligned((tcb as *mut u64).add(TCB_TLSDESC), old_tlsdesc);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_CANARY), old_canary);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_ERRNO), old_errno);
     core::ptr::write_unaligned((tcb as *mut u64).add(TCB_GETRANDOM), old_getrandom);
     core::ptr::write_unaligned((tcb as *mut u64).add(TCB_THREAD), old_thread);
     write_tp(block.add(tls_tp_offset_from_block()) as usize);
@@ -3094,6 +3273,10 @@ pub unsafe extern "C" fn __ldso_dlopen(filename: *const u8, flags: i32) -> *mut 
     let old_tls_count = TLS_MODULE_COUNT;
     let placed_tls = assign_tls_for_new_modules(first_new);
     process_relocations_range(first_new);
+    // The new objects' GOT/.data.rel.ro can be read-only from here on.
+    for i in first_new..LOADED_COUNT {
+        apply_relro(i);
+    }
     if placed_tls {
         install_new_tls(old_tls_total, old_tls_count);
     }
@@ -3458,6 +3641,8 @@ unsafe fn init_tls_block(block: *mut u8) -> *mut u8 {
     // block carved out of an application stack is not zero-filled, so clear
     // all three.
     core::ptr::write_unaligned((tcb as *mut u64).add(TCB_TLSDESC), 0u64);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_CANARY), MAIN_CANARY);
+    core::ptr::write_unaligned((tcb as *mut u64).add(TCB_ERRNO), 0u64);
     core::ptr::write_unaligned((tcb as *mut u64).add(TCB_GETRANDOM), 0u64);
     core::ptr::write_unaligned((tcb as *mut u64).add(TCB_THREAD), 0u64);
     block.add(tls_tp_offset_from_block())
@@ -3595,9 +3780,16 @@ unsafe fn register_self(ldso_base: u64) {
     let sym_count = ((dt_strtab - dt_symtab) / SYMTAB_ENT_SIZE as u64) as usize;
     let mut self_map_start = u64::MAX;
     let mut self_map_end = 0u64;
+    let mut self_relro_start = 0u64;
+    let mut self_relro_size = 0u64;
     for i in 0..e_phnum {
         let ph = ehdr.add(e_phoff as usize + i * PHDR_SIZE);
         let p_type = phdr_type(ph);
+        if p_type == PT_GNU_RELRO {
+            self_relro_start = phdr_u64(ph, PH_VADDR);
+            self_relro_size = phdr_u64(ph, PH_MEMSZ);
+            continue;
+        }
         if p_type != PT_LOAD {
             continue;
         }
@@ -3648,6 +3840,12 @@ unsafe fn register_self(ldso_base: u64) {
             ino: 0,
             map_start: ldso_base + self_map_start,
             map_end: ldso_base + self_map_end,
+            relro_start: if self_relro_size != 0 {
+                ldso_base + self_relro_start
+            } else {
+                0
+            },
+            relro_size: self_relro_size,
             needed_by: NO_IDX,
             dep_count: 0,
             dep_cap: 0,
@@ -3862,6 +4060,12 @@ struct AuxvInfo {
     phnum: usize,
     entry: u64,
     auxv: *const u64,
+    at_secure: u64,
+    at_uid: u64,
+    at_euid: u64,
+    at_gid: u64,
+    at_egid: u64,
+    at_random: *const u8,
 }
 
 /// Decode the kernel-provided initial stack: argv/envp lengths and the auxv
@@ -3878,6 +4082,12 @@ unsafe fn parse_auxv(sp: usize) -> AuxvInfo {
     let mut phent = PHDR_SIZE;
     let mut phnum = 0usize;
     let mut entry = 0u64;
+    let mut at_secure = 0u64;
+    let mut at_uid = 0u64;
+    let mut at_euid = 0u64;
+    let mut at_gid = 0u64;
+    let mut at_egid = 0u64;
+    let mut at_random: *const u8 = core::ptr::null();
     let mut i = 0usize;
     loop {
         let tag = *auxv.add(i * 2);
@@ -3890,6 +4100,12 @@ unsafe fn parse_auxv(sp: usize) -> AuxvInfo {
             AT_PHENT => phent = val as usize,
             AT_PHNUM => phnum = val as usize,
             AT_ENTRY => entry = val,
+            AT_SECURE => at_secure = val,
+            AT_UID => at_uid = val,
+            AT_EUID => at_euid = val,
+            AT_GID => at_gid = val,
+            AT_EGID => at_egid = val,
+            AT_RANDOM => at_random = val as *const u8,
             _ => {}
         }
         i += 1;
@@ -3900,6 +4116,12 @@ unsafe fn parse_auxv(sp: usize) -> AuxvInfo {
         phnum,
         entry,
         auxv,
+        at_secure,
+        at_uid,
+        at_euid,
+        at_gid,
+        at_egid,
+        at_random,
     }
 }
 
@@ -3916,15 +4138,39 @@ unsafe fn find_phdr(phdr: *const u8, phent: usize, phnum: usize, want: u32) -> *
 }
 
 unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
-    // 1. Find LD_LIBRARY_PATH from kernel envp
-    let ld_path = find_env(sp, b"LD_LIBRARY_PATH=");
-    LD_LIBRARY_PATH = ld_path.unwrap_or(core::ptr::null());
+    // 1. Decode the kernel stack first: AT_SECURE (and the uid/gid fallback
+    //    musl uses for old kernels) decides whether the environment and the
+    //    executable's RPATH may influence library lookup.
+    let info = parse_auxv(sp);
+    SECURE_MODE = info.at_secure != 0 || info.at_uid != info.at_euid || info.at_gid != info.at_egid;
+    // Build the process-wide stack canary before any TCB (main thread or
+    // pthread_create) is constructed.
+    MAIN_CANARY = if info.at_random.is_null() {
+        0xdefaced_cafebeef
+    } else {
+        core::ptr::read_unaligned(info.at_random as *const u64)
+            ^ core::ptr::read_unaligned(info.at_random.add(8) as *const u64)
+    };
+    if MAIN_CANARY == 0 {
+        MAIN_CANARY = 0xdefaced_cafebeef;
+    }
 
-    // 2. The kernel has already mapped the executable and placed its program
+    // 2. A setuid/setgid process must not inherit the caller's library path.
+    LD_LIBRARY_PATH = if SECURE_MODE {
+        core::ptr::null()
+    } else {
+        find_env(sp, b"LD_LIBRARY_PATH=").unwrap_or(core::ptr::null())
+    };
+    let ld_path: Option<*const u8> = if LD_LIBRARY_PATH.is_null() {
+        None
+    } else {
+        Some(LD_LIBRARY_PATH)
+    };
+
+    // 3. The kernel has already mapped the executable and placed its program
     //    headers at AT_PHDR. Use that mapping instead of re-reading
     //    /proc/self/exe and remapping every segment: the old path cost a
     //    procfs open+read plus a second set of page faults on every exec.
-    let info = parse_auxv(sp);
     if info.phdr == 0 || info.phnum == 0 || info.entry == 0 || info.phent < PHDR_SIZE {
         die(96, b"auxv_phdr", info.phdr as usize);
     }
@@ -4057,9 +4303,16 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     // Register executable as (**LOADED.add(0))
     let mut exec_map_start = u64::MAX;
     let mut exec_map_end = 0u64;
+    let mut exec_relro_start = 0u64;
+    let mut exec_relro_size = 0u64;
     for i in 0..phnum {
         let ph = phdr.add(i * phent);
         let p_type = phdr_type(ph);
+        if p_type == PT_GNU_RELRO {
+            exec_relro_start = phdr_u64(ph, PH_VADDR);
+            exec_relro_size = phdr_u64(ph, PH_MEMSZ);
+            continue;
+        }
         if p_type != PT_LOAD {
             continue;
         }
@@ -4076,10 +4329,12 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
         exec_map_start = 0;
     }
     let mut exec_sym_count: usize = 0;
+    let exec_image_end = (exec_base + exec_map_end) as usize;
     if dt_gnu_hash != 0 {
-        exec_sym_count = sym_count_from_gnu_hash((exec_base + dt_gnu_hash) as usize);
+        exec_sym_count =
+            sym_count_from_gnu_hash((exec_base + dt_gnu_hash) as usize, exec_image_end);
     } else if dt_hash != 0 {
-        exec_sym_count = sym_count_from_hash((exec_base + dt_hash) as usize);
+        exec_sym_count = sym_count_from_hash((exec_base + dt_hash) as usize, exec_image_end);
     } else if dt_strtab > dt_symtab && dt_strtab - dt_symtab >= SYMTAB_ENT_SIZE as u64 {
         exec_sym_count = ((dt_strtab - dt_symtab) / SYMTAB_ENT_SIZE as u64) as usize;
     }
@@ -4122,6 +4377,12 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
             ino: 0,
             map_start: exec_base + exec_map_start,
             map_end: exec_base + exec_map_end,
+            relro_start: if exec_relro_size != 0 {
+                exec_base + exec_relro_start
+            } else {
+                0
+            },
+            relro_size: exec_relro_size,
             needed_by: NO_IDX,
             dep_count: 0,
             dep_cap: 0,
@@ -4182,6 +4443,7 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     STATIC_TLS_COUNT = LOADED_COUNT;
 
     process_all_relocations();
+    apply_all_relro();
     // libc.so exports a link-time `__tls_get_addr` for static C++ runtimes.
     // Point it at the loader's multi-module resolver before constructors or
     // main can call it (including via dlsym).

@@ -134,8 +134,11 @@ unsafe fn parse_mntent_line(
         *p = 0;
         p = p.add(1);
     }
+    let mut empty_opts = false;
     if *(*mnt).mnt_opts == 0 {
-        (*mnt).mnt_opts = b"defaults\0".as_ptr() as *mut c_char;
+        // Remember the fallback but install the read-only literal only after
+        // unescape_ent(), which writes in place.
+        empty_opts = true;
     }
 
     // freq and passno
@@ -166,6 +169,9 @@ unsafe fn parse_mntent_line(
     unescape_ent((*mnt).mnt_dir);
     unescape_ent((*mnt).mnt_type);
     unescape_ent((*mnt).mnt_opts);
+    if empty_opts {
+        (*mnt).mnt_opts = b"defaults\0".as_ptr() as *mut c_char;
+    }
 
     mnt
 }

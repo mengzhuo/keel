@@ -551,9 +551,13 @@ pub unsafe extern "C" fn getnetbyaddr(net: u32, type_: c_int) -> *mut NetEnt {
 // /etc/ethers
 // ------------------------------------------------------------------
 
-#[no_mangle]
-pub unsafe extern "C" fn ether_line(line: *const c_char, ea: *mut u8, hostname: *mut c_char) -> c_int {
-    if line.is_null() || ea.is_null() || hostname.is_null() { return -1; }
+unsafe fn ether_line_cap(
+    line: *const c_char,
+    ea: *mut u8,
+    hostname: *mut c_char,
+    hostname_cap: usize,
+) -> c_int {
+    if line.is_null() || ea.is_null() || hostname.is_null() || hostname_cap == 0 { return -1; }
     let mut buf = [0 as c_char; 512];
     let mut toks: [*mut c_char; 24] = [core::ptr::null_mut(); 24];
     let n = nd_tokens(line, buf.as_mut_ptr(), buf.len(), &mut toks);
@@ -561,11 +565,19 @@ pub unsafe extern "C" fn ether_line(line: *const c_char, ea: *mut u8, hostname: 
     if ether_aton_r(toks[0], ea).is_null() { return -1; }
     let mut i = 0usize;
     while *toks[1].add(i) != 0 {
+        if i + 1 >= hostname_cap { return -1; }
         *hostname.add(i) = *toks[1].add(i);
         i += 1;
     }
     *hostname.add(i) = 0;
     0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ether_line(line: *const c_char, ea: *mut u8, hostname: *mut c_char) -> c_int {
+    // The historical ABI has no buffer length; a hostname is at most 255
+    // bytes in practice, so bound the copy to that.
+    ether_line_cap(line, ea, hostname, 256)
 }
 
 unsafe fn ether_scan(want_name: *const c_char, ea: *mut u8, hostname: *mut c_char) -> c_int {
@@ -576,7 +588,9 @@ unsafe fn ether_scan(want_name: *const c_char, ea: *mut u8, hostname: *mut c_cha
     while !crate::fgets(line.as_mut_ptr(), line.len() as c_int, f).is_null() {
         let mut mac = [0u8; 6];
         let mut host = [0 as c_char; 256];
-        if ether_line(line.as_ptr(), mac.as_mut_ptr(), host.as_mut_ptr()) != 0 { continue; }
+        if ether_line_cap(line.as_ptr(), mac.as_mut_ptr(), host.as_mut_ptr(), host.len()) != 0 {
+            continue;
+        }
         if !want_name.is_null() {
             if crate::strcmp(host.as_ptr() as *const u8, want_name as *const u8) != 0 { continue; }
             core::ptr::copy_nonoverlapping(mac.as_ptr(), ea, 6);
@@ -589,7 +603,7 @@ unsafe fn ether_scan(want_name: *const c_char, ea: *mut u8, hostname: *mut c_cha
             }
             if !same { continue; }
             let mut i = 0usize;
-            while host[i] != 0 {
+            while host[i] != 0 && i + 1 < 256 {
                 *hostname.add(i) = host[i];
                 i += 1;
             }

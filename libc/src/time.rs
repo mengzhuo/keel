@@ -198,43 +198,50 @@ pub unsafe extern "C" fn asctime(tm: *const tm) -> *mut c_char {
 
 #[no_mangle]
 pub unsafe extern "C" fn asctime_r(tm: *const tm, buf: *mut c_char) -> *mut c_char {
+    // ISO C fixed this format at 26 bytes ("Www Mmm dd hh:mm:ss yyyy\n\0").
+    // Build it in a bounded local first: tm fields are caller-controlled and
+    // a year outside 1000..9999 makes the canonical form longer.  musl uses
+    // snprintf(buf, 26, ...) and deliberately aborts when it does not fit;
+    // reproduce that without ever writing past the caller's 26-byte buffer.
+    let mut out = [0 as c_char; 64];
+    let dst = out.as_mut_ptr();
     let wday = if (*tm).tm_wday >= 0 && (*tm).tm_wday < 7 { (*tm).tm_wday as usize } else { 0 };
     let mon = if (*tm).tm_mon >= 0 && (*tm).tm_mon < 12 { (*tm).tm_mon as usize } else { 0 };
     let dn = DAY_NAMES[wday];
     let mn = MON_NAMES[mon];
     let mut p = 0;
-    for k in 0..3 { *buf.add(p) = *dn.as_ptr().add(k) as c_char; p += 1; }
-    *buf.add(p) = b' ' as c_char; p += 1;
-    for k in 0..3 { *buf.add(p) = *mn.as_ptr().add(k) as c_char; p += 1; }
-    *buf.add(p) = b' ' as c_char; p += 1;
-    // %.3s %.3s%3d: the day is right-aligned in a three-column field.
+    for k in 0..3 { *dst.add(p) = *dn.as_ptr().add(k) as c_char; p += 1; }
+    *dst.add(p) = b' ' as c_char; p += 1;
+    for k in 0..3 { *dst.add(p) = *mn.as_ptr().add(k) as c_char; p += 1; }
+    // %.3s %.3s%3d: the day is right-aligned in a three-column field (the
+    // leading padding belongs to %3d, there is no separate space here).
     let v = (*tm).tm_mday;
     if v < 10 {
-        *buf.add(p) = b' ' as c_char; p += 1;
-        *buf.add(p) = b' ' as c_char; p += 1;
-        *buf.add(p) = (b'0' + v as u8) as c_char; p += 1;
+        *dst.add(p) = b' ' as c_char; p += 1;
+        *dst.add(p) = b' ' as c_char; p += 1;
+        *dst.add(p) = (b'0' + v as u8) as c_char; p += 1;
     } else if v < 100 {
-        *buf.add(p) = b' ' as c_char; p += 1;
-        *buf.add(p) = (b'0' + (v / 10) as u8) as c_char; p += 1;
-        *buf.add(p) = (b'0' + (v % 10) as u8) as c_char; p += 1;
+        *dst.add(p) = b' ' as c_char; p += 1;
+        *dst.add(p) = (b'0' + (v / 10) as u8) as c_char; p += 1;
+        *dst.add(p) = (b'0' + (v % 10) as u8) as c_char; p += 1;
     } else {
-        *buf.add(p) = (b'0' + (v / 100) as u8) as c_char; p += 1;
-        *buf.add(p) = (b'0' + ((v / 10) % 10) as u8) as c_char; p += 1;
-        *buf.add(p) = (b'0' + (v % 10) as u8) as c_char; p += 1;
+        *dst.add(p) = (b'0' + (v / 100) as u8) as c_char; p += 1;
+        *dst.add(p) = (b'0' + ((v / 10) % 10) as u8) as c_char; p += 1;
+        *dst.add(p) = (b'0' + (v % 10) as u8) as c_char; p += 1;
     }
-    *buf.add(p) = b' ' as c_char; p += 1;
+    *dst.add(p) = b' ' as c_char; p += 1;
     let hh = (*tm).tm_hour;
-    *buf.add(p) = (b'0' + (hh / 10) as u8) as c_char; p += 1;
-    *buf.add(p) = (b'0' + (hh % 10) as u8) as c_char; p += 1;
-    *buf.add(p) = b':' as c_char; p += 1;
+    *dst.add(p) = (b'0' + (hh / 10) as u8) as c_char; p += 1;
+    *dst.add(p) = (b'0' + (hh % 10) as u8) as c_char; p += 1;
+    *dst.add(p) = b':' as c_char; p += 1;
     let mm = (*tm).tm_min;
-    *buf.add(p) = (b'0' + (mm / 10) as u8) as c_char; p += 1;
-    *buf.add(p) = (b'0' + (mm % 10) as u8) as c_char; p += 1;
-    *buf.add(p) = b':' as c_char; p += 1;
+    *dst.add(p) = (b'0' + (mm / 10) as u8) as c_char; p += 1;
+    *dst.add(p) = (b'0' + (mm % 10) as u8) as c_char; p += 1;
+    *dst.add(p) = b':' as c_char; p += 1;
     let ss = (*tm).tm_sec;
-    *buf.add(p) = (b'0' + (ss / 10) as u8) as c_char; p += 1;
-    *buf.add(p) = (b'0' + (ss % 10) as u8) as c_char; p += 1;
-    *buf.add(p) = b' ' as c_char; p += 1;
+    *dst.add(p) = (b'0' + (ss / 10) as u8) as c_char; p += 1;
+    *dst.add(p) = (b'0' + (ss % 10) as u8) as c_char; p += 1;
+    *dst.add(p) = b' ' as c_char; p += 1;
     // %d: negative and >4-digit years are valid in musl asctime.
     let yr = (*tm).tm_year as i64 + 1900;
     let mut tmp = [0u8; 16];
@@ -251,15 +258,19 @@ pub unsafe extern "C" fn asctime_r(tm: *const tm, buf: *mut c_char) -> *mut c_ch
         }
     }
     if yr < 0 {
-        *buf.add(p) = b'-' as c_char;
+        *dst.add(p) = b'-' as c_char;
         p += 1;
     }
     for k in (0..n).rev() {
-        *buf.add(p) = tmp[k] as c_char;
+        *dst.add(p) = tmp[k] as c_char;
         p += 1;
     }
-    *buf.add(p) = b'\n' as c_char; p += 1;
-    *buf.add(p) = 0;
+    *dst.add(p) = b'\n' as c_char; p += 1;
+    if p >= 26 {
+        crate::abort();
+    }
+    *dst.add(p) = 0;
+    core::ptr::copy_nonoverlapping(dst as *const u8, buf as *mut u8, p + 1);
     buf
 }
 

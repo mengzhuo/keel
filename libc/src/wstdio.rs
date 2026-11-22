@@ -158,6 +158,16 @@ unsafe fn vswprintf_impl(
         }
         fi += 1;
         let fs = parse_format_spec(fmt_narrow, fi, &mut args);
+        if fs.spec == 0 {
+            // Same trailing-'%' guard as the narrow formatter: never step
+            // past fmt_narrow's terminator.
+            let mut k = fi - 1;
+            while k < fs.next {
+                wc!(*fmt.add(k) as u32);
+                k += 1;
+            }
+            break;
+        }
         let flags = fs.flags;
         let width = fs.width;
         let precision = fs.precision;

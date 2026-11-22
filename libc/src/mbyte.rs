@@ -285,7 +285,10 @@ pub unsafe extern "C" fn wcsrtombs(
             dst = dst.add(1);
             n -= 1;
         } else {
-            let r = wcrtomb(dst, *w, core::ptr::null_mut());
+            // wcrtomb has no length argument: convert into a temporary first,
+            // then check whether the whole character fits (musl does the same).
+            let mut tmp = [0u8; 4];
+            let r = wcrtomb(tmp.as_mut_ptr() as *mut c_char, *w, core::ptr::null_mut());
             if r == !0usize {
                 *ws = w;
                 return !0usize;
@@ -294,6 +297,7 @@ pub unsafe extern "C" fn wcsrtombs(
                 *ws = w;
                 return n0 - n;
             }
+            core::ptr::copy_nonoverlapping(tmp.as_ptr(), dst as *mut u8, r);
             dst = dst.add(r);
             n -= r;
         }

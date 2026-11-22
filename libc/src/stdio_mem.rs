@@ -78,7 +78,7 @@ pub unsafe extern "C" fn open_memstream(bufp: *mut *mut c_char, sizep: *mut usiz
     if f.is_null() { ERRNO!() = ENOMEM; return core::ptr::null_mut(); }
     let buf_area = buf_ptr(f);
     init_file(f, -1, b"w\0".as_ptr() as *const c_char, Some(ms_close), buf_area, BUFSIZ);
-    (*f).flags = F_NORD | F_SVB;
+    (*f).flags = F_NORD;
     (*f).lbf = -1;
     let c = calloc(1, core::mem::size_of::<MsCookie>()) as *mut MsCookie;
     if c.is_null() { free(f as *mut c_void); ERRNO!() = ENOMEM; return core::ptr::null_mut(); }
@@ -120,20 +120,19 @@ unsafe extern "C" fn mseek(f: *mut FILE, off: i64, whence: c_int) -> i64 {
 
 unsafe extern "C" fn mread(f: *mut FILE, buf: *mut u8, len: usize) -> usize {
     let c = (*f).cookie as *mut MfCookie;
-    let mut rem = if (*c).pos <= (*c).len { (*c).len - (*c).pos } else { 0 };
-    let mut l = len;
-    if l > rem {
-        l = rem;
+    let rem = if (*c).pos <= (*c).len { (*c).len - (*c).pos } else { 0 };
+    let l = if len > rem {
         (*f).flags |= F_EOF;
-    }
+        rem
+    } else {
+        len
+    };
     core::ptr::copy_nonoverlapping((*c).buf.add((*c).pos), buf, l);
     (*c).pos += l;
-    rem -= l;
-    if rem > (*f).buf_size { rem = (*f).buf_size; }
-    (*f).rpos = (*f).buf;
-    (*f).rend = (*f).buf.add(rem);
-    core::ptr::copy_nonoverlapping((*c).buf.add((*c).pos), (*f).rpos, rem);
-    (*c).pos += rem;
+    // fgetc() already owns the destination buffer and installs rpos/rend
+    // from the returned count.  Do not pre-read here: copying a second time
+    // into f.buf overwrites the bytes just returned and advances the stream
+    // position twice (fmemopen streams larger than BUFSIZ returned garbage).
     l
 }
 
@@ -175,14 +174,23 @@ pub unsafe extern "C" fn fmemopen(buf: *mut c_void, size: usize, mode: *const c_
     }
     let has_plus = !strchr(mode as *const u8, b'+' as c_int).is_null();
     let need_alloc = buf.is_null();
-    let alloc_size = core::mem::size_of::<FILE>() + UNGET + BUFSIZ + if need_alloc { size } else { 0 };
+    let base = core::mem::size_of::<FILE>() + UNGET + BUFSIZ;
+    let alloc_size = match base.checked_add(if need_alloc { size } else { 0 }) {
+        Some(v) => v,
+        None => {
+            ERRNO!() = ENOMEM;
+            return core::ptr::null_mut();
+        }
+    };
     let f = calloc(1, alloc_size) as *mut FILE;
     if f.is_null() { ERRNO!() = ENOMEM; return core::ptr::null_mut(); }
     let buf_area = buf_ptr(f);
     init_file(f, -1, mode, Some(mclose), buf_area, BUFSIZ);
-    (*f).flags |= F_SVB;
     let actual_buf: *mut u8 = if need_alloc {
-        (f as *mut u8).add(alloc_size - size)
+        // Do not derive this from alloc_size - size: that subtraction wraps
+        // for sizes close to SIZE_MAX.  The private area always starts right
+        // after the FILE struct.
+        (f as *mut u8).add(base)
     } else {
         buf as *mut u8
     };

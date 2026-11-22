@@ -6,12 +6,6 @@
 const PATH_MAX_V: usize = 4096;
 const DIRENT_BUF_SIZE: usize = 8192;
 
-// ============================================================
-// realpath
-// ============================================================
-
-static mut REALPATH_BUF: [c_char; PATH_MAX_V] = [0; PATH_MAX_V];
-
 #[no_mangle]
 pub unsafe extern "C" fn realpath(
     filename: *const c_char,
@@ -125,7 +119,11 @@ pub unsafe extern "C" fn realpath(
     // Collapse a trailing slash except for the root.
     while olen > 1 && out[olen - 1] == b'/' { olen -= 1; }
     out[olen] = 0;
-    let dst = if resolved.is_null() { REALPATH_BUF.as_mut_ptr() } else { resolved };
+    let dst = if resolved.is_null() {
+        return core::ptr::null_mut();
+    } else {
+        resolved
+    };
     core::ptr::copy_nonoverlapping(out.as_ptr(), dst as *mut u8, olen + 1);
     dst
 }
@@ -316,11 +314,12 @@ struct Comp {
     end: usize,
 }
 
-unsafe fn glob_split(pat: &[u8], noescape: bool, comps: &mut [Comp; 128]) -> (usize, bool) {
+unsafe fn glob_split(pat: &[u8], noescape: bool, comps: &mut [Comp; 128]) -> (usize, bool, bool) {
     let mut n = 0usize;
     let mut i = 0usize;
     let absolute = !pat.is_empty() && pat[0] == b'/';
     let mut trailing = false;
+    let mut overflow = false;
     while i < pat.len() {
         while i < pat.len() && pat[i] == b'/' { i += 1; }
         if i >= pat.len() { if i > 0 { trailing = pat[i - 1] == b'/'; } break; }
@@ -333,10 +332,12 @@ unsafe fn glob_split(pat: &[u8], noescape: bool, comps: &mut [Comp; 128]) -> (us
         if n < comps.len() {
             comps[n] = Comp { start, end: i };
             n += 1;
+        } else {
+            overflow = true;
         }
     }
     let _ = trailing;
-    (n, absolute)
+    (n, absolute, overflow)
 }
 
 unsafe fn glob_walk(
@@ -408,6 +409,11 @@ unsafe fn glob_walk(
     }
 
     // Wildcard component: enumerate the base directory.
+    // A component longer than PATH_MAX cannot name anything valid; reject it
+    // instead of copying it into the fixed-size stack pattern buffer below.
+    if comp.len() > PATH_MAX_V {
+        return GLOB_NOSPACE_V;
+    }
     let mut dirc = [0 as c_char; PATH_MAX_V + 1];
     let dp: *const c_char;
     if *blen == 0 {
@@ -528,7 +534,11 @@ pub unsafe extern "C" fn glob(
     let pat = &core::slice::from_raw_parts(pat_ptr, pat_len)[..];
 
     let mut comps = [Comp { start: 0, end: 0 }; 128];
-    let (ncomp, absolute) = glob_split(pat, flags & GLOB_NOESCAPE_V != 0, &mut comps);
+    let (ncomp, absolute, overflow) =
+        glob_split(pat, flags & GLOB_NOESCAPE_V != 0, &mut comps);
+    if overflow {
+        return GLOB_NOSPACE_V;
+    }
 
     let mut list = GlobList { items: core::ptr::null_mut(), n: 0, cap: 0 };
     let mut base = [0u8; PATH_MAX_V + 1];
@@ -548,7 +558,7 @@ pub unsafe extern "C" fn glob(
     } else {
         glob_walk(&mut base, &mut blen, pat, &comps[..ncomp], 0, trailing, flags, errfunc, &mut list)
     };
-    if r == GLOB_ABORTED_V {
+    if r == GLOB_ABORTED_V || r == GLOB_NOSPACE_V {
         for i in 0..list.n { crate::free(*list.items.add(i) as *mut c_void); }
         crate::free(list.items as *mut c_void);
         return r;
@@ -784,7 +794,6 @@ unsafe fn nftw_do(
         });
         crate::close(dfd);
         if result != 0 { return result; }
-        crate::close(dfd);
     } else if dfd >= 0 {
         crate::close(dfd);
     }

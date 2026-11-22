@@ -83,6 +83,7 @@ mod sysnr {
     pub const SYS_LSEEK: i64 = 8;
     pub const SYS_MMAP: i64 = 9;
     pub const SYS_MUNMAP: i64 = 11;
+    pub const SYS_MPROTECT: i64 = 10;
     pub const SYS_FSTAT: i64 = 5;
     pub const SYS_READLINKAT: i64 = 267;
     pub const SYS_ARCH_PRCTL: i64 = 158;
@@ -99,6 +100,7 @@ mod sysnr {
     pub const SYS_LSEEK: i64 = 62;
     pub const SYS_MMAP: i64 = 222;
     pub const SYS_MUNMAP: i64 = 215;
+    pub const SYS_MPROTECT: i64 = 226;
     pub const SYS_FSTAT: i64 = 80;
     pub const SYS_READLINKAT: i64 = 78;
     pub const SYS_GETRLIMIT: i64 = 163;
@@ -114,6 +116,7 @@ mod sysnr {
     pub const SYS_LSEEK: i64 = 62;
     pub const SYS_MMAP: i64 = 222;
     pub const SYS_MUNMAP: i64 = 215;
+    pub const SYS_MPROTECT: i64 = 226;
     pub const SYS_FSTAT: i64 = 80;
     pub const SYS_READLINKAT: i64 = 78;
     pub const SYS_GETRLIMIT: i64 = 163;
@@ -129,6 +132,7 @@ mod sysnr {
     pub const SYS_LSEEK: i64 = 19;
     pub const SYS_MMAP: i64 = 90;
     pub const SYS_MUNMAP: i64 = 91;
+    pub const SYS_MPROTECT: i64 = 125;
     pub const SYS_FSTAT: i64 = 108;
     pub const SYS_READLINKAT: i64 = 296;
     pub const SYS_GETRLIMIT: i64 = 76;
@@ -144,6 +148,7 @@ mod sysnr {
     pub const SYS_LSEEK: i64 = 62;
     pub const SYS_MMAP: i64 = 222;
     pub const SYS_MUNMAP: i64 = 215;
+    pub const SYS_MPROTECT: i64 = 226;
     pub const SYS_FSTAT: i64 = 80;
     pub const SYS_READLINKAT: i64 = 78;
     pub const SYS_GETRLIMIT: i64 = 163;

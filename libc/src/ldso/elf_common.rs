@@ -7,6 +7,7 @@
 pub const PT_LOAD: u32 = 1;
 pub const PT_DYNAMIC: u32 = 2;
 pub const PT_PHDR: u32 = 6;
+pub const PT_GNU_RELRO: u32 = 0x6474_e552;
 
 pub const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
 

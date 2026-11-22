@@ -761,7 +761,7 @@ pub unsafe extern "C" fn fnmatch(pat: *const c_char, str: *const c_char, flags: 
             let (ptok, pstep) = pat_next(pend, usize::MAX, flags);
             let pat_is_slash = ptok >= 0 && ptok as u8 == b'/';
             let str_is_slash = *send == b'/';
-            if pat_is_slash != str_is_slash && (*send != 0 || !(flags & FNM_LEADING_DIR != 0)) {
+            if pat_is_slash != str_is_slash && (*send == 0 || !(flags & FNM_LEADING_DIR != 0)) {
                 return FNM_NOMATCH;
             }
             // match component

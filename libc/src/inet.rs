@@ -244,7 +244,16 @@ pub unsafe extern "C" fn inet_aton(s: *const c_char, dest: *mut c_void) -> c_int
             } else {
                 break;
             };
-            v = v * (base as u64) + d;
+            v = match v
+                .checked_mul(base as u64)
+                .and_then(|n| n.checked_add(d))
+            {
+                // Valid dotted-quad components never exceed 32 bits; reject
+                // overflow instead of silently wrapping (musl's strtoul
+                // saturates, and the later >255 check rejects the result).
+                Some(n) if n <= 0xFFFF_FFFF => n,
+                _ => return 0,
+            };
             p = p.add(1);
         }
         if p == start { return 0; }

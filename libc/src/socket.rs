@@ -334,6 +334,8 @@ const DT_EXITED: c_int = 0;
 const DT_EXITING: c_int = 1;
 const DT_JOINABLE: c_int = 2;
 const DT_DETACHED: c_int = 3;
+// An exited detached thread queued for deferred stack reclamation.
+const DT_ZOMBIE: c_int = 4;
 
 // musl __ptcb cleanup handler node
 #[repr(C)]
@@ -831,6 +833,48 @@ unsafe fn release_thread_slot(slot: *const Thread) {
     spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
 }
 
+// Exited detached threads cannot munmap their own stack while running on it.
+// They queue themselves here and a later pthread_create()/pthread_join()
+// reclaims the mapping once CLONE_CHILD_CLEARTID has zeroed the tid.
+static mut ZOMBIE_DETACHED: *mut Thread = core::ptr::null_mut();
+
+unsafe fn zombie_push(slot: *mut Thread) {
+    spinlock_lock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+    (*slot).free_next = ZOMBIE_DETACHED;
+    ZOMBIE_DETACHED = slot;
+    spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+}
+
+unsafe fn reap_detached() {
+    spinlock_lock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+    let mut list = ZOMBIE_DETACHED;
+    ZOMBIE_DETACHED = core::ptr::null_mut();
+    spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+    let mut keep: *mut Thread = core::ptr::null_mut();
+    while !list.is_null() {
+        let slot = list;
+        list = (*slot).free_next;
+        (*slot).free_next = core::ptr::null_mut();
+        if core::ptr::read_volatile(&raw const (*slot).tid) == 0 {
+            release_finished_slot(slot);
+        } else {
+            // The thread has not reached its final sys_exit_thread() yet.
+            (*slot).free_next = keep;
+            keep = slot;
+        }
+    }
+    if !keep.is_null() {
+        spinlock_lock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+        while !keep.is_null() {
+            let slot = keep;
+            keep = (*slot).free_next;
+            (*slot).free_next = ZOMBIE_DETACHED;
+            ZOMBIE_DETACHED = slot;
+        }
+        spinlock_unlock(&raw mut THREAD_LOCK, &raw mut THREAD_WAITERS);
+    }
+}
+
 /// Link slots `start..THREAD_CHUNK` of `base` into the free list.  Caller
 /// holds THREAD_LOCK.
 unsafe fn push_free_slots(base: *mut Thread, start: usize) {
@@ -974,8 +1018,20 @@ unsafe fn thread_finish(slot: &mut Thread, retval: *mut c_void) -> ! {
     run_key_dtors(slot);
     vdso_getrandom_thread_exit();
     slot.result = retval;
-    a_store(&raw mut slot.detach_state, DT_EXITED);
+    // Decide whether this thread is detached atomically: pthread_detach()
+    // racing with exit must not leave the slot unreclaimed.
+    let prev = a_cas(&raw mut slot.detach_state, DT_JOINABLE, DT_EXITED);
+    let detached = prev == DT_DETACHED;
+    if prev != DT_EXITED {
+        a_store(&raw mut slot.detach_state, DT_EXITED);
+    }
     futex_wake(&raw mut slot.detach_state, 1);
+    if detached {
+        // Only one of thread_finish/pthread_detach may queue the slot.
+        if a_cas(&raw mut slot.detach_state, DT_EXITED, DT_ZOMBIE) == DT_EXITED {
+            zombie_push(slot);
+        }
+    }
     if ACTIVE_THREADS.fetch_sub(1, Ordering::AcqRel) <= 1 {
         exit(0);
     }
@@ -1112,6 +1168,7 @@ pub unsafe extern "C" fn pthread_create(
     arg: *mut c_void,
 ) -> c_int {
     if start_routine == 0 || thread.is_null() { return EINVAL; }
+    reap_detached();
     let Some(slot_ref) = alloc_thread_slot() else { return EAGAIN; };
     let slot = slot_ref as *mut Thread;
     let stack_size = if !attr.is_null() {
@@ -1229,7 +1286,8 @@ pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut c_void
     let slot = thread as *mut Thread;
     if slot.is_null() { return EINVAL; }
     if thread == pthread_self() { return EDEADLK; }
-    if (*slot).detach_state == DT_DETACHED { return EINVAL; }
+    let state = (*slot).detach_state;
+    if state == DT_DETACHED || state == DT_ZOMBIE { return EINVAL; }
     let tid_ptr = &raw mut (*slot).tid;
     loop {
         pthread_testcancel();
@@ -1248,9 +1306,16 @@ pub unsafe extern "C" fn pthread_join(thread: PthreadT, retval: *mut *mut c_void
 pub unsafe extern "C" fn pthread_detach(thread: PthreadT) -> c_int {
     let slot = thread as *mut Thread;
     if slot.is_null() { return EINVAL; }
-    let old = a_cas(&raw mut (*slot).detach_state, DT_JOINABLE, DT_DETACHED);
-    if old == DT_EXITED {
-        release_finished_slot(slot);
+    match a_cas(&raw mut (*slot).detach_state, DT_JOINABLE, DT_DETACHED) {
+        DT_EXITED => {
+            // The thread has exited; defer reclamation until the kernel has
+            // cleared the tid, otherwise we could unmap a stack still in use.
+            if a_cas(&raw mut (*slot).detach_state, DT_EXITED, DT_ZOMBIE) == DT_EXITED {
+                zombie_push(slot);
+            }
+        }
+        DT_DETACHED | DT_ZOMBIE => {}
+        _ => {}
     }
     0
 }

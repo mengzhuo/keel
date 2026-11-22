@@ -137,6 +137,19 @@ macro_rules! impl_format {
             }
             i += 1;
             let fs = parse_format_spec(fmt as *const u8, i, args);
+            if fs.spec == 0 {
+                // A trailing '%' (possibly with flags/width/length) must not
+                // advance past the format's NUL: doing so would keep parsing
+                // adjacent memory and consume arguments that were never
+                // passed.  Emit the consumed text literally and stop.
+                let mut k = i - 1;
+                while k < fs.next {
+                    ($write_char)(*fmt.add(k) as u8);
+                    count += 1;
+                    k += 1;
+                }
+                break;
+            }
             let flags = fs.flags;
             let width = fs.width;
             let precision = fs.precision;

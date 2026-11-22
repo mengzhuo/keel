@@ -179,9 +179,16 @@ unsafe fn parse_rtattrs<F: FnMut(u16, *const u8, usize)>(
 
 unsafe fn netlink_msg_to_ifaddr(ctx: *mut IfaCtx, hdr: *const NlMsgHdr) -> c_int {
     let htype = (*hdr).type_;
+    let msglen = (*hdr).len as usize;
     let ifs: *mut IfaStorage;
     let mut ifs0: *mut IfaStorage = core::ptr::null_mut();
     if htype == RTM_NEWLINK {
+        // The receive loop only guarantees a 16-byte nlmsghdr.  Reading the
+        // rtattr/ifinfomsg prefix here without checking nlmsg_len would read
+        // past a short (or truncated) message.
+        if msglen < 16 + core::mem::size_of::<IfInfoMsg>() {
+            return 0;
+        }
         let hb = hdr as *const u8;
         let payload = hb.add(16) as *const IfInfoMsg;
         ifs = crate::calloc(1, core::mem::size_of::<IfaStorage>()) as *mut IfaStorage;
@@ -214,6 +221,9 @@ unsafe fn netlink_msg_to_ifaddr(ctx: *mut IfaCtx, hdr: *const NlMsgHdr) -> c_int
             (*ctx).hash[bucket] = ifs;
         }
     } else {
+        if msglen < 16 + core::mem::size_of::<IfAddrMsg>() {
+            return 0;
+        }
         let payload = (hdr as *const u8).add(16) as *const IfAddrMsg;
         let index = (*payload).index;
         let bucket = (index as usize) % IFADDRS_HASH_SIZE;

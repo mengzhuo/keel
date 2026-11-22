@@ -62,6 +62,7 @@ struct RegexCContext {
     code: *mut CompiledRegex,
     pos: usize,
     last_atom_start: usize,
+    depth: usize,
     groups: usize,
     err: c_int,
     extended: bool,
@@ -194,8 +195,32 @@ fn compile_expr(
     plen: usize,
     start: usize,
     end: usize,
+    in_group: bool,
+) -> bool {
+    // Nesting/alternative recursion is caller-controlled; cap it so a pattern
+    // like "((((...a...))))" cannot exhaust the C stack in regcomp().
+    const MAX_DEPTH: usize = 256;
+    if ctx.depth >= MAX_DEPTH {
+        ctx.err = REG_ESPACE;
+        return false;
+    }
+    ctx.depth += 1;
+    let ok = compile_expr_inner(ctx, pat, plen, start, end, in_group);
+    ctx.depth -= 1;
+    ok
+}
+
+fn compile_expr_inner(
+    ctx: &mut RegexCContext,
+    pat: *const c_char,
+    plen: usize,
+    start: usize,
+    end: usize,
     _in_group: bool,
 ) -> bool {
+    // A quantifier may only apply to an atom compiled in this branch, never
+    // to code left over from an earlier alternative or an enclosing group.
+    ctx.last_atom_start = ctx.pos;
     if ctx.extended {
         if let Some(bar) = unsafe { find_top_level_bar(pat, start, end) } {
             let split = ctx.pos;
@@ -221,12 +246,42 @@ unsafe fn emit_bytes(ctx: &mut RegexCContext, src: *const u8, len: usize) -> boo
     true
 }
 
-fn emit_quantifier(ctx: &mut RegexCContext, prev: *const u8, len: usize, kind: u8) -> bool {
+/// Adjust absolute jump/split targets inside a copied atom.  Quantifiers move
+/// the atom by emitting a split in front of it; without this, patterns like
+/// `(a|b)*` keep the old targets and match the wrong code (or loop forever).
+unsafe fn relocate_ops(code: *mut u8, start: usize, len: usize, delta: u32) {
+    if delta == 0 { return; }
+    let end = start + len;
+    let mut at = start;
+    while at < end {
+        let op = *code.add(at);
+        let step = match op {
+            OP_CHAR => 2,
+            OP_BRACKET | OP_JUMP | OP_SPLIT | OP_SAVE => 5,
+            _ => 1,
+        };
+        if (op == OP_JUMP || op == OP_SPLIT) && at + 5 <= end {
+            let old = read32(code, at + 1);
+            patch32(code, at + 1, old.wrapping_add(delta as usize) as u32);
+        }
+        at += step;
+    }
+}
+
+fn emit_quantifier(
+    ctx: &mut RegexCContext,
+    prev: *const u8,
+    len: usize,
+    kind: u8,
+    atom_start: usize,
+) -> bool {
     unsafe {
         if kind == b'*' {
             let split = ctx.pos;
             if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
+            let new_start = ctx.pos;
             if !emit_bytes(ctx, prev, len) { return false; }
+            relocate_ops((*ctx.code).code, new_start, len, (new_start - atom_start) as u32);
             let jump = ctx.pos;
             if !emit(ctx, OP_JUMP) || !emit32(ctx, 0) { return false; }
             let after = ctx.pos;
@@ -235,6 +290,7 @@ fn emit_quantifier(ctx: &mut RegexCContext, prev: *const u8, len: usize, kind: u
         } else if kind == b'+' {
             let atom = ctx.pos;
             if !emit_bytes(ctx, prev, len) { return false; }
+            relocate_ops((*ctx.code).code, atom, len, (atom - atom_start) as u32);
             let split = ctx.pos;
             if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
             let jump = ctx.pos;
@@ -245,7 +301,9 @@ fn emit_quantifier(ctx: &mut RegexCContext, prev: *const u8, len: usize, kind: u
         } else {
             let split = ctx.pos;
             if !emit(ctx, OP_SPLIT) || !emit32(ctx, 0) { return false; }
+            let new_start = ctx.pos;
             if !emit_bytes(ctx, prev, len) { return false; }
+            relocate_ops((*ctx.code).code, new_start, len, (new_start - atom_start) as u32);
             let after = ctx.pos;
             patch32((*ctx.code).code, split + 1, after as u32);
         }
@@ -340,10 +398,12 @@ fn compile_sequence(
                         (*ctx.code).code.add(prev_start), prev, prev_len);
                 }
                 ctx.pos = prev_start;
-                let ok = emit_quantifier(ctx, prev, prev_len, b);
+                let ok = emit_quantifier(ctx, prev, prev_len, b, prev_start);
                 unsafe { crate::free(prev as *mut c_void); }
                 if !ok { return false; }
-                ctx.last_atom_start = prev_start;
+                // A second quantifier applies to nothing (a** / a*?), so make
+                // the last-atom marker invalid and let it be a literal.
+                ctx.last_atom_start = ctx.pos;
                 i += 1;
                 continue;
             }
@@ -567,6 +627,23 @@ struct MatchStack {
     cap: usize,
 }
 
+/// Per-bytecode "last input position" table used to break empty-match loops
+/// (`()*`, `(a*)*`, `^*`): re-entering the same split without consuming input
+/// cannot discover a new match.
+struct Visited {
+    p: *mut usize,
+}
+
+impl Drop for Visited {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.p.is_null() {
+                crate::free(self.p as *mut c_void);
+            }
+        }
+    }
+}
+
 fn match_regex_impl(
     code: &CompiledRegex,
     input: *const c_char,
@@ -603,6 +680,16 @@ fn match_regex_inner(
     let bytecode = code.code;
     let ncode = code.ncode;
 
+    let vbytes = match ncode.checked_mul(core::mem::size_of::<usize>()) {
+        Some(n) => n,
+        None => return REG_ESPACE,
+    };
+    let vp = unsafe { crate::malloc(vbytes) } as *mut usize;
+    if vp.is_null() {
+        return REG_ESPACE;
+    }
+    let visited = Visited { p: vp };
+
     let nslots = match code.nsub.checked_add(1).and_then(|n| n.checked_mul(2)) {
         Some(n) => n,
         None => return REG_ESPACE,
@@ -622,6 +709,9 @@ fn match_regex_inner(
     for start in 0..=slen {
         let mut top: usize = 0;
         unsafe { caps.reset() };
+        for i in 0..ncode {
+            unsafe { *visited.p.add(i) = CAPTURE_NONE };
+        }
         unsafe {
             *stack.frames.add(top) = MatchFrame {
                 pc: 0,
@@ -645,6 +735,12 @@ fn match_regex_inner(
             loop {
                 if pc >= ncode { break; }
                 let op = unsafe { *bytecode.add(pc) };
+                // Never read an opcode's operand past the bytecode buffer.
+                match op {
+                    OP_CHAR if pc + 2 > ncode => break,
+                    OP_BRACKET | OP_JUMP | OP_SPLIT | OP_SAVE if pc + 5 > ncode => break,
+                    _ => {}
+                }
                 match op {
                     OP_CHAR => {
                         if sp >= slen { break; }
@@ -689,6 +785,12 @@ fn match_regex_inner(
                     OP_SPLIT => {
                         let alt = unsafe { read32(bytecode, pc + 1) };
                         let next = pc + 5;
+                        // Empty-iteration guard: the same split at the same
+                        // input position would repeat forever.
+                        if unsafe { *visited.p.add(pc) } == sp {
+                            break;
+                        }
+                        unsafe { *visited.p.add(pc) = sp };
                         if top + 2 > stack.cap {
                             let mut cap = stack.cap;
                             while cap < top + 2 {
@@ -827,6 +929,7 @@ fn compile_regex_into(pat: *const c_char, flags: c_int, code: *mut CompiledRegex
             code,
             pos: 0,
             last_atom_start: 0,
+            depth: 0,
             groups: 0,
             err: REG_OK,
             extended: (*code).extended,

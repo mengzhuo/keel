@@ -492,7 +492,9 @@ pub unsafe extern "C" fn vfscanf(stream: *mut FILE, fmt: *const c_char, mut args
     if start_pos >= 0 {
         // Seekable: read via fgetc until newline or EOF.
         loop {
-            if !scan_buf_grow(&mut line, &mut cap, pos + 1) {
+            // Reserve room for the data byte and the terminating NUL: the
+            // newline path below leaves pos == cap if only pos+1 is reserved.
+            if !scan_buf_grow(&mut line, &mut cap, pos + 2) {
                 crate::free(line as *mut c_void);
                 ERRNO!() = ENOMEM;
                 return -1;

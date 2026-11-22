@@ -1350,22 +1350,31 @@ pub unsafe extern "C" fn iconv(
     let mut src_left = *inbytesleft;
     let mut dst_left = *outbytesleft;
     let mut subst = 0usize;
+    // Publish the conversion position before every error return; POSIX
+    // requires *inbuf/*outbuf to point at the unconverted input/output.
+    macro_rules! fail {
+        ($e:expr) => {{
+            *inbuf = src as *mut c_char;
+            *outbuf = dst as *mut c_char;
+            *inbytesleft = src_left;
+            *outbytesleft = dst_left;
+            ERRNO!() = $e;
+            return !0usize;
+        }};
+    }
     while src_left > 0 {
         let (cp, consumed, err) = iconv_decode(from, src, src_left);
         if err != 0 {
             if err == EINVAL { break; }
-            ERRNO!() = err;
-            return !0usize;
+            fail!(err);
         }
         let (written, err) = iconv_encode(to, cp, dst, dst_left);
         if err != 0 {
             if err == E2BIG {
-                ERRNO!() = E2BIG;
-                return !0usize;
+                fail!(E2BIG);
             }
             if dst_left < 1 {
-                ERRNO!() = E2BIG;
-                return !0usize;
+                fail!(E2BIG);
             }
             *dst = b'*';
             dst = dst.add(1);

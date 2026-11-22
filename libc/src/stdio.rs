@@ -216,7 +216,9 @@ unsafe extern "C" fn __stdio_write(f: *mut FILE, buf: *const u8, len: usize) -> 
             (*f).wbase = core::ptr::null_mut();
             (*f).wend = core::ptr::null_mut();
             (*f).flags |= F_ERR;
-            return if iov[idx].0 == buf { 0 } else { len };
+            // The caller's buffer was not written (or only partially); report
+            // a short write instead of claiming the whole length succeeded.
+            return 0;
         }
         rem -= n as usize;
         iov[idx].0 = iov[idx].0.add(n as usize);

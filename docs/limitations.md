@@ -99,9 +99,16 @@ regressions.  It is not an exhaustive security review.
 ## Regular expressions
 
 - **The regex engine implements POSIX BRE/ERE matching and capture groups,
-  but not backreferences or collating/equivalence classes.**  `REG_NEWLINE`
-  is accepted but does not change `^`/`$` or `.` handling.  Patterns outside
+  but not backreferences, interval expressions (`{m,n}`) or
+  collating/equivalence classes.**  `REG_NEWLINE` is accepted but does not
+  change `^`/`$` or `.` handling.  Braces are matched literally, so a pattern
+  such as `^[0-9]{4}$` does not mean "exactly four digits".  Patterns outside
   this subset may compile differently from musl.
+- **Unanchored matches use leftmost-first rather than leftmost-longest
+  selection.**  For example `(a|ab)*` against `"ab"` returns the `[0,1]`
+  match instead of musl's `[0,2]`; anchored forms (`^(a|ab)*$`) and the
+  common cases agree.  The engine is a backtracking VM with an empty-loop
+  guard, not musl's parallel TNFA.
 
 ## Math
 
