@@ -92,7 +92,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Download rootfs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: workload-rootfs
           path: ${{ runner.temp }}/workload
