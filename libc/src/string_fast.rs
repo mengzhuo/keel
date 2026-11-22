@@ -174,6 +174,280 @@ pub unsafe extern "C" fn strlen(s: *const c_char) -> usize {
 }
 
 // ------------------------------------------------------------
+// memchr / memrchr
+// ------------------------------------------------------------
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn memchr_avx2(s: *const u8, c: u8, n: usize) -> *mut u8 {
+    let needle = _mm256_set1_epi8(c as i8);
+    let mut i = 0usize;
+    while i + 32 <= n {
+        let v = _mm256_loadu_si256(s.add(i) as *const __m256i);
+        let m = _mm256_movemask_epi8(_mm256_cmpeq_epi8(v, needle)) as u32;
+        if m != 0 {
+            _mm256_zeroupper();
+            return s.add(i + m.trailing_zeros() as usize) as *mut u8;
+        }
+        i += 32;
+    }
+    _mm256_zeroupper();
+    while i < n {
+        if *s.add(i) == c { return s.add(i) as *mut u8; }
+        i += 1;
+    }
+    null_mut()
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn memchr_sse2(s: *const u8, c: u8, n: usize) -> *mut u8 {
+    let needle = _mm_set1_epi8(c as i8);
+    let mut i = 0usize;
+    while i + 16 <= n {
+        let v = _mm_loadu_si128(s.add(i) as *const __m128i);
+        let m = _mm_movemask_epi8(_mm_cmpeq_epi8(v, needle)) as u32;
+        if m != 0 {
+            return s.add(i + m.trailing_zeros() as usize) as *mut u8;
+        }
+        i += 16;
+    }
+    while i < n {
+        if *s.add(i) == c { return s.add(i) as *mut u8; }
+        i += 1;
+    }
+    null_mut()
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+unsafe fn memchr_words(s: *const u8, c: u8, n: usize) -> *mut u8 {
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    const HIGHS: u64 = 0x8080_8080_8080_8080;
+    let mut i = 0usize;
+    while i < n && (s.add(i) as usize) & 7 != 0 {
+        if *s.add(i) == c { return s.add(i) as *mut u8; }
+        i += 1;
+    }
+    let k = ONES * c as u64;
+    while i + 8 <= n {
+        let w = load_u64(s.add(i)) ^ k;
+        if w.wrapping_sub(ONES) & !w & HIGHS != 0 {
+            break;
+        }
+        i += 8;
+    }
+    while i < n {
+        if *s.add(i) == c { return s.add(i) as *mut u8; }
+        i += 1;
+    }
+    null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn memchr(s: *const u8, c: c_int, n: usize) -> *mut u8 {
+    if n == 0 {
+        return null_mut();
+    }
+    let c = c as u8;
+    #[cfg(target_arch = "x86_64")]
+    {
+        if n >= 32 && fastmem_x86::avx2() {
+            return memchr_avx2(s, c, n);
+        }
+        memchr_sse2(s, c, n)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        memchr_words(s, c, n)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn memrchr_avx2(s: *const u8, c: u8, n: usize) -> *mut u8 {
+    let needle = _mm256_set1_epi8(c as i8);
+    // Scan the trailing partial block first: it has the highest addresses.
+    let mut i = n;
+    while i > n / 32 * 32 {
+        i -= 1;
+        if *s.add(i) == c { return s.add(i) as *mut u8; }
+    }
+    while i != 0 {
+        i -= 32;
+        let v = _mm256_loadu_si256(s.add(i) as *const __m256i);
+        let m = _mm256_movemask_epi8(_mm256_cmpeq_epi8(v, needle)) as u32;
+        if m != 0 {
+            _mm256_zeroupper();
+            return s.add(i + (31 - m.leading_zeros() as usize)) as *mut u8;
+        }
+    }
+    _mm256_zeroupper();
+    null_mut()
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn memrchr_sse2(s: *const u8, c: u8, n: usize) -> *mut u8 {
+    let needle = _mm_set1_epi8(c as i8);
+    let mut i = n;
+    while i > n / 16 * 16 {
+        i -= 1;
+        if *s.add(i) == c { return s.add(i) as *mut u8; }
+    }
+    while i != 0 {
+        i -= 16;
+        let v = _mm_loadu_si128(s.add(i) as *const __m128i);
+        let m = _mm_movemask_epi8(_mm_cmpeq_epi8(v, needle)) as u32;
+        if m != 0 {
+            return s.add(i + (31 - m.leading_zeros() as usize)) as *mut u8;
+        }
+    }
+    null_mut()
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+unsafe fn memrchr_words(s: *const u8, c: u8, n: usize) -> *mut u8 {
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    const HIGHS: u64 = 0x8080_8080_8080_8080;
+    let k = ONES * c as u64;
+    let mut i = n;
+    while i >= 8 {
+        i -= 8;
+        let w = load_u64(s.add(i)) ^ k;
+        let z = w.wrapping_sub(ONES) & !w & HIGHS;
+        if z != 0 {
+            // The highest matching byte has its high bit at 8*k+7; convert
+            // that bit position (from the MSB) back to byte index k.
+            return s.add(i + (63 - z.leading_zeros() as usize) / 8) as *mut u8;
+        }
+    }
+    while i != 0 {
+        i -= 1;
+        if *s.add(i) == c { return s.add(i) as *mut u8; }
+    }
+    null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn memrchr(s: *const u8, c: c_int, n: usize) -> *mut u8 {
+    if n == 0 {
+        return null_mut();
+    }
+    let c = c as u8;
+    #[cfg(target_arch = "x86_64")]
+    {
+        if n >= 32 && fastmem_x86::avx2() {
+            return memrchr_avx2(s, c, n);
+        }
+        memrchr_sse2(s, c, n)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        memrchr_words(s, c, n)
+    }
+}
+
+// ------------------------------------------------------------
+// strchrnul
+// ------------------------------------------------------------
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn strchrnul_avx2(s: *const u8, c: u8) -> *mut u8 {
+    let start = s as usize;
+    let needle = _mm256_set1_epi8(c as i8);
+    let zero = _mm256_setzero_si256();
+    let mut p = start & !31usize;
+    let first = _mm256_load_si256(p as *const __m256i);
+    let mut m = _mm256_movemask_epi8(_mm256_or_si256(
+        _mm256_cmpeq_epi8(first, needle),
+        _mm256_cmpeq_epi8(first, zero),
+    )) as u32;
+    m &= !0u32 << (start - p);
+    if m != 0 {
+        _mm256_zeroupper();
+        return (p + m.trailing_zeros() as usize) as *mut u8;
+    }
+    p += 32;
+    loop {
+        let v = _mm256_load_si256(p as *const __m256i);
+        let m = _mm256_movemask_epi8(_mm256_or_si256(
+            _mm256_cmpeq_epi8(v, needle),
+            _mm256_cmpeq_epi8(v, zero),
+        )) as u32;
+        if m != 0 {
+            _mm256_zeroupper();
+            return (p + m.trailing_zeros() as usize) as *mut u8;
+        }
+        p += 32;
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn strchrnul_sse2(s: *const u8, c: u8) -> *mut u8 {
+    let start = s as usize;
+    let needle = _mm_set1_epi8(c as i8);
+    let zero = _mm_setzero_si128();
+    let mut p = start & !15usize;
+    let first = _mm_load_si128(p as *const __m128i);
+    let mut m = _mm_movemask_epi8(_mm_or_si128(
+        _mm_cmpeq_epi8(first, needle),
+        _mm_cmpeq_epi8(first, zero),
+    )) as u32;
+    m &= !0u32 << (start - p);
+    if m != 0 {
+        return (p + m.trailing_zeros() as usize) as *mut u8;
+    }
+    p += 16;
+    loop {
+        let v = _mm_load_si128(p as *const __m128i);
+        let m = _mm_movemask_epi8(_mm_or_si128(
+            _mm_cmpeq_epi8(v, needle),
+            _mm_cmpeq_epi8(v, zero),
+        )) as u32;
+        if m != 0 {
+            return (p + m.trailing_zeros() as usize) as *mut u8;
+        }
+        p += 16;
+    }
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+unsafe fn strchrnul_words(s: *const u8, c: u8) -> *mut u8 {
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    const HIGHS: u64 = 0x8080_8080_8080_8080;
+    let mut p = s;
+    while (p as usize) & 7 != 0 {
+        if *p == 0 || *p == c { return p as *mut u8; }
+        p = p.add(1);
+    }
+    let k = ONES * c as u64;
+    loop {
+        let w = load_u64(p);
+        let wc = (w ^ k).wrapping_sub(ONES) & !(w ^ k) & HIGHS;
+        let zc = w.wrapping_sub(ONES) & !w & HIGHS;
+        let m = wc | zc;
+        if m != 0 {
+            return p.add(m.trailing_zeros() as usize / 8) as *mut u8;
+        }
+        p = p.add(8);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn strchrnul(s: *const c_char, c: c_int) -> *mut c_char {
+    let s = s as *const u8;
+    let c = c as u8;
+    #[cfg(target_arch = "x86_64")]
+    let p = if fastmem_x86::avx2() {
+        strchrnul_avx2(s, c)
+    } else {
+        strchrnul_sse2(s, c)
+    };
+    #[cfg(not(target_arch = "x86_64"))]
+    let p = strchrnul_words(s, c);
+    p as *mut c_char
+}
+
+// ------------------------------------------------------------
 // memcpy
 // ------------------------------------------------------------
 

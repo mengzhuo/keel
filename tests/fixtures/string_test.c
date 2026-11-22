@@ -33,6 +33,19 @@ int main(void) {
     if (strstr("hello world", "world") != "hello world" + 6) return 13;
     if (strstr("hello", "") != "hello") return 14;
 
+    /* Long haystack, match at the end: exercises the two-way path. */
+    char hay[512];
+    memset(hay, 'x', sizeof hay - 1);
+    hay[sizeof hay - 1] = 0;
+    memcpy(hay + 500, "needle", 6);
+    if (strstr(hay, "needle") != hay + 500) return 21;
+    if (strstr(hay, "needlf") != NULL) return 22;
+    if (memmem(hay, sizeof hay - 1, "needle", 6) != hay + 500) return 23;
+    if (memmem(hay, sizeof hay - 1, "needlf", 6) != NULL) return 24;
+    /* Large reject set: exercises the bitmap path. */
+    if (strcspn("abcXdef", "0123456789XYZ") != 3) return 25;
+    if (strrchr(hay, 0) != hay + sizeof hay - 1) return 26;
+
     char mem[] = {1, 2, 3, 2, 1};
     if (memchr(mem, 2, sizeof(mem)) != mem + 1) return 15;
     if (memrchr(mem, 2, sizeof(mem)) != mem + 3) return 16;

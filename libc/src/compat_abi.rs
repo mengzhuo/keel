@@ -34,15 +34,6 @@ pub unsafe extern "C" fn stpncpy(dest: *mut c_char, src: *const c_char, n: usize
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn strchrnul(s: *const c_char, c: c_int) -> *mut c_char {
-    let mut p = s;
-    while *p != 0 && *p as c_int != c {
-        p = p.add(1);
-    }
-    p as *mut c_char
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn fstatat(dirfd: c_int, path: *const c_char, buf: *mut Stat, flags: c_int) -> c_int {
     let r = sys_newfstatat(dirfd, path, buf as *mut u8, flags);
     syscall_ret(r) as c_int

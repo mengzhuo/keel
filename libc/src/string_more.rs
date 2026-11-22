@@ -33,62 +33,32 @@ pub unsafe extern "C" fn strncmp(s1: *const u8, s2: *const u8, n: usize) -> c_in
 
 #[no_mangle]
 pub unsafe extern "C" fn strcpy(dst: *mut u8, src: *const u8) -> *mut u8 {
-    let mut i = 0;
-    loop {
-        let c = *src.add(i);
-        *dst.add(i) = c;
-        if c == 0 {
-            break;
-        }
-        i += 1;
-    }
+    let n = strlen(src as *const c_char);
+    core::ptr::copy_nonoverlapping(src, dst, n + 1);
     dst
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn strncpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
-    let mut i = 0;
-    while i < n && *src.add(i) != 0 {
-        *dst.add(i) = *src.add(i);
-        i += 1;
-    }
-    while i < n {
-        *dst.add(i) = 0;
-        i += 1;
-    }
+    let l = strnlen(src, n);
+    core::ptr::copy_nonoverlapping(src, dst, l);
+    core::ptr::write_bytes(dst.add(l), 0, n - l);
     dst
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn strcat(dst: *mut u8, src: *const u8) -> *mut u8 {
-    let mut i = 0;
-    while *dst.add(i) != 0 {
-        i += 1;
-    }
-    let mut j = 0;
-    loop {
-        let c = *src.add(j);
-        *dst.add(i + j) = c;
-        if c == 0 {
-            break;
-        }
-        j += 1;
-    }
+    let dl = strlen(dst as *const c_char);
+    strcpy(dst.add(dl), src);
     dst
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn strncat(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
-    let mut i = 0;
-    while *dst.add(i) != 0 {
-        i += 1;
-    }
-    let mut j = 0;
-    while j < n && *src.add(j) != 0 {
-        *dst.add(i + j) = *src.add(j);
-        j += 1;
-    }
-    *dst.add(i + j) = 0;
+    let dl = strlen(dst as *const c_char);
+    let l = strnlen(src, n);
+    core::ptr::copy_nonoverlapping(src, dst.add(dl), l);
+    *dst.add(dl + l) = 0;
     dst
 }
 
@@ -141,64 +111,55 @@ pub unsafe extern "C" fn strndup(s: *const c_char, n: usize) -> *mut c_char {
 
 #[no_mangle]
 pub unsafe extern "C" fn strchr(s: *const u8, c: c_int) -> *mut u8 {
-    let target = c as u8;
-    let mut i = 0;
-    loop {
-        let ch = *s.add(i);
-        if ch == target {
-            return s.add(i) as *mut u8;
-        }
-        if ch == 0 {
-            return null_mut();
-        }
-        i += 1;
+    let p = strchrnul(s as *const c_char, c) as *const u8;
+    if *p != 0 || c as u8 == 0 {
+        p as *mut u8
+    } else {
+        null_mut()
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn strrchr(s: *const u8, c: c_int) -> *mut u8 {
-    let target = c as u8;
-    let mut i = 0;
-    let mut last: *mut u8 = null_mut();
-    loop {
-        let ch = *s.add(i);
-        if ch == target {
-            last = s.add(i) as *mut u8;
-        }
-        if ch == 0 {
-            return last;
-        }
-        i += 1;
-    }
+    let len = strlen(s as *const c_char);
+    memrchr(s, c, len + 1)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn strnlen(s: *const u8, maxlen: usize) -> usize {
-    let mut i = 0;
-    while i < maxlen && *s.add(i) != 0 {
-        i += 1;
+    let p = memchr(s, 0, maxlen);
+    if p.is_null() {
+        maxlen
+    } else {
+        p as usize - s as usize
     }
-    i
+}
+
+#[inline]
+unsafe fn byte_set(members: *const u8) -> [u64; 4] {
+    let mut set = [0u64; 4];
+    let mut p = members;
+    while *p != 0 {
+        let b = *p as usize;
+        set[b >> 6] |= 1u64 << (b & 63);
+        p = p.add(1);
+    }
+    set
+}
+
+#[inline]
+fn in_set(set: &[u64; 4], c: u8) -> bool {
+    set[c as usize >> 6] & (1u64 << (c as usize & 63)) != 0
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn strcspn(s: *const u8, reject: *const u8) -> usize {
-    let mut i = 0;
+    let set = byte_set(reject);
+    let mut i = 0usize;
     loop {
         let c = *s.add(i);
-        if c == 0 {
+        if c == 0 || in_set(&set, c) {
             return i;
-        }
-        let mut j = 0;
-        loop {
-            let r = *reject.add(j);
-            if r == 0 {
-                break;
-            }
-            if c == r {
-                return i;
-            }
-            j += 1;
         }
         i += 1;
     }
@@ -206,26 +167,11 @@ pub unsafe extern "C" fn strcspn(s: *const u8, reject: *const u8) -> usize {
 
 #[no_mangle]
 pub unsafe extern "C" fn strspn(s: *const u8, accept: *const u8) -> usize {
-    let mut i = 0;
+    let set = byte_set(accept);
+    let mut i = 0usize;
     loop {
         let c = *s.add(i);
-        if c == 0 {
-            return i;
-        }
-        let mut found = false;
-        let mut j = 0;
-        loop {
-            let a = *accept.add(j);
-            if a == 0 {
-                break;
-            }
-            if c == a {
-                found = true;
-                break;
-            }
-            j += 1;
-        }
-        if !found {
+        if c == 0 || !in_set(&set, c) {
             return i;
         }
         i += 1;
@@ -234,79 +180,289 @@ pub unsafe extern "C" fn strspn(s: *const u8, accept: *const u8) -> usize {
 
 #[no_mangle]
 pub unsafe extern "C" fn strpbrk(s: *const u8, accept: *const u8) -> *mut u8 {
-    let mut i = 0;
+    let set = byte_set(accept);
+    let mut i = 0usize;
     loop {
         let c = *s.add(i);
         if c == 0 {
             return null_mut();
         }
-        let mut j = 0;
-        loop {
-            let a = *accept.add(j);
-            if a == 0 {
-                break;
-            }
-            if c == a {
-                return s.add(i) as *mut u8;
-            }
-            j += 1;
+        if in_set(&set, c) {
+            return s.add(i) as *mut u8;
         }
         i += 1;
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn strstr(haystack: *const u8, needle: *const u8) -> *mut u8 {
-    if *needle == 0 {
-        return haystack as *mut u8;
+// ------------------------------------------------------------
+// strstr / memmem (two-way, ported from musl)
+// ------------------------------------------------------------
+
+#[inline]
+fn bitset_contains(set: &[usize; 4], b: usize) -> bool {
+    set[b / 64] & (1usize << (b % 64)) != 0
+}
+
+unsafe fn twobyte_memmem(h0: *const u8, k0: usize, n: *const u8) -> *mut u8 {
+    let nw = ((*n as u16) << 8) | *n.add(1) as u16;
+    let mut hw = ((*h0 as u16) << 8) | *h0.add(1) as u16;
+    let mut h = h0.add(2);
+    let mut k = k0 - 2;
+    while k != 0 {
+        if hw == nw { return h.sub(2) as *mut u8; }
+        k -= 1;
+        hw = (hw << 8) | *h as u16;
+        h = h.add(1);
     }
-    let mut i = 0;
+    if hw == nw { h.sub(2) as *mut u8 } else { null_mut() }
+}
+
+unsafe fn threebyte_memmem(h0: *const u8, k0: usize, n: *const u8) -> *mut u8 {
+    let nw = ((*n as u32) << 24) | ((*n.add(1) as u32) << 16) | ((*n.add(2) as u32) << 8);
+    let mut hw = ((*h0 as u32) << 24) | ((*h0.add(1) as u32) << 16) | ((*h0.add(2) as u32) << 8);
+    let mut h = h0.add(3);
+    let mut k = k0 - 3;
+    while k != 0 {
+        if hw == nw { return h.sub(3) as *mut u8; }
+        k -= 1;
+        hw = (hw | *h as u32) << 8;
+        h = h.add(1);
+    }
+    if hw == nw { h.sub(3) as *mut u8 } else { null_mut() }
+}
+
+unsafe fn fourbyte_memmem(h0: *const u8, k0: usize, n: *const u8) -> *mut u8 {
+    let nw = ((*n as u32) << 24)
+        | ((*n.add(1) as u32) << 16)
+        | ((*n.add(2) as u32) << 8)
+        | *n.add(3) as u32;
+    let mut hw = ((*h0 as u32) << 24)
+        | ((*h0.add(1) as u32) << 16)
+        | ((*h0.add(2) as u32) << 8)
+        | *h0.add(3) as u32;
+    let mut h = h0.add(4);
+    let mut k = k0 - 4;
+    while k != 0 {
+        if hw == nw { return h.sub(4) as *mut u8; }
+        k -= 1;
+        hw = (hw << 8) | *h as u32;
+        h = h.add(1);
+    }
+    if hw == nw { h.sub(4) as *mut u8 } else { null_mut() }
+}
+
+unsafe fn maximal_suffix(n: *const u8, l: usize, invert: bool) -> (usize, usize) {
+    let mut ip = usize::MAX;
+    let mut jp = 0usize;
+    let mut k = 1usize;
+    let mut p = 1usize;
+    while jp.wrapping_add(k) < l {
+        let a = *n.add(ip.wrapping_add(k));
+        let b = *n.add(jp + k);
+        let advance = if invert { a < b } else { a > b };
+        if a == b {
+            if k == p {
+                jp += p;
+                k = 1;
+            } else {
+                k += 1;
+            }
+        } else if advance {
+            jp += k;
+            k = 1;
+            p = jp.wrapping_sub(ip);
+        } else {
+            ip = jp;
+            jp += 1;
+            k = 1;
+            p = 1;
+        }
+    }
+    (ip, p)
+}
+
+unsafe fn twoway_memmem(h0: *const u8, end: *const u8, n: *const u8, l: usize) -> *mut u8 {
+    let mut byteset = [0usize; 4];
+    let mut shift = [0usize; 256];
+    for i in 0..l {
+        let b = *n.add(i) as usize;
+        byteset[b / 64] |= 1usize << (b % 64);
+        shift[b] = i + 1;
+    }
+
+    let (ip1, p1) = maximal_suffix(n, l, false);
+    let (ip2, p2) = maximal_suffix(n, l, true);
+    let ms;
+    let mut p;
+    if ip2.wrapping_add(1) > ip1.wrapping_add(1) {
+        ms = ip2;
+        p = p2;
+    } else {
+        ms = ip1;
+        p = p1;
+    }
+
+    // Periodic needle?
+    let mem0;
+    if memcmp(
+        n as *const c_void,
+        n.add(p) as *const c_void,
+        ms.wrapping_add(1),
+    ) != 0
+    {
+        mem0 = 0;
+        let tail = l.wrapping_sub(ms).wrapping_sub(1);
+        p = (if ms > tail { ms } else { tail }) + 1;
+    } else {
+        mem0 = l - p;
+    }
+    let mut mem = 0usize;
+    let mut h = h0;
     loop {
-        let h = *haystack.add(i);
-        if h == 0 {
+        if (end as usize - h as usize) < l {
             return null_mut();
         }
-        if h == *needle {
-            let mut j = 0;
-            loop {
-                let n = *needle.add(j);
-                if n == 0 {
-                    return haystack.add(i) as *mut u8;
+        let last = *h.add(l - 1) as usize;
+        if bitset_contains(&byteset, last) {
+            let mut k = l - shift[last];
+            if k != 0 {
+                if k < mem {
+                    k = mem;
                 }
-                if *haystack.add(i + j) != n {
-                    break;
+                h = h.add(k);
+                mem = 0;
+                continue;
+            }
+        } else {
+            h = h.add(l);
+            mem = 0;
+            continue;
+        }
+        let mut k = if ms.wrapping_add(1) > mem {
+            ms.wrapping_add(1)
+        } else {
+            mem
+        };
+        while k < l && *n.add(k) == *h.add(k) {
+            k += 1;
+        }
+        if k < l {
+            h = h.add(k.wrapping_sub(ms));
+            mem = 0;
+            continue;
+        }
+        let mut k = ms.wrapping_add(1);
+        while k > mem && *n.add(k - 1) == *h.add(k - 1) {
+            k -= 1;
+        }
+        if k <= mem {
+            return h as *mut u8;
+        }
+        h = h.add(p);
+        mem = mem0;
+    }
+}
+
+// Same algorithm for a NUL-terminated haystack.  The end pointer starts at
+// the candidate and grows incrementally, so an early match does not force a
+// full strlen() of the haystack.
+unsafe fn twoway_strstr(h0: *const u8, n: *const u8) -> *mut u8 {
+    let mut byteset = [0usize; 4];
+    let mut shift = [0usize; 256];
+    let mut l = 0usize;
+    while *n.add(l) != 0 && *h0.add(l) != 0 {
+        let b = *n.add(l) as usize;
+        byteset[b / 64] |= 1usize << (b % 64);
+        shift[b] = l + 1;
+        l += 1;
+    }
+    if *n.add(l) != 0 {
+        return null_mut();
+    }
+
+    let (ip1, p1) = maximal_suffix(n, l, false);
+    let (ip2, p2) = maximal_suffix(n, l, true);
+    let ms;
+    let mut p;
+    if ip2.wrapping_add(1) > ip1.wrapping_add(1) {
+        ms = ip2;
+        p = p2;
+    } else {
+        ms = ip1;
+        p = p1;
+    }
+
+    let mem0;
+    if memcmp(
+        n as *const c_void,
+        n.add(p) as *const c_void,
+        ms.wrapping_add(1),
+    ) != 0
+    {
+        mem0 = 0;
+        let tail = l.wrapping_sub(ms).wrapping_sub(1);
+        p = (if ms > tail { ms } else { tail }) + 1;
+    } else {
+        mem0 = l - p;
+    }
+    let mut mem = 0usize;
+    let mut h = h0;
+    let mut z = h0;
+    loop {
+        if (z as usize - h as usize) < l {
+            // Never scan past the end of the current page: a NUL-terminated
+            // string does not promise bytes beyond its terminator.
+            let room = 4096 - (z as usize & 4095);
+            let grow = if (l | 63) < room { l | 63 } else { room };
+            let z2 = memchr(z, 0, grow);
+            if z2.is_null() {
+                z = z.add(grow);
+            } else {
+                z = z2 as *const u8;
+                if (z as usize - h as usize) < l {
+                    return null_mut();
                 }
-                j += 1;
             }
         }
-        i += 1;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn memchr(s: *const u8, c: c_int, n: usize) -> *mut u8 {
-    let target = c as u8;
-    let mut i = 0;
-    while i < n {
-        if *s.add(i) == target {
-            return s.add(i) as *mut u8;
+        let last = *h.add(l - 1) as usize;
+        if bitset_contains(&byteset, last) {
+            let mut k = l - shift[last];
+            if k != 0 {
+                if k < mem {
+                    k = mem;
+                }
+                h = h.add(k);
+                mem = 0;
+                continue;
+            }
+        } else {
+            h = h.add(l);
+            mem = 0;
+            continue;
         }
-        i += 1;
-    }
-    null_mut()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn memrchr(s: *const u8, c: c_int, n: usize) -> *mut u8 {
-    let target = c as u8;
-    let mut i = n;
-    while i > 0 {
-        i -= 1;
-        if *s.add(i) == target {
-            return s.add(i) as *mut u8;
+        let mut k = if ms.wrapping_add(1) > mem {
+            ms.wrapping_add(1)
+        } else {
+            mem
+        };
+        while k < l && *n.add(k) != 0 && *n.add(k) == *h.add(k) {
+            k += 1;
         }
+        if *n.add(k) != 0 {
+            h = h.add(k.wrapping_sub(ms));
+            mem = 0;
+            continue;
+        }
+        let mut k = ms.wrapping_add(1);
+        while k > mem && *n.add(k - 1) == *h.add(k - 1) {
+            k -= 1;
+        }
+        if k <= mem {
+            return h as *mut u8;
+        }
+        h = h.add(p);
+        mem = mem0;
     }
-    null_mut()
 }
 
 #[no_mangle]
@@ -318,13 +474,40 @@ pub unsafe extern "C" fn memmem(
     if haystacklen < needlelen { return null_mut(); }
     let h = haystack as *const u8;
     let n = needle as *const u8;
-    let last = haystacklen - needlelen;
-    for i in 0..=last {
-        if *h.add(i) == *n && memcmp(h.add(i) as *const c_void, n as *const c_void, needlelen) == 0 {
-            return h.add(i) as *mut c_void;
-        }
+    let first = memchr(h, *n as c_int, haystacklen);
+    if first.is_null() {
+        return null_mut();
     }
-    null_mut()
+    if needlelen == 1 {
+        return first as *mut c_void;
+    }
+    let off = first as usize - h as usize;
+    let h = h.add(off);
+    let k = haystacklen - off;
+    if k < needlelen {
+        return null_mut();
+    }
+    match needlelen {
+        2 => twobyte_memmem(h, k, n) as *mut c_void,
+        3 => threebyte_memmem(h, k, n) as *mut c_void,
+        4 => fourbyte_memmem(h, k, n) as *mut c_void,
+        _ => twoway_memmem(h, h.add(k), n, needlelen) as *mut c_void,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn strstr(haystack: *const u8, needle: *const u8) -> *mut u8 {
+    if *needle == 0 {
+        return haystack as *mut u8;
+    }
+    let h = strchrnul(haystack as *const c_char, *needle as c_int) as *const u8;
+    if *h == 0 {
+        return null_mut();
+    }
+    if *needle.add(1) == 0 {
+        return h as *mut u8;
+    }
+    twoway_strstr(h, needle)
 }
 
 #[no_mangle]
