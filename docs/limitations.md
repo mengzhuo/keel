@@ -67,8 +67,6 @@ regressions.  It is not an exhaustive security review.
   aarch64/riscv64 kernels configured with 16 KiB or 64 KiB pages.
 - **`fnmatch` rejects long components.**  Path components longer than 1024
   bytes return `FNM_NOMATCH` instead of being matched with a heap buffer.
-- **`tsearch` is unbalanced.**  The search tree is a plain BST, so lookups
-  and inserts are O(n) in the worst case; musl uses an AVL tree.
 - **`wordexp` supports a subset of shell parameter expansion.**  `$VAR`,
   `${VAR}`, `$$`, command substitution and globbing work; `${VAR:-word}`,
   `${VAR:+word}`, `$?` and positional parameters are not expanded.
@@ -140,3 +138,33 @@ regressions.  It is not an exhaustive security review.
 - **`vfork` forwards to `fork` and `posix_spawn` uses `fork`.**  The
   semantics are the portable ones; the copy-on-write/`vfork` performance
   optimisation is not implemented.
+
+## Security-relevant gaps
+
+This section is not a vulnerability list; it records behaviours that a
+security-sensitive application must account for.
+
+- **Path-based filesystem APIs are subject to TOCTOU.**  `realpath`, `glob`,
+  `fts` and `nftw` use `lstat`/`readlink`/`open` sequences.  A local attacker
+  who can rename symlinks concurrently can race them.  Privileged code should
+  use `openat2(RESOLVE_BENEATH)`, `O_NOFOLLOW` and directory file descriptors.
+- **`tmpnam` is inherently unsafe.**  `tmpfile`/`mkstemp` use `O_EXCL` and
+  kernel randomness; `tmpnam` returns a predictable name and must not be used
+  to create a file.
+- **`getlogin()` returns `$LOGNAME`.**  This matches musl 1.2.6, but the
+  environment is attacker-controlled in a setuid process.  Use
+  `getuid()`/`geteuid()` for authorization, not `getlogin()`.
+- **`timer_create(SIGEV_THREAD)` is not emulated.**  The kernel rejects
+  `SIGEV_THREAD`; only `SIGEV_SIGNAL` (and `SIGEV_NONE`) work.  Applications
+  that need a thread notification must provide it themselves, as `mq_notify`
+  does.
+- **`printf`/`scanf` positional arguments are not implemented.**  `%1$s` and
+  `%2$d` are emitted literally.  The GNU `printf` `%m` extension is supported,
+  but the `scanf` `%m` allocation modifier is not.  Use ordinary conversions
+  in portable code.
+- **Locale state is process-global.**  `setlocale`/`uselocale` are not
+  thread-local and only C/POSIX/UTF-8 ctype modes exist.  Do not use locale
+  conversions as a security boundary.
+- **APK packages are unsigned unless the release environment provides the
+  `APK_SIGN_KEY_B64` secret.**  Verify `SHA256SUMS` from the GitHub release
+  before using `apk add --allow-untrusted`.

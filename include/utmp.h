@@ -33,6 +33,7 @@ struct utmp *pututline(const struct utmp *);
 void setutent(void);
 void updwtmp(const char *, const struct utmp *);
 int utmpname(const char *);
+int login_tty(int);
 
 #ifdef __cplusplus
 }

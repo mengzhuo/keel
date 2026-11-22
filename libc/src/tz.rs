@@ -454,6 +454,10 @@ unsafe fn do_tzset() {
 
     let mut map: *const u8 = core::ptr::null();
     let mut map_size = 0usize;
+    // The POSIX TZ footer in a TZif file is not NUL-terminated (it ends at
+    // the final newline).  Parse it from a bounded copy so a malformed or
+    // truncated footer cannot make getrule() walk past the mmap.
+    let mut tzbuf = [0 as c_char; 256];
     if !posix_form {
         if *s == b':' as c_char {
             s = s.add(1);
@@ -551,7 +555,16 @@ unsafe fn do_tzset() {
             && *map.add(footer) == b'\n' as u8
             && *map.add(map_size - 1) == b'\n' as u8
         {
-            s = map.add(footer + 1) as *const c_char;
+            let start = footer + 1;
+            let end = map_size - 1;
+            let mut n = end - start;
+            // Leave a little slack: getrule advances past a truncated field.
+            if n > tzbuf.len() - 16 {
+                n = tzbuf.len() - 16;
+            }
+            core::ptr::copy_nonoverlapping(map.add(start), tzbuf.as_mut_ptr() as *mut u8, n);
+            tzbuf[n] = 0;
+            s = tzbuf.as_ptr();
         } else {
             crate::__tzname[0] = core::ptr::null_mut();
             crate::__tzname[1] = core::ptr::null_mut();

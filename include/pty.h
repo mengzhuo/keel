@@ -7,6 +7,17 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int openpty(int *, int *, char *, const struct termios *, const struct winsize *);
+int forkpty(int *, char *, const struct termios *, const struct winsize *);
+
+#ifdef __cplusplus
+}
+#endif
+
 /* musl 1.2.6 per-header compatibility macros */
 #define __BYTE_ORDER 1234
 #define __LITTLE_ENDIAN 1234

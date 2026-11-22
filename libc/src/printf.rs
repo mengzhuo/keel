@@ -434,6 +434,27 @@ macro_rules! impl_format {
                         ($write_str)(wbuf.as_ptr(), total); count += total;
                     }
                     b'%' => { ($write_char)(b'%'); count += 1; }
+                    b'm' => {
+                        // GNU %m: the strerror() text for the current errno,
+                        // formatted like %s (width and precision apply).
+                        let msg = crate::strerror(ERRNO!()) as *const u8;
+                        let full_len = crate::strlen(msg as *const c_char);
+                        let slen = if precision >= 0 {
+                            (precision as usize).min(full_len)
+                        } else {
+                            full_len
+                        };
+                        let padded_len = if width > slen { width } else { slen };
+                        let pad = padded_len - slen;
+                        if flags & FLAG_MINUS != 0 {
+                            ($write_str)(msg, slen);
+                            for _ in 0..pad { ($write_char)(b' '); }
+                        } else {
+                            for _ in 0..pad { ($write_char)(b' '); }
+                            ($write_str)(msg, slen);
+                        }
+                        count += padded_len;
+                    }
                     b'n' => {
                         let p = args.next_arg::<*mut c_void>();
                         if !p.is_null() { *(p as *mut c_int) = count as c_int; }

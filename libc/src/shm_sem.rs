@@ -162,24 +162,28 @@ pub unsafe extern "C" fn sem_open(name: *const c_char, flags: c_int, mut args: .
 
     // create: write sem_t to temp file, mmap, link
     let mut tmp = [0u8; 32];
-    let tmpname = b"/dev/shm/tmp-XXXXXX\0";
-    tmp[..tmpname.len()].copy_from_slice(tmpname);
-    // use clock for unique name
-    let mut ts: timespec = core::mem::zeroed();
-    sys_clock_gettime(0, &mut ts);
-    // append ns to tmp name
-    let mut n = ts.tv_nsec;
-    let mut pos = tmpname.len() - 1;
-    tmp[pos] = 0;
-    pos -= 1;
-    loop {
-        tmp[pos] = b'0' + (n % 10) as u8;
-        n /= 10;
-        if n == 0 || pos == 0 { break; }
-        pos -= 1;
+    // Each attempt gets a fresh unpredictable name; reusing one name made
+    // the retry loop below useless and let a local user pre-create it.
+    unsafe fn make_tmp_name(tmp: &mut [u8; 32]) {
+        let prefix = b"/dev/shm/tmp-";
+        tmp[..prefix.len()].copy_from_slice(prefix);
+        let mut r: u64 = 0;
+        let got = crate::getrandom(
+            &mut r as *mut u64 as *mut u8,
+            core::mem::size_of::<u64>(),
+            0,
+        );
+        if got != core::mem::size_of::<u64>() as isize {
+            let mut ts: timespec = core::mem::zeroed();
+            sys_clock_gettime(0, &mut ts);
+            r = (ts.tv_nsec as u64) ^ ((crate::getpid() as u64) << 32);
+        }
+        let hex = b"0123456789abcdef";
+        for i in 0..16 {
+            tmp[prefix.len() + i] = hex[((r >> (4 * (15 - i))) & 0xf) as usize];
+        }
+        tmp[prefix.len() + 16] = 0;
     }
-        // shift to start of number part
-        let tmp_path = tmp.as_ptr();
 
     let mut newsem: sem_t = core::mem::zeroed();
     newsem.__val[0] = value as c_int;
@@ -188,6 +192,8 @@ pub unsafe extern "C" fn sem_open(name: *const c_char, flags: c_int, mut args: .
 
     let mut attempts = 0usize;
     loop {
+        make_tmp_name(&mut tmp);
+        let tmp_path = tmp.as_ptr();
         let fd = sys_open(tmp_path as *const u8, (O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NONBLOCK) as i64, mode as i64);
         if fd < 0 {
             if (-fd) as c_int == EEXIST {

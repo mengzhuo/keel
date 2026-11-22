@@ -184,6 +184,18 @@ pub unsafe fn apply_relative(base: u64, r_offset: u64, r_addend: i64) -> u64 {
 /// link-time value as the addend, so the loader only adds `base`
 /// (`*slot += base`), matching musl.
 pub unsafe fn apply_relr(base: u64, relr_off: u64, relr_sz: u64) {
+    apply_relr_with(base, relr_off, relr_sz, |_| true)
+}
+
+/// Same as `apply_relr`, but `valid` must approve every slot before it is
+/// written.  The in-libc loader uses this to reject a malformed RELR table
+/// that points outside the object's writable segments.
+pub unsafe fn apply_relr_with<F: Fn(u64) -> bool>(
+    base: u64,
+    relr_off: u64,
+    relr_sz: u64,
+    valid: F,
+) {
     if relr_sz == 0 {
         return;
     }
@@ -195,21 +207,23 @@ pub unsafe fn apply_relr(base: u64, relr_off: u64, relr_sz: u64) {
         let e = u64::from_le_bytes(core::ptr::read_unaligned(table.add(i * 8) as *const [u8; 8]));
         if e & 1 == 0 {
             where_ = e;
-            let slot = (base + where_) as *mut u64;
-            *slot = (*slot).wrapping_add(base);
-            where_ += 8;
+            if valid(where_) {
+                let slot = (base + where_) as *mut u64;
+                *slot = (*slot).wrapping_add(base);
+            }
+            where_ = where_.wrapping_add(8);
         } else {
             let mut bits = e >> 1;
             let mut off = where_;
             while bits != 0 {
-                if bits & 1 != 0 {
+                if bits & 1 != 0 && valid(off) {
                     let slot = (base + off) as *mut u64;
                     *slot = (*slot).wrapping_add(base);
                 }
                 bits >>= 1;
-                off += 8;
+                off = off.wrapping_add(8);
             }
-            where_ += 63 * 8;
+            where_ = where_.wrapping_add(63 * 8);
         }
         i += 1;
     }

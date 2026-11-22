@@ -281,25 +281,72 @@ pub unsafe extern "C" fn lfind(
 }
 
 // ============================================================
-// Search: tsearch / tfind / tdelete / twalk / tdestroy (BST, no balancing)
+// Search: tsearch / tfind / tdelete / twalk / tdestroy (AVL)
 // ============================================================
 
-// Unbalanced binary tree, unlike musl's AVL tree: O(n) worst case.
+// AVL tree height < 1.44*log2(nodes+2)-0.3; this is musl's safe upper
+// bound for the explicit ancestor stack.
+const MAXH: usize = core::mem::size_of::<*mut c_void>() * 8 * 3 / 2;
+
 #[repr(C)]
 pub struct TreeNode {
     key: *const c_void,
-    left: *mut TreeNode,
-    right: *mut TreeNode,
+    a: [*mut TreeNode; 2],
+    h: c_int,
 }
 
 type ComparFn = Option<unsafe extern "C" fn(*const c_void, *const c_void) -> c_int>;
 
-unsafe fn bst_new(key: *const c_void) -> *mut TreeNode {
+#[inline]
+unsafe fn node_height(n: *const TreeNode) -> c_int {
+    if n.is_null() { 0 } else { (*n).h }
+}
+
+unsafe fn rotate(p: *mut *mut TreeNode, x: *mut TreeNode, dir: usize) -> c_int {
+    let y = (*x).a[dir];
+    let z = (*y).a[1 - dir];
+    let hx = (*x).h;
+    let hz = node_height(z);
+    let new_root;
+    if hz > node_height((*y).a[dir]) {
+        (*x).a[dir] = (*z).a[1 - dir];
+        (*y).a[1 - dir] = (*z).a[dir];
+        (*z).a[1 - dir] = x;
+        (*z).a[dir] = y;
+        (*x).h = hz;
+        (*y).h = hz;
+        (*z).h = hz + 1;
+        new_root = z;
+    } else {
+        (*x).a[dir] = z;
+        (*y).a[1 - dir] = x;
+        (*x).h = hz + 1;
+        (*y).h = hz + 2;
+        new_root = y;
+    }
+    *p = new_root;
+    (*new_root).h - hx
+}
+
+unsafe fn balance(p: *mut *mut TreeNode) -> c_int {
+    let n = *p;
+    let h0 = node_height((*n).a[0]);
+    let h1 = node_height((*n).a[1]);
+    if (h0 - h1).abs() <= 1 {
+        let old = (*n).h;
+        (*n).h = if h0 < h1 { h1 + 1 } else { h0 + 1 };
+        (*n).h - old
+    } else {
+        rotate(p, n, if h0 < h1 { 1 } else { 0 })
+    }
+}
+
+unsafe fn avl_new(key: *const c_void) -> *mut TreeNode {
     let n = calloc(1, core::mem::size_of::<TreeNode>()) as *mut TreeNode;
     if !n.is_null() {
         (*n).key = key;
-        (*n).left = core::ptr::null_mut();
-        (*n).right = core::ptr::null_mut();
+        (*n).a = [core::ptr::null_mut(); 2];
+        (*n).h = 1;
     }
     n
 }
@@ -313,27 +360,40 @@ pub unsafe extern "C" fn tsearch(
     if rootp.is_null() {
         return core::ptr::null_mut();
     }
-    let mut pp = rootp;
+    let mut a = [core::ptr::null_mut::<*mut TreeNode>(); MAXH];
+    let mut n = *rootp;
+    let mut i = 0usize;
+    a[i] = rootp;
+    i += 1;
     loop {
-        let n = *pp;
         if n.is_null() {
-            let r = bst_new(key);
-            if r.is_null() {
-                return core::ptr::null_mut();
-            }
-            *pp = r;
-            return r as *mut c_void;
+            break;
         }
         let c = compar.unwrap()(key, (*n).key);
         if c == 0 {
             return n as *mut c_void;
         }
-        if c < 0 {
-            pp = &mut (*n).left;
-        } else {
-            pp = &mut (*n).right;
+        let dir = (c > 0) as usize;
+        if i >= MAXH {
+            return core::ptr::null_mut();
+        }
+        a[i] = &mut (*n).a[dir] as *mut *mut TreeNode;
+        i += 1;
+        n = (*n).a[dir];
+    }
+    let r = avl_new(key);
+    if r.is_null() {
+        return core::ptr::null_mut();
+    }
+    i -= 1;
+    *a[i] = r;
+    while i > 0 {
+        i -= 1;
+        if balance(a[i]) == 0 {
+            break;
         }
     }
+    r as *mut c_void
 }
 
 #[no_mangle]
@@ -354,11 +414,7 @@ pub unsafe extern "C" fn tfind(
         if c == 0 {
             return n as *mut c_void;
         }
-        if c < 0 {
-            n = (*n).left;
-        } else {
-            n = (*n).right;
-        }
+        n = (*n).a[(c > 0) as usize];
     }
 }
 
@@ -371,10 +427,16 @@ pub unsafe extern "C" fn tdelete(
     if rootp.is_null() {
         return core::ptr::null_mut();
     }
-    let mut pp = rootp;
-    let mut parent: *mut c_void = core::ptr::null_mut();
+    // a[0] and a[1] both point at rootp; *a[0] is the non-null token returned
+    // when the root itself is deleted (musl does the same).
+    let mut a = [core::ptr::null_mut::<*mut TreeNode>(); MAXH + 1];
+    let mut n = *rootp;
+    let mut i = 0usize;
+    a[i] = rootp;
+    i += 1;
+    a[i] = rootp;
+    i += 1;
     loop {
-        let n = *pp;
         if n.is_null() {
             return core::ptr::null_mut();
         }
@@ -382,35 +444,48 @@ pub unsafe extern "C" fn tdelete(
         if c == 0 {
             break;
         }
-        parent = n as *mut c_void;
-        if c < 0 {
-            pp = &mut (*n).left;
-        } else {
-            pp = &mut (*n).right;
+        let dir = (c > 0) as usize;
+        if i >= MAXH {
+            return core::ptr::null_mut();
         }
+        a[i] = &mut (*n).a[dir] as *mut *mut TreeNode;
+        i += 1;
+        n = (*n).a[dir];
     }
-    let n = *pp;
-    // musl returns the node above the deleted one; deleting the root has no
-    // parent, so it returns the (now-freed) root pointer as a non-null token.
-    let result = if parent.is_null() { n as *mut c_void } else { parent };
-    if !(*n).left.is_null() {
-        // replace with in-order predecessor
-        let mut q = &mut (*n).left;
-        while !(*(*q)).right.is_null() {
-            q = &mut (*(*q)).right;
+    let parent = *a[i - 2];
+    let child;
+    if !(*n).a[0].is_null() {
+        // Free the in-order predecessor and move its key into this node.
+        let deleted = n;
+        if i >= MAXH {
+            return core::ptr::null_mut();
         }
-        let pred = *q;
-        // swap keys
-        (*n).key = (*pred).key;
-        // remove predecessor
-        *q = (*pred).left;
-        free(pred as *mut c_void);
+        a[i] = &mut (*n).a[0] as *mut *mut TreeNode;
+        i += 1;
+        n = (*n).a[0];
+        while !(*n).a[1].is_null() {
+            if i >= MAXH {
+                return core::ptr::null_mut();
+            }
+            a[i] = &mut (*n).a[1] as *mut *mut TreeNode;
+            i += 1;
+            n = (*n).a[1];
+        }
+        (*deleted).key = (*n).key;
+        child = (*n).a[0];
     } else {
-        // replace with right child (may be null)
-        *pp = (*n).right;
-        free(n as *mut c_void);
+        child = (*n).a[1];
     }
-    result
+    free(n as *mut c_void);
+    i -= 1;
+    *a[i] = child;
+    while i > 1 {
+        i -= 1;
+        if balance(a[i]) == 0 {
+            break;
+        }
+    }
+    parent as *mut c_void
 }
 
 #[no_mangle]
@@ -426,14 +501,13 @@ pub unsafe extern "C" fn twalk(
         if node.is_null() {
             return;
         }
-        let is_leaf = (*node).left.is_null() && (*node).right.is_null();
-        if is_leaf {
+        if (*node).h == 1 {
             action.unwrap()(node as *const c_void, 3, depth); // leaf
         } else {
             action.unwrap()(node as *const c_void, 0, depth); // preorder
-            walk((*node).left, action, depth + 1);
+            walk((*node).a[0], action, depth + 1);
             action.unwrap()(node as *const c_void, 1, depth); // postorder (left done)
-            walk((*node).right, action, depth + 1);
+            walk((*node).a[1], action, depth + 1);
             action.unwrap()(node as *const c_void, 2, depth); // endorder
         }
     }
@@ -445,8 +519,8 @@ pub unsafe extern "C" fn tdestroy(root: *mut TreeNode, freekey: Option<unsafe ex
     if root.is_null() {
         return;
     }
-    tdestroy((*root).left, freekey);
-    tdestroy((*root).right, freekey);
+    tdestroy((*root).a[0], freekey);
+    tdestroy((*root).a[1], freekey);
     if let Some(f) = freekey {
         f((*root).key as *mut c_void);
     }

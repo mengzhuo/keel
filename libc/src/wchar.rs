@@ -209,6 +209,9 @@ pub unsafe extern "C" fn wcsxfrm(dst: *mut wchar_t, src: *const wchar_t, n: usiz
 // ============================================================
 
 unsafe fn wcs_to_bytes(ws: *const wchar_t, buf: *mut u8, bufsz: usize) -> usize {
+    if bufsz == 0 {
+        return 0;
+    }
     let mut i = 0;
     while i < bufsz - 1 {
         let c = *ws.add(i);

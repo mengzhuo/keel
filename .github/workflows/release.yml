@@ -161,7 +161,24 @@ jobs:
           }
 
       - name: Build Alpine packages
-        run: ./scripts/package-apk.sh
+        env:
+          # Optional RSA key (apk-tools format, base64-encoded) for package
+          # signatures.  When the secret is absent the packages are unsigned
+          # and the release still publishes SHA256SUMS.
+          APK_SIGN_KEY_B64: ${{ secrets.APK_SIGN_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          if [ -n "${APK_SIGN_KEY_B64:-}" ]; then
+            key="$RUNNER_TEMP/keel-apk-signing-key"
+            printf '%s' "$APK_SIGN_KEY_B64" | base64 -d > "$key"
+            chmod 600 "$key"
+            export APK_SIGN_KEY="$key"
+            echo "signing APK packages"
+          else
+            echo "APK_SIGN_KEY_B64 is not configured; packages will be unsigned"
+          fi
+          ./scripts/package-apk.sh
 
       - name: Smoke-test keel-utils
         env:

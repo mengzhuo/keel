@@ -528,9 +528,17 @@ unsafe fn mkstemps_flags(template: *mut c_char, suffixlen: i32, flags: i32) -> c
             return -1;
         }
     }
-    let mut ts: timespec = core::mem::zeroed();
-    let _ = sys_clock_gettime(CLOCK_REALTIME, &mut ts);
-    let mut ctr: u32 = ts.tv_nsec as u32;
+    // Prefer the kernel CSPRNG for the suffix. O_EXCL is the real
+    // protection, but unpredictable names also avoid trivial pre-creation
+    // denial of service in a shared /tmp.
+    let mut ctr: u32 = 0;
+    if crate::getrandom(&mut ctr as *mut u32 as *mut u8, core::mem::size_of::<u32>(), 0)
+        != core::mem::size_of::<u32>() as isize
+    {
+        let mut ts: timespec = core::mem::zeroed();
+        let _ = sys_clock_gettime(CLOCK_REALTIME, &mut ts);
+        ctr = (ts.tv_nsec as u32) ^ (crate::getpid() as u32).rotate_left(16);
+    }
     for _ in 0..100 {
         ctr = ctr.wrapping_mul(1103515245).wrapping_add(12345);
         let mut seed = ctr;

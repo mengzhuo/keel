@@ -474,6 +474,62 @@ fn add_range(ctx: &mut RegexCContext, bi: usize, min: u8, max: u8) -> bool {
     true
 }
 
+/// POSIX bracket-expression character classes (`[[:alpha:]]`).  keel is
+/// ASCII/C-locale only, which matches its current ctype tables.
+fn class_ranges(name: &[u8]) -> Option<&'static [(u8, u8)]> {
+    const ALNUM: &[(u8, u8)] = &[(b'0', b'9'), (b'A', b'Z'), (b'a', b'z')];
+    const ALPHA: &[(u8, u8)] = &[(b'A', b'Z'), (b'a', b'z')];
+    const BLANK: &[(u8, u8)] = &[(b'\t', b'\t'), (b' ', b' ')];
+    const CNTRL: &[(u8, u8)] = &[(0, 0x1f), (0x7f, 0x7f)];
+    const DIGIT: &[(u8, u8)] = &[(b'0', b'9')];
+    const GRAPH: &[(u8, u8)] = &[(0x21, 0x7e)];
+    const LOWER: &[(u8, u8)] = &[(b'a', b'z')];
+    const PRINT: &[(u8, u8)] = &[(0x20, 0x7e)];
+    const PUNCT: &[(u8, u8)] = &[
+        (0x21, 0x2f),
+        (0x3a, 0x40),
+        (0x5b, 0x60),
+        (0x7b, 0x7e),
+    ];
+    const SPACE: &[(u8, u8)] = &[(b'\t', b'\r'), (b' ', b' ')];
+    const UPPER: &[(u8, u8)] = &[(b'A', b'Z')];
+    const XDIGIT: &[(u8, u8)] = &[(b'0', b'9'), (b'A', b'F'), (b'a', b'f')];
+    match name {
+        b"alnum" => Some(ALNUM),
+        b"alpha" => Some(ALPHA),
+        b"blank" => Some(BLANK),
+        b"cntrl" => Some(CNTRL),
+        b"digit" => Some(DIGIT),
+        b"graph" => Some(GRAPH),
+        b"lower" => Some(LOWER),
+        b"print" => Some(PRINT),
+        b"punct" => Some(PUNCT),
+        b"space" => Some(SPACE),
+        b"upper" => Some(UPPER),
+        b"xdigit" => Some(XDIGIT),
+        _ => None,
+    }
+}
+
+fn add_class_ranges(ctx: &mut RegexCContext, bi: usize, ranges: &[(u8, u8)]) -> bool {
+    for &(lo, hi) in ranges {
+        if !add_range(ctx, bi, lo, hi) {
+            return false;
+        }
+        if ctx.icase {
+            let flo = case_fold_byte(lo);
+            let fhi = case_fold_byte(hi);
+            if flo != lo || fhi != hi {
+                let (rmin, rmax) = if flo < fhi { (flo, fhi) } else { (fhi, flo) };
+                if !add_range(ctx, bi, rmin, rmax) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
 fn compile_bracket(
     ctx: &mut RegexCContext,
     pat: *const c_char,
@@ -516,6 +572,31 @@ fn compile_bracket(
         let cb = unsafe { *pat.add(j) as u8 };
         if cb == b']' && j > *i + 1 + (if negated { 1 } else { 0 }) { break; }
         if cb >= 0x80 { return false; }
+        // POSIX character class: [:alpha:], [:digit:], ...
+        if cb == b'[' && j + 1 < end && unsafe { *pat.add(j + 1) as u8 } == b':' {
+            let name_start = j + 2;
+            let mut k = name_start;
+            while k + 1 < end
+                && !(unsafe { *pat.add(k) as u8 } == b':'
+                    && unsafe { *pat.add(k + 1) as u8 } == b']')
+            {
+                k += 1;
+            }
+            if k + 1 >= end {
+                return false;
+            }
+            let name =
+                unsafe { core::slice::from_raw_parts(pat.add(name_start) as *const u8, k - name_start) };
+            let ranges = match class_ranges(name) {
+                Some(v) => v,
+                None => return false,
+            };
+            if !add_class_ranges(ctx, bi, ranges) {
+                return false;
+            }
+            j = k + 2;
+            continue;
+        }
         let lo = cb;
         j += 1;
 

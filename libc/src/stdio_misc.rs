@@ -120,13 +120,20 @@ const L_TMPNAM: usize = 20;
 static TMPNAM_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 unsafe fn tmp_seed() -> c_uint {
-    let mut ts: timespec = core::mem::zeroed();
-    if sys_clock_gettime(CLOCK_REALTIME, &mut ts) < 0 {
-        let mut v: u32 = 0;
-        crate::getrandom(&mut v as *mut u32 as *mut u8, core::mem::size_of::<u32>(), 0);
+    let mut v: u32 = 0;
+    if crate::getrandom(
+        &mut v as *mut u32 as *mut u8,
+        core::mem::size_of::<u32>(),
+        0,
+    ) == core::mem::size_of::<u32>() as isize
+    {
         return v;
     }
-    ts.tv_nsec as u32
+    let mut ts: timespec = core::mem::zeroed();
+    if sys_clock_gettime(CLOCK_REALTIME, &mut ts) < 0 {
+        return 0;
+    }
+    (ts.tv_nsec as u32) ^ (crate::getpid() as u32).rotate_left(16)
 }
 
 unsafe fn fill_tmpname(out: *mut c_char, seed: c_uint) {

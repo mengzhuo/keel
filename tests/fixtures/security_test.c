@@ -1,19 +1,29 @@
 /* Regression coverage for the 2026-11-22 security audit fixes. */
+#define _GNU_SOURCE
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fnmatch.h>
 #include <glob.h>
 #include <mntent.h>
+#include <pty.h>
 #include <regex.h>
+#include <search.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include <wchar.h>
 
 #define CHECK(cond) do { if (!(cond)) { \
     fprintf(stderr, "security check failed at line %d: %s\n", __LINE__, #cond); \
     return 1; } } while (0)
+
+static int cmp_long(const void *a, const void *b) {
+    long x = (long)a, y = (long)b;
+    return (x > y) - (x < y);
+}
 
 static int ok = 1;
 
@@ -131,6 +141,62 @@ int main(void) {
         CHECK(regcomp(&r, "^(ab|cd)*$", REG_EXTENDED) == 0);
         CHECK(regexec(&r, "abcd", 0, NULL, 0) == 0);
         regfree(&r);
+        /* POSIX character classes must match, not be parsed as literals. */
+        CHECK(regcomp(&r, "^[[:alpha:]]+$", REG_EXTENDED) == 0);
+        CHECK(regexec(&r, "Abc", 0, NULL, 0) == 0);
+        CHECK(regexec(&r, "Ab1", 0, NULL, 0) == REG_NOMATCH);
+        regfree(&r);
+        CHECK(regcomp(&r, "^[[:digit:][:xdigit:]]+$", REG_EXTENDED) == 0);
+        CHECK(regexec(&r, "09af", 0, NULL, 0) == 0);
+        CHECK(regexec(&r, "x", 0, NULL, 0) == REG_NOMATCH);
+        regfree(&r);
+    }
+
+    /* strxfrm: the return value is the full length, even when truncated. */
+    {
+        char b[8];
+        memset(b, 'X', sizeof b);
+        CHECK(strxfrm(b, "abcdef", 0) == 6);
+        memset(b, 'X', sizeof b);
+        CHECK(strxfrm(b, "abcdef", 4) == 6 && b[0] == 'X');
+        memset(b, 'X', sizeof b);
+        CHECK(strxfrm(b, "abc", sizeof b) == 3 && strcmp(b, "abc") == 0);
+    }
+
+    /* strptime %s: overflowing input is rejected, not wrapped. */
+    {
+        struct tm tm;
+        memset(&tm, 0, sizeof tm);
+        CHECK(strptime("999999999999999999999999", "%s", &tm) == NULL);
+    }
+
+    /* printf %m: GNU extension used by many applications. */
+    {
+        char b[64];
+        errno = ENOENT;
+        int n = snprintf(b, sizeof b, "[%m]");
+        CHECK(n > 2 && strstr(b, "No such file") != NULL);
+    }
+
+    /* tsearch: the AVL implementation must handle sorted input and free it. */
+    {
+        void *root = NULL;
+        for (long i = 0; i < 20000; i++) {
+            CHECK(tsearch((void *)i, &root, cmp_long) != NULL);
+        }
+        CHECK(tfind((void *)12345, &root, cmp_long) != NULL);
+        tdestroy(root, NULL);
+    }
+
+    /* openpty: the slave is opened O_RDWR, so writing through it works. */
+    {
+        int m = -1, s = -1;
+        char name[128];
+        CHECK(openpty(&m, &s, name, NULL, NULL) == 0);
+        CHECK(m >= 0 && s >= 0 && name[0] == '/');
+        CHECK(write(s, "x", 1) == 1);
+        close(s);
+        close(m);
     }
 
 #ifdef __x86_64__

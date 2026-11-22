@@ -141,3 +141,17 @@ gate. The `publish` job, including every release build and APK smoke test,
 only starts after the native x86_64/aarch64 jobs, macro/header checks,
 cross-arch smoke tests and cross-architecture libc-test suites all pass. A
 failed or skipped CI job prevents any crate or APK from being published.
+
+### Signing and reproducibility
+
+Release packages are signed with `apk mkpkg --sign-key` when the release
+environment provides `APK_SIGN_KEY_B64` (an apk-tools RSA private key,
+base64-encoded).  The corresponding public key is not installed by the
+packages; verify the signature with your own copy of that key, or verify
+`SHA256SUMS` from the GitHub release.  Without the secret the packages are
+unsigned and require `--allow-untrusted`.
+
+`SOURCE_DATE_EPOCH` is set from the tagged commit's timestamp, so the package
+metadata is stable for a given commit.  The payload file mtimes and the Rust
+build are not yet bit-for-bit reproducible; `SHA256SUMS` is generated per
+release.

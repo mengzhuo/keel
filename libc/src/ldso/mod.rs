@@ -193,6 +193,23 @@ const DSO_BASE_STRIDE: u64 = 0x100000000;
 // Loaded object tracking
 // ============================================================
 
+#[repr(C)]
+pub struct MapRange {
+    start: u64,
+    end: u64,
+    prot: i32,
+}
+
+/// A PT_LOAD entry, kept by `load_dso_from_fd` for mapping and range checks.
+#[derive(Copy, Clone)]
+struct LoadSeg {
+    p_offset: u64,
+    p_vaddr: u64,
+    p_filesz: u64,
+    p_memsz: u64,
+    p_flags: u32,
+}
+
 struct LoadedObject {
     base: u64,
     symtab: *const u8,
@@ -213,6 +230,8 @@ struct LoadedObject {
     init_array_sz: u64,
     init_present: bool,
     init_array_present: bool,
+    text_start: u64,
+    text_end: u64,
     global: bool,
     is_self: bool,
     // Identity of the file backing this object. Different names (libc.so vs
@@ -222,6 +241,8 @@ struct LoadedObject {
     ino: u64,
     map_start: u64,
     map_end: u64,
+    map_ranges: *mut MapRange,
+    map_range_count: usize,
     relro_start: u64,
     relro_size: u64,
     needed_by: usize,
@@ -255,12 +276,16 @@ const EMPTY_OBJ: LoadedObject = LoadedObject {
     init_array_sz: 0,
     init_present: false,
     init_array_present: false,
+    text_start: 0,
+    text_end: 0,
     global: false,
     is_self: false,
     dev: 0,
     ino: 0,
     map_start: 0,
     map_end: 0,
+    map_ranges: core::ptr::null_mut(),
+    map_range_count: 0,
     relro_start: 0,
     relro_size: 0,
     needed_by: NO_IDX,
@@ -486,6 +511,22 @@ unsafe fn alloc_object() -> *mut LoadedObject {
     obj
 }
 
+/// True when `addr` is inside an executable segment of the object.  For
+/// objects without a range table (main executable, interpreter) fall back to
+/// the recorded text range.
+unsafe fn obj_exec_ok(obj: &LoadedObject, addr: u64) -> bool {
+    if obj.map_range_count == 0 {
+        return obj.text_end > obj.text_start && addr >= obj.text_start && addr < obj.text_end;
+    }
+    for i in 0..obj.map_range_count {
+        let r = &*obj.map_ranges.add(i);
+        if addr >= r.start && addr < r.end {
+            return (r.prot & PROT_EXEC) != 0;
+        }
+    }
+    false
+}
+
 unsafe fn free_object(obj: *mut LoadedObject) {
     if obj.is_null() {
         return;
@@ -499,7 +540,33 @@ unsafe fn free_object(obj: *mut LoadedObject) {
     if !(*obj).name.is_null() {
         sys_munmap((*obj).name, (*obj).name_cap);
     }
+    if !(*obj).map_ranges.is_null() {
+        sys_munmap(
+            (*obj).map_ranges as *mut u8,
+            (*obj).map_range_count * core::mem::size_of::<MapRange>(),
+        );
+    }
     sys_munmap(obj as *mut u8, core::mem::size_of::<LoadedObject>());
+}
+
+/// True when `[addr, addr+len)` lies inside one of the object's mapped
+/// PT_LOAD ranges.  Objects loaded by the kernel (the main executable and
+/// the interpreter) carry no range table and are trusted.
+unsafe fn obj_range_ok(obj: &LoadedObject, addr: u64, len: u64, write: bool) -> bool {
+    if obj.map_range_count == 0 {
+        return true;
+    }
+    let end = match addr.checked_add(len) {
+        Some(v) => v,
+        None => return false,
+    };
+    for i in 0..obj.map_range_count {
+        let r = &*obj.map_ranges.add(i);
+        if addr >= r.start && end <= r.end && (!write || (r.prot & PROT_WRITE) != 0) {
+            return true;
+        }
+    }
+    false
 }
 
 unsafe fn push_object(value: LoadedObject) -> Option<usize> {
@@ -1382,6 +1449,88 @@ unsafe fn fd_identity(fd: i64) -> (u64, u64) {
     }
 }
 
+/// True when `[addr, addr+len)` lies inside one of the segments that were
+/// actually mapped.  `total_size` alone is not enough: a malformed PT_LOAD
+/// can leave holes between segments, and a dynamic-table pointer into such a
+/// hole faults when walked.
+unsafe fn segs_range_ok(segs: &[LoadSeg], count: usize, base: u64, addr: u64, len: u64) -> bool {
+    let end = match addr.checked_add(len) {
+        Some(v) => v,
+        None => return false,
+    };
+    for i in 0..count {
+        let seg = segs[i];
+        let adj = seg.p_vaddr & (PAGE_SIZE as u64 - 1);
+        let start = match base.checked_add(seg.p_vaddr - adj) {
+            Some(v) => v,
+            None => continue,
+        };
+        let mem_len = match seg
+            .p_memsz
+            .checked_add(adj)
+            .and_then(|v| v.checked_add(PAGE_SIZE as u64 - 1))
+        {
+            Some(v) => v & !(PAGE_SIZE as u64 - 1),
+            None => continue,
+        };
+        if mem_len == 0 {
+            continue;
+        }
+        let seg_end = match start.checked_add(mem_len) {
+            Some(v) => v,
+            None => continue,
+        };
+        if addr >= start && end <= seg_end {
+            return true;
+        }
+    }
+    false
+}
+
+/// End of the mapped segment containing `addr`, or 0 when it is in a hole.
+/// Used to bound linear scans such as the GNU hash chain walk.
+unsafe fn seg_limit(segs: &[LoadSeg], count: usize, base: u64, addr: u64) -> u64 {
+    for i in 0..count {
+        let seg = segs[i];
+        let adj = seg.p_vaddr & (PAGE_SIZE as u64 - 1);
+        let start = match base.checked_add(seg.p_vaddr - adj) {
+            Some(v) => v,
+            None => continue,
+        };
+        let mem_len = match seg
+            .p_memsz
+            .checked_add(adj)
+            .and_then(|v| v.checked_add(PAGE_SIZE as u64 - 1))
+        {
+            Some(v) => v & !(PAGE_SIZE as u64 - 1),
+            None => continue,
+        };
+        if mem_len == 0 {
+            continue;
+        }
+        let seg_end = match start.checked_add(mem_len) {
+            Some(v) => v,
+            None => continue,
+        };
+        if addr >= start && addr < seg_end {
+            return seg_end;
+        }
+    }
+    0
+}
+
+unsafe fn fd_file_size(fd: i64) -> u64 {
+    // st_size is the seventh 64-bit word in both the x86_64 and the generic
+    // 64-bit struct stat layouts.
+    let mut st = [0u64; 32];
+    let r = <Arch as Syscalls>::syscall2(SYS_FSTAT, fd, st.as_mut_ptr() as i64);
+    if r < 0 {
+        0
+    } else {
+        st[6]
+    }
+}
+
 unsafe fn loaded_object_by_identity(dev: u64, ino: u64) -> Option<usize> {
     if dev == 0 && ino == 0 {
         return None;
@@ -1486,15 +1635,6 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
         return None;
     }
 
-    #[derive(Copy, Clone)]
-    struct LoadSeg {
-        p_offset: u64,
-        p_vaddr: u64,
-        p_filesz: u64,
-        p_memsz: u64,
-        p_flags: u32,
-    }
-
     let mut segs: [LoadSeg; 8] = [LoadSeg {
         p_offset: 0,
         p_vaddr: 0,
@@ -1512,6 +1652,12 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
     let mut tls_align: u64 = 0;
     let mut relro_vaddr: u64 = 0;
     let mut relro_memsz: u64 = 0;
+    let mut text_vstart = u64::MAX;
+    let mut text_vend = 0u64;
+    let file_size = fd_file_size(fd);
+    if file_size == 0 {
+        return None;
+    }
 
     for i in 0..e_phnum {
         let ph = buf.as_ptr().add(e_phoff as usize + i * PHDR_SIZE);
@@ -1539,6 +1685,17 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
         let p_vaddr = phdr_u64(ph, PH_VADDR);
         let p_filesz = phdr_u64(ph, PH_FILESZ);
         let p_memsz = phdr_u64(ph, PH_MEMSZ);
+        // A segment may not be larger in the file than in memory, may not
+        // extend past EOF (mmap would succeed but touching the page SIGBUSes),
+        // and its file and virtual addresses must be page-congruent.
+        if p_filesz > p_memsz
+            || p_offset
+                .checked_add(p_filesz)
+                .is_none_or(|end| end > file_size)
+            || (p_offset & (PAGE_SIZE as u64 - 1)) != (p_vaddr & (PAGE_SIZE as u64 - 1))
+        {
+            return None;
+        }
         segs[seg_count] = LoadSeg {
             p_offset,
             p_vaddr,
@@ -1550,9 +1707,20 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
         if p_vaddr < min_vaddr {
             min_vaddr = p_vaddr;
         }
-        let end = p_vaddr + p_memsz;
+        let end = match p_vaddr.checked_add(p_memsz) {
+            Some(v) => v,
+            None => return None,
+        };
         if end > max_vaddr_end {
             max_vaddr_end = end;
+        }
+        if p_flags & PF_X != 0 {
+            if p_vaddr < text_vstart {
+                text_vstart = p_vaddr;
+            }
+            if end > text_vend {
+                text_vend = end;
+            }
         }
     }
 
@@ -1560,7 +1728,21 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
         return None;
     }
 
-    let total_size = ((max_vaddr_end + PAGE_SIZE as u64 - 1) & !(PAGE_SIZE as u64 - 1)) as usize;
+    let total_size = match max_vaddr_end.checked_add(PAGE_SIZE as u64 - 1) {
+        Some(v) => (v & !(PAGE_SIZE as u64 - 1)) as usize,
+        None => return None,
+    };
+    if total_size == 0 || total_size > isize::MAX as usize {
+        return None;
+    }
+    if tls_memsz != 0
+        && (tls_filesz > tls_memsz
+            || tls_vaddr
+                .checked_add(tls_memsz)
+                .is_none_or(|end| end > total_size as u64))
+    {
+        return None;
+    }
 
     // ASLR may place our own stack or the executable at the
     // desired base. Probe for a free span before committing with MAP_FIXED.
@@ -1588,23 +1770,64 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
     };
 
     let tls_image = (actual_base + tls_vaddr) as *const u8;
+    let map_ranges = map_zeroed(seg_count * core::mem::size_of::<MapRange>()) as *mut MapRange;
+    if map_ranges.is_null() {
+        return None;
+    }
 
     for i in 0..seg_count {
         let seg = segs[i];
         let adj = seg.p_vaddr & (PAGE_SIZE as u64 - 1);
-        let map_addr = actual_base + seg.p_vaddr - adj;
-        let map_off = seg.p_offset - adj;
-        let mem_len =
-            ((seg.p_memsz + adj + PAGE_SIZE as u64 - 1) & !(PAGE_SIZE as u64 - 1)) as usize;
-        let file_len =
-            ((seg.p_filesz + adj + PAGE_SIZE as u64 - 1) & !(PAGE_SIZE as u64 - 1)) as usize;
+        let map_addr = match actual_base.checked_add(seg.p_vaddr - adj) {
+            Some(v) => v,
+            None => return None,
+        };
+        let map_off = match seg.p_offset.checked_sub(adj) {
+            Some(v) => v,
+            None => return None,
+        };
+        let mem_len_u64 = match seg
+            .p_memsz
+            .checked_add(adj)
+            .and_then(|v| v.checked_add(PAGE_SIZE as u64 - 1))
+        {
+            Some(v) => v & !(PAGE_SIZE as u64 - 1),
+            None => return None,
+        };
+        let file_len_u64 = match seg
+            .p_filesz
+            .checked_add(adj)
+            .and_then(|v| v.checked_add(PAGE_SIZE as u64 - 1))
+        {
+            Some(v) => v & !(PAGE_SIZE as u64 - 1),
+            None => return None,
+        };
+        if mem_len_u64 > isize::MAX as u64 || file_len_u64 > isize::MAX as u64 {
+            return None;
+        }
+        let mem_len = mem_len_u64 as usize;
+        let file_len = file_len_u64 as usize;
         let prot = prot_from_flags(seg.p_flags);
+        let range_end = match map_addr.checked_add(mem_len_u64) {
+            Some(v) => v,
+            None => return None,
+        };
+        *map_ranges.add(i) = MapRange {
+            start: map_addr,
+            end: range_end,
+            prot,
+        };
+        let has_bss = seg.p_memsz > seg.p_filesz;
+        // Zeroing the tail of the last file page requires write access even
+        // when the segment is read-only/executable (a valid, if unusual,
+        // ELF can put zero-filled data after an R-X file page).
+        let map_prot = if has_bss { prot | PROT_WRITE } else { prot };
 
         if file_len > 0 {
             let fp = sys_mmap(
                 map_addr as *mut u8,
                 file_len,
-                prot,
+                map_prot,
                 MAP_PRIVATE | MAP_FIXED,
                 fd as i32,
                 map_off as i64,
@@ -1614,13 +1837,25 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             }
         }
 
-        if seg.p_memsz > seg.p_filesz {
-            let vseg = actual_base + seg.p_vaddr;
+        if has_bss {
+            let vseg = match actual_base.checked_add(seg.p_vaddr) {
+                Some(v) => v,
+                None => return None,
+            };
             // The last file page can contain bytes beyond p_filesz; zero just
             // that part. The remaining BSS is fresh anonymous zero pages.
-            let bss_start = vseg + seg.p_filesz;
-            let bss_end = vseg + seg.p_memsz;
-            let file_end = map_addr + file_len as u64;
+            let bss_start = match vseg.checked_add(seg.p_filesz) {
+                Some(v) => v,
+                None => return None,
+            };
+            let bss_end = match vseg.checked_add(seg.p_memsz) {
+                Some(v) => v,
+                None => return None,
+            };
+            let file_end = match map_addr.checked_add(file_len_u64) {
+                Some(v) => v,
+                None => return None,
+            };
             let zero_end = if file_end < bss_end {
                 file_end
             } else {
@@ -1629,8 +1864,17 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             if zero_end > bss_start {
                 core::ptr::write_bytes(bss_start as *mut u8, 0, (zero_end - bss_start) as usize);
             }
+            if map_prot != prot
+                && file_len > 0
+                && sys_mprotect(map_addr as *mut u8, file_len, prot) < 0
+            {
+                return None;
+            }
             if mem_len > file_len {
-                let tail = map_addr + file_len as u64;
+                let tail = match map_addr.checked_add(file_len_u64) {
+                    Some(v) => v,
+                    None => return None,
+                };
                 let tp = sys_mmap(
                     tail as *mut u8,
                     mem_len - file_len,
@@ -1658,11 +1902,16 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             break;
         }
     }
-    if dyn_vaddr == 0 {
+    if dyn_vaddr == 0 || dyn_memsz == 0 {
         return None;
     }
-
-    let dyn_addr = (actual_base + dyn_vaddr) as usize;
+    let dyn_addr = match actual_base.checked_add(dyn_vaddr) {
+        Some(v) => v,
+        None => return None,
+    };
+    if !segs_range_ok(&segs, seg_count, actual_base, dyn_addr, dyn_memsz) {
+        return None;
+    }
 
     // Parse DT_SYMTAB, DT_STRTAB, DT_STRSZ
     let mut dt_symtab: u64 = 0;
@@ -1680,7 +1929,7 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
     let mut dt_rpath_present = false;
     let mut dt_runpath_off: u64 = 0;
     let mut dt_runpath_present = false;
-    let mut dyns = DynRange::new(dyn_addr, dyn_memsz as usize);
+    let mut dyns = DynRange::new(dyn_addr as usize, dyn_memsz as usize);
     while let Some((d_tag, d_val)) = dyns.next() {
         match d_tag {
             DT_SYMTAB => dt_symtab = d_val,
@@ -1712,13 +1961,20 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
 
     let image_end = actual_base + total_size as u64;
     let in_image = |v: u64| v != 0 && v < total_size as u64;
+    let seg_ok = |off: u64, len: u64| match actual_base.checked_add(off) {
+        Some(addr) => segs_range_ok(&segs, seg_count, actual_base, addr, len),
+        None => false,
+    };
 
-    let symtab_ptr = if in_image(dt_symtab) {
+    let symtab_ptr = if in_image(dt_symtab) && seg_ok(dt_symtab, 0) {
         (actual_base + dt_symtab) as *const u8
     } else {
         core::ptr::null()
     };
-    let strsz = if in_image(dt_strtab) && dt_strsz <= total_size as u64 - dt_strtab {
+    let strsz = if in_image(dt_strtab)
+        && dt_strsz <= total_size as u64 - dt_strtab
+        && seg_ok(dt_strtab, dt_strsz)
+    {
         dt_strsz as usize
     } else {
         0
@@ -1743,26 +1999,40 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
     // Reject out-of-image dynamic tables outright; a malformed DSO must not
     // leave dangling pointers in the loaded-object table.
     for table in [dt_gnu_hash, dt_hash, dt_versym, dt_init_array] {
-        if table != 0 && table >= total_size as u64 {
+        if table != 0 && (table >= total_size as u64 || !seg_ok(table, 0)) {
             return None;
         }
     }
-    if dt_init != 0 && dt_init >= total_size as u64 {
+    if dt_init != 0 && (dt_init >= total_size as u64 || !seg_ok(dt_init, 0)) {
         return None;
     }
     if dt_init_array != 0
         && (dt_init_array_sz > total_size as u64
-            || dt_init_array > total_size as u64 - dt_init_array_sz)
+            || dt_init_array > total_size as u64 - dt_init_array_sz
+            || !seg_ok(dt_init_array, dt_init_array_sz))
     {
         return None;
     }
 
     let mut sym_count: usize = 0;
-    if dt_gnu_hash != 0 {
-        sym_count =
-            sym_count_from_gnu_hash((actual_base + dt_gnu_hash) as usize, image_end as usize);
-    } else if dt_hash != 0 {
-        sym_count = sym_count_from_hash((actual_base + dt_hash) as usize, image_end as usize);
+    if dt_gnu_hash != 0 && seg_ok(dt_gnu_hash, 16) {
+        let start = (actual_base + dt_gnu_hash) as usize;
+        let limit = seg_limit(&segs, seg_count, actual_base, start as u64);
+        let end = if limit != 0 && limit < image_end {
+            limit as usize
+        } else {
+            image_end as usize
+        };
+        sym_count = sym_count_from_gnu_hash(start, end);
+    } else if dt_hash != 0 && seg_ok(dt_hash, 8) {
+        let start = (actual_base + dt_hash) as usize;
+        let limit = seg_limit(&segs, seg_count, actual_base, start as u64);
+        let end = if limit != 0 && limit < image_end {
+            limit as usize
+        } else {
+            image_end as usize
+        };
+        sym_count = sym_count_from_hash(start, end);
     } else if dt_strtab > dt_symtab && dt_strtab - dt_symtab >= SYMTAB_ENT_SIZE as u64 {
         sym_count = ((dt_strtab - dt_symtab) / SYMTAB_ENT_SIZE as u64) as usize;
     }
@@ -1789,7 +2059,7 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             } else {
                 0
             },
-            dyn_addr,
+            dyn_addr: dyn_addr as usize,
             dyn_memsz: dyn_memsz as usize,
             tls_image,
             tls_filesz,
@@ -1800,12 +2070,20 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             init_array_sz: dt_init_array_sz,
             init_present: dt_init_present,
             init_array_present: dt_init_array_present,
+            text_start: if text_vend > text_vstart {
+                actual_base + text_vstart
+            } else {
+                0
+            },
+            text_end: actual_base + text_vend,
             global: false,
             is_self: false,
             dev: object_dev,
             ino: object_ino,
             map_start: actual_base + min_vaddr,
             map_end: actual_base + max_vaddr_end,
+            map_ranges,
+            map_range_count: seg_count,
             relro_start: if relro_memsz != 0 {
                 actual_base + relro_vaddr
             } else {
@@ -1822,6 +2100,63 @@ unsafe fn load_dso_from_fd(fd: i64, desired_base: u64) -> Option<u64> {
             name: core::ptr::null_mut(),
             name_cap: 0,
         };
+        // Every table the loader will dereference must live in one of the
+        // mapped PT_LOAD ranges; a pointer into a gap between segments would
+        // otherwise fault when the table is walked.
+        {
+            let obj = &value;
+            if !obj_range_ok(obj, dyn_addr as u64, dyn_memsz as u64, false) {
+                return None;
+            }
+            if !symtab_ptr.is_null() {
+                let sz = match sym_count.checked_mul(SYMTAB_ENT_SIZE) {
+                    Some(v) => v as u64,
+                    None => return None,
+                };
+                if !obj_range_ok(obj, symtab_ptr as u64, sz, false) {
+                    return None;
+                }
+            }
+            if !strtab_ptr.is_null()
+                && strsz > 0
+                && !obj_range_ok(obj, strtab_ptr as u64, strsz as u64, false)
+            {
+                return None;
+            }
+            if dt_gnu_hash != 0 && !obj_range_ok(obj, actual_base + dt_gnu_hash, 16, false) {
+                return None;
+            }
+            if dt_hash != 0 && !obj_range_ok(obj, actual_base + dt_hash, 8, false) {
+                return None;
+            }
+            if dt_versym != 0 {
+                let sz = match sym_count.checked_mul(2) {
+                    Some(v) => v as u64,
+                    None => return None,
+                };
+                if !obj_range_ok(obj, actual_base + dt_versym, sz, false) {
+                    return None;
+                }
+            }
+            if dt_init_array_present
+                && dt_init_array_sz > 0
+                && !obj_range_ok(obj, value.init_array, dt_init_array_sz, false)
+            {
+                return None;
+            }
+            if dt_init_present
+                && value.init != 0
+                && value.init != value.base
+                && !(value.text_end > value.text_start
+                    && value.init >= value.text_start
+                    && value.init < value.text_end)
+            {
+                return None;
+            }
+            if tls_filesz > 0 && !obj_range_ok(obj, tls_image as u64, tls_filesz, false) {
+                return None;
+            }
+        }
         if push_object(value).is_none() {
             return None;
         }
@@ -2296,7 +2631,9 @@ unsafe fn process_relocations_range(start: usize) {
     for i in start..LOADED_COUNT {
         let (base, rela_off, rela_sz, jmprel_off, jmprel_sz, relr_off, relr_sz) =
             relocation_info(i);
-        apply_relr(base, relr_off, relr_sz);
+        apply_relr_with(base, relr_off, relr_sz, |addr| {
+            obj_range_ok(&**LOADED.add(i), addr, 8, true)
+        });
         apply_rela_table(i, base, rela_off, rela_sz, false);
         apply_rela_table(i, base, jmprel_off, jmprel_sz, false);
     }
@@ -2331,6 +2668,29 @@ unsafe fn relocation_info(i: usize) -> (u64, u64, u64, u64, u64, u64, u64) {
             _ => {}
         }
     }
+    // A malformed dynamic section must not point a relocation table outside
+    // the object's mapped segments.
+    let table_ok = |off: u64, sz: u64| {
+        if sz == 0 {
+            return true;
+        }
+        match base.checked_add(off) {
+            Some(addr) => obj_range_ok(obj, addr, sz, false),
+            None => false,
+        }
+    };
+    if !table_ok(rela_off, rela_sz) {
+        rela_off = 0;
+        rela_sz = 0;
+    }
+    if !table_ok(jmprel_off, jmprel_sz) {
+        jmprel_off = 0;
+        jmprel_sz = 0;
+    }
+    if !table_ok(relr_off, relr_sz) {
+        relr_off = 0;
+        relr_sz = 0;
+    }
     (
         base, rela_off, rela_sz, jmprel_off, jmprel_sz, relr_off, relr_sz,
     )
@@ -2358,7 +2718,14 @@ unsafe fn apply_rela_table(
 
         let r_type = r_info & 0xffffffff;
         let r_sym_idx = (r_info >> 32) as usize;
-        let slot = (base + r_offset) as *mut u64;
+        let slot_addr = match base.checked_add(r_offset) {
+            Some(v) => v,
+            None => continue,
+        };
+        if !obj_range_ok(&**LOADED.add(obj_idx), slot_addr, 8, true) {
+            continue;
+        }
+        let slot = slot_addr as *mut u64;
 
         // _start already applied the interpreter's RELATIVE relocations.
         if (**LOADED.add(obj_idx)).is_self && r_type == R_RELATIVE {
@@ -2371,7 +2738,14 @@ unsafe fn apply_rela_table(
             }
             let (src, sym_size) = resolve_copy_source(obj_idx, r_sym_idx);
             if src != 0 && sym_size != 0 {
-                let dst = (base + r_offset) as *mut u8;
+                let dst_addr = match base.checked_add(r_offset) {
+                    Some(v) => v,
+                    None => continue,
+                };
+                if !obj_range_ok(&**LOADED.add(obj_idx), dst_addr, sym_size as u64, true) {
+                    continue;
+                }
+                let dst = dst_addr as *mut u8;
                 core::ptr::copy_nonoverlapping(src as *const u8, dst, sym_size);
             }
             continue;
@@ -2494,7 +2868,7 @@ unsafe fn run_constructors() {
 
 unsafe fn run_constructors_for(idx: usize) {
     let obj = &(**LOADED.add(idx));
-    if obj.init_present && obj.init != 0 && obj.init != obj.base {
+    if obj.init_present && obj.init != 0 && obj.init != obj.base && obj_exec_ok(obj, obj.init) {
         let f: extern "C" fn() = core::mem::transmute(obj.init);
         f();
     }
@@ -2503,7 +2877,7 @@ unsafe fn run_constructors_for(idx: usize) {
         for j in 0..count {
             let entry = (obj.init_array as *const u8).add(j * 8);
             let fp = u64::from_le_bytes(core::ptr::read_unaligned(entry as *const [u8; 8]));
-            if fp != 0 {
+            if fp != 0 && obj_exec_ok(obj, fp) {
                 let f: extern "C" fn() = core::mem::transmute(fp);
                 f();
             }
@@ -3782,6 +4156,8 @@ unsafe fn register_self(ldso_base: u64) {
     let mut self_map_end = 0u64;
     let mut self_relro_start = 0u64;
     let mut self_relro_size = 0u64;
+    let mut self_text_vstart = u64::MAX;
+    let mut self_text_vend = 0u64;
     for i in 0..e_phnum {
         let ph = ehdr.add(e_phoff as usize + i * PHDR_SIZE);
         let p_type = phdr_type(ph);
@@ -3795,11 +4171,24 @@ unsafe fn register_self(ldso_base: u64) {
         }
         let p_vaddr = phdr_u64(ph, PH_VADDR);
         let p_memsz = phdr_u64(ph, PH_MEMSZ);
+        let p_flags = phdr_u32(ph, PH_FLAGS);
         if p_vaddr < self_map_start {
             self_map_start = p_vaddr;
         }
-        if p_vaddr + p_memsz > self_map_end {
-            self_map_end = p_vaddr + p_memsz;
+        let end = match p_vaddr.checked_add(p_memsz) {
+            Some(v) => v,
+            None => continue,
+        };
+        if end > self_map_end {
+            self_map_end = end;
+        }
+        if p_flags & PF_X != 0 {
+            if p_vaddr < self_text_vstart {
+                self_text_vstart = p_vaddr;
+            }
+            if end > self_text_vend {
+                self_text_vend = end;
+            }
         }
     }
     if self_map_start == u64::MAX {
@@ -3840,6 +4229,14 @@ unsafe fn register_self(ldso_base: u64) {
             ino: 0,
             map_start: ldso_base + self_map_start,
             map_end: ldso_base + self_map_end,
+            map_ranges: core::ptr::null_mut(),
+            map_range_count: 0,
+            text_start: if self_text_vend > self_text_vstart {
+                ldso_base + self_text_vstart
+            } else {
+                0
+            },
+            text_end: ldso_base + self_text_vend,
             relro_start: if self_relro_size != 0 {
                 ldso_base + self_relro_start
             } else {
@@ -4305,6 +4702,8 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
     let mut exec_map_end = 0u64;
     let mut exec_relro_start = 0u64;
     let mut exec_relro_size = 0u64;
+    let mut exec_text_vstart = u64::MAX;
+    let mut exec_text_vend = 0u64;
     for i in 0..phnum {
         let ph = phdr.add(i * phent);
         let p_type = phdr_type(ph);
@@ -4318,11 +4717,24 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
         }
         let p_vaddr = phdr_u64(ph, PH_VADDR);
         let p_memsz = phdr_u64(ph, PH_MEMSZ);
+        let p_flags = phdr_u32(ph, PH_FLAGS);
         if p_vaddr < exec_map_start {
             exec_map_start = p_vaddr;
         }
-        if p_vaddr + p_memsz > exec_map_end {
-            exec_map_end = p_vaddr + p_memsz;
+        let end = match p_vaddr.checked_add(p_memsz) {
+            Some(v) => v,
+            None => continue,
+        };
+        if end > exec_map_end {
+            exec_map_end = end;
+        }
+        if p_flags & PF_X != 0 {
+            if p_vaddr < exec_text_vstart {
+                exec_text_vstart = p_vaddr;
+            }
+            if end > exec_text_vend {
+                exec_text_vend = end;
+            }
         }
     }
     if exec_map_start == u64::MAX {
@@ -4372,11 +4784,19 @@ unsafe fn load_and_jump(sp: usize, ldso_base: u64) -> ! {
             init_array_sz: dt_init_array_sz,
             init_present: dt_init_present,
             init_array_present: dt_init_array_present,
+            text_start: if exec_text_vend > exec_text_vstart {
+                exec_base + exec_text_vstart
+            } else {
+                0
+            },
+            text_end: exec_base + exec_text_vend,
             global: true,
             dev: 0,
             ino: 0,
             map_start: exec_base + exec_map_start,
             map_end: exec_base + exec_map_end,
+            map_ranges: core::ptr::null_mut(),
+            map_range_count: 0,
             relro_start: if exec_relro_size != 0 {
                 exec_base + exec_relro_start
             } else {

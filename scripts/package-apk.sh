@@ -37,6 +37,20 @@ REVISION="${REVISION:-r0}"
 PKGVER="${VERSION}-${REVISION}"
 IMAGE="${APK_BUILDER_IMAGE:-alpine:3.23}"
 
+# Optional package signing.  APK_SIGN_KEY points at an RSA private key in
+# apk-tools format; when unset the packages are unsigned (the release docs
+# still publish SHA256SUMS).
+SIGN_MOUNT=()
+SIGN_ENV=()
+if [ -n "${APK_SIGN_KEY:-}" ]; then
+    if [ ! -f "$APK_SIGN_KEY" ]; then
+        echo "error: APK_SIGN_KEY=$APK_SIGN_KEY is not a file" >&2
+        exit 1
+    fi
+    SIGN_MOUNT=(-v "$APK_SIGN_KEY:/key:ro")
+    SIGN_ENV=(-e SIGN_KEY=1)
+fi
+
 # Never sign stale packages from an earlier version: the release uploads
 # every dist/*.apk and the checksum file.
 rm -f "$DIST"/*.apk "$DIST/SHA256SUMS"
@@ -60,9 +74,12 @@ mkpkg() {
     local depends="${5:-}" provides="${6:-}" replaces="${7:-}"
 
     "$CONTAINER_RUNTIME" run --rm \
+        "${SIGN_ENV[@]}" \
         -e V="$PKGVER" -e ARCH="$arch" -e PKGNAME="$name" -e DESC="$desc" \
         -e DEPENDS="$depends" -e PROVIDES="$provides" -e REPLACES="$replaces" \
         -e SHA="${GITHUB_SHA:-}" \
+        -e BUILD_TIME="${SOURCE_DATE_EPOCH:-$(date +%s)}" \
+        "${SIGN_MOUNT[@]}" \
         -v "$dir:/src:ro" -v "$DIST:/dist" "$IMAGE" sh -eu -c '
             rm -rf /pkg
             cp -a /src /pkg
@@ -77,12 +94,15 @@ mkpkg() {
                 -I "origin:keel" \
                 -I "maintainer:Meng Zhuo <mengzhuo@iscas.ac.cn>" \
                 -I "url:https://github.com/mengzhuo/keel" \
-                -I "build-time:$(date +%s)"
+                -I "build-time:$BUILD_TIME"
             [ -z "$DEPENDS" ] || set -- "$@" -I "depends:$DEPENDS"
             [ -z "$PROVIDES" ] || set -- "$@" -I "provides:$PROVIDES"
             [ -z "$REPLACES" ] || set -- "$@" -I "replaces:$REPLACES"
             if [ -n "$SHA" ]; then
                 set -- "$@" -I "repo-commit:$SHA"
+            fi
+            if [ -n "${SIGN_KEY:-}" ]; then
+                set -- "$@" --sign-key /key
             fi
             set -- "$@" -o "/dist/$PKGNAME-$V.$ARCH.apk"
             apk mkpkg "$@"

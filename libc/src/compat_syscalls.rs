@@ -68,14 +68,14 @@ pub unsafe extern "C" fn strcoll(s1: *const core::ffi::c_char, s2: *const core::
 
 #[no_mangle]
 pub unsafe extern "C" fn strxfrm(dest: *mut core::ffi::c_char, src: *const core::ffi::c_char, n: usize) -> usize {
-    let mut i = 0;
-    while i < n {
-        let c = *src.add(i);
-        *dest.add(i) = c;
-        if c == 0 { break; }
-        i += 1;
+    // musl/C locale: the transformed string is the source itself.  POSIX
+    // requires returning the full length even when it does not fit, and only
+    // copying when the destination has room for the terminator.
+    let len = crate::strlen(src);
+    if n > len && !dest.is_null() {
+        core::ptr::copy_nonoverlapping(src, dest, len + 1);
     }
-    i
+    len
 }
 
 // ============================================================
@@ -1812,10 +1812,7 @@ pub unsafe extern "C" fn forkpty(amaster: *mut i32, name: *mut core::ffi::c_char
     if pid < 0 { crate::close(master); crate::close(slave); return -1; }
     if pid == 0 {
         crate::close(master);
-        crate::setsid();
-        crate::dup2(slave, 0);
-        crate::dup2(slave, 1);
-        crate::dup2(slave, 2);
+        if login_tty(slave) < 0 { crate::_exit(1); }
     } else {
         crate::close(slave);
         if !amaster.is_null() { *amaster = master; }
@@ -1824,27 +1821,47 @@ pub unsafe extern "C" fn forkpty(amaster: *mut i32, name: *mut core::ffi::c_char
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpty(amaster: *mut i32, aslave: *mut i32, name: *mut core::ffi::c_char, _termp: *const core::ffi::c_void, _winp: *const core::ffi::c_void) -> i32 {
-    let master = crate::open(b"/dev/ptmx\0".as_ptr() as *const core::ffi::c_char, 0o2000, 0);
+pub unsafe extern "C" fn openpty(amaster: *mut i32, aslave: *mut i32, name: *mut core::ffi::c_char, termp: *const core::ffi::c_void, winp: *const core::ffi::c_void) -> i32 {
+    // O_RDWR | O_NOCTTY.  0o2000 is O_APPEND, which opens the slave read-only
+    // and makes every write through the pty fail.
+    let flags = 0o2 | 0o400;
+    let master = crate::open(b"/dev/ptmx\0".as_ptr() as *const core::ffi::c_char, flags, 0);
     if master < 0 { return -1; }
     grantpt(master);
-    unlockpt(master);
+    if unlockpt(master) < 0 { crate::close(master); return -1; }
     let slave_name = ptsname(master);
     if slave_name.is_null() { crate::close(master); return -1; }
-    let slave = crate::open(slave_name, 0o2000, 0);
+    let slave = crate::open(slave_name, flags, 0);
     if slave < 0 { crate::close(master); return -1; }
+    if !termp.is_null() && crate::tcsetattr(slave, 0, termp) < 0 {
+        crate::close(master); crate::close(slave); return -1;
+    }
+    if !winp.is_null() && <Arch as Syscalls>::syscall3(SYS_IOCTL, slave as i64, 0x5414, winp as i64) < 0 {
+        crate::close(master); crate::close(slave); return -1;
+    }
     if !amaster.is_null() { *amaster = master; }
     if !aslave.is_null() { *aslave = slave; }
-    if !name.is_null() { crate::strcpy(name as *mut u8, slave_name as *const u8); }
+    if !name.is_null() {
+        // The caller's buffer is documented as at least 128 bytes; keep the
+        // copy bounded anyway.
+        let mut i = 0usize;
+        while i < 127 && *slave_name.add(i) != 0 {
+            *name.add(i) = *slave_name.add(i);
+            i += 1;
+        }
+        *name.add(i) = 0;
+    }
     0
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn login_tty(fd: i32) -> i32 {
-    crate::setsid();
-    crate::dup2(fd, 0);
-    crate::dup2(fd, 1);
-    crate::dup2(fd, 2);
+    if crate::setsid() < 0 { return -1; }
+    if <Arch as Syscalls>::syscall3(SYS_IOCTL, fd as i64, 0x540E, 0) < 0 { return -1; }
+    if crate::dup2(fd, 0) < 0 || crate::dup2(fd, 1) < 0 || crate::dup2(fd, 2) < 0 {
+        return -1;
+    }
+    if fd > 2 { crate::close(fd); }
     0
 }
 

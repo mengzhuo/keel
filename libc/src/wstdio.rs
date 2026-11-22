@@ -445,6 +445,24 @@ unsafe fn vswprintf_impl(
                     let p = args.next_arg::<*mut c_void>();
                     if !p.is_null() { *(p as *mut c_int) = pos as c_int; }
                 }
+                b'm' => {
+                    // strerror() text, formatted like %s.
+                    let msg = crate::strerror(ERRNO!()) as *const u8;
+                    let full_len = crate::strlen(msg as *const c_char);
+                    let slen = if precision >= 0 {
+                        (precision as usize).min(full_len)
+                    } else {
+                        full_len
+                    };
+                    let pad = width.saturating_sub(slen);
+                    if flags & FLAG_MINUS != 0 {
+                        for k in 0..slen { wc!(*msg.add(k) as u32); }
+                        for _ in 0..pad { wc!(b' '); }
+                    } else {
+                        for _ in 0..pad { wc!(b' '); }
+                        for k in 0..slen { wc!(*msg.add(k) as u32); }
+                    }
+                }
                 b'%' => { wc!(b'%'); }
                 _ => { wc!(b'%'); wc!(spec); }
             }

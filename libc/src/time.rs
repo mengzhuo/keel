@@ -884,10 +884,16 @@ pub unsafe extern "C" fn strptime(s: *const c_char, fmt: *const c_char, tm: *mut
                 let neg = if *p == b'-' { p = p.add(1); true } else { false };
                 if *p < b'0' || *p > b'9' { return core::ptr::null_mut(); }
                 let mut val = 0i64;
-                while *p >= b'0' && *p <= b'9' {
-                    val = val * 10 + (*p - b'0') as i64;
+                let mut digits = 0usize;
+                while *p >= b'0' && *p <= b'9' && digits < 19 {
+                    val = match val.checked_mul(10).and_then(|v| v.checked_add((*p - b'0') as i64)) {
+                        Some(v) => v,
+                        None => return core::ptr::null_mut(),
+                    };
                     p = p.add(1);
+                    digits += 1;
                 }
+                if *p >= b'0' && *p <= b'9' { return core::ptr::null_mut(); }
                 if neg { val = -val; }
                 secs_to_tm(val, &mut *tm);
             }
