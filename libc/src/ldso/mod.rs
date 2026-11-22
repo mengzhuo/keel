@@ -2631,8 +2631,11 @@ unsafe fn process_relocations_range(start: usize) {
     for i in start..LOADED_COUNT {
         let (base, rela_off, rela_sz, jmprel_off, jmprel_sz, relr_off, relr_sz) =
             relocation_info(i);
-        apply_relr_with(base, relr_off, relr_sz, |addr| {
-            obj_range_ok(&**LOADED.add(i), addr, 8, true)
+        apply_relr_with(base, relr_off, relr_sz, |off| {
+            // RELR entries are link-time virtual addresses; the mapped range
+            // table stores absolute addresses.
+            base.checked_add(off)
+                .is_some_and(|addr| obj_range_ok(&**LOADED.add(i), addr, 8, true))
         });
         apply_rela_table(i, base, rela_off, rela_sz, false);
         apply_rela_table(i, base, jmprel_off, jmprel_sz, false);

@@ -119,13 +119,13 @@ pub unsafe extern "C" fn realpath(
     // Collapse a trailing slash except for the root.
     while olen > 1 && out[olen - 1] == b'/' { olen -= 1; }
     out[olen] = 0;
-    let dst = if resolved.is_null() {
-        return core::ptr::null_mut();
-    } else {
-        resolved
-    };
-    core::ptr::copy_nonoverlapping(out.as_ptr(), dst as *mut u8, olen + 1);
-    dst
+    // musl allocates the result when the caller passes NULL; PostgreSQL's
+    // find_my_exec() relies on this to canonicalize its own path.
+    if resolved.is_null() {
+        return crate::strdup(out.as_ptr() as *const c_char);
+    }
+    core::ptr::copy_nonoverlapping(out.as_ptr(), resolved as *mut u8, olen + 1);
+    resolved
 }
 
 // ============================================================

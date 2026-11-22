@@ -77,6 +77,17 @@ fn packed_relative_relocations_work() {
         "test binary has no DT_RELR section"
     );
 
+    // The DSO must also carry its own DT_RELR table (the static string
+    // pointer in .data.rel.ro); otherwise the loader's DSO path is untested.
+    let readelf = Command::new("readelf")
+        .args(["-d", dso.to_str().unwrap()])
+        .output()
+        .expect("failed to run readelf on the DSO");
+    assert!(
+        String::from_utf8_lossy(&readelf.stdout).contains("(RELR)"),
+        "test DSO has no DT_RELR section"
+    );
+
     let path = format!("{}:{}", debug.to_str().unwrap(), out.to_str().unwrap());
     let output = Command::new(&exe)
         .env("LD_LIBRARY_PATH", path)

@@ -99,8 +99,12 @@ int main(void) {
         CHECK(inet_aton("1.2.3.4", &a) == 1);
     }
 
-    /* realpath(path, NULL) follows musl: it returns NULL. */
-    CHECK(realpath("/tmp", NULL) == NULL);
+    /* realpath(path, NULL) follows musl: it allocates the canonical path. */
+    {
+        char *rp = realpath("/tmp/../tmp", NULL);
+        CHECK(rp != NULL && strcmp(rp, "/tmp") == 0);
+        free(rp);
+    }
 
     /* fmemopen: size arithmetic must not wrap. */
     CHECK(fmemopen(NULL, SIZE_MAX, "w") == NULL);
