@@ -299,6 +299,52 @@ static int test_fdopen(void) {
     return 0;
 }
 
+static int test_bulk_io(void) {
+    const char *path = "/tmp/test_stdio_bulk.bin";
+    FILE *f = fopen(path, "w+");
+    if (!f) return 1;
+    size_t n = 1u << 20;
+    unsigned char *w = malloc(n);
+    unsigned char *r = malloc(n);
+    if (!w || !r) return 2;
+    for (size_t i = 0; i < n; i++) w[i] = (unsigned char)(i * 31);
+    if (fwrite(w, 1, n, f) != n) return 3;
+    if (fseek(f, 0, SEEK_SET) != 0) return 4;
+    if (fread(r, 1, n, f) != n) return 5;
+    if (memcmp(w, r, n) != 0) return 6;
+    if (fread(r, 1, 1, f) != 0) return 7;
+    if (!feof(f)) return 8;
+
+    /* ungetc bytes must be consumed before buffered read data. */
+    if (fseek(f, 0, SEEK_SET) != 0) return 9;
+    if (ungetc('Z', f) == EOF) return 10;
+    char two[2];
+    if (fread(two, 1, 2, f) != 2) return 11;
+    if (two[0] != 'Z' || two[1] != (char)w[0]) return 12;
+    fclose(f);
+    remove(path);
+
+    /* fgets returning NULL at EOF must leave the buffer untouched. */
+    const char *eof_path = "/tmp/test_stdio_eof.txt";
+    f = fopen(eof_path, "w");
+    if (!f) return 13;
+    fputs("test", f);
+    fclose(f);
+    f = fopen(eof_path, "r");
+    if (!f) return 14;
+    char line[8];
+    strcpy(line, "keep");
+    if (!fgets(line, sizeof line, f) || strcmp(line, "test") != 0) return 15;
+    strcpy(line, "keep");
+    if (fgets(line, sizeof line, f) != NULL) return 16;
+    if (strcmp(line, "keep") != 0) return 17;
+    fclose(f);
+    remove(eof_path);
+    free(w);
+    free(r);
+    return 0;
+}
+
 static int test_seek_overflow(void) {
     FILE *f = fopen("/tmp/test_stdio_seek.txt", "w+");
     if (!f) return 1;
@@ -332,6 +378,7 @@ int main(void) {
     if ((r = test_perror_smoke())) { printf("perror fail %d\n", r); return r + 150; }
     if ((r = test_fdopen())) { printf("fdopen fail %d\n", r); return r + 160; }
     if ((r = test_seek_overflow())) { printf("seek_overflow fail %d\n", r); return r + 170; }
+    if ((r = test_bulk_io())) { printf("bulk_io fail %d\n", r); return r + 180; }
     printf("stdio full ok\n");
     return 0;
 }

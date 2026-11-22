@@ -22,30 +22,79 @@ pub unsafe extern "C" fn getdelim(
         *lineptr = buf;
         *n = cap;
     }
+    if cap <= UNGET {
+        // Leave room for the pushback bytes below even when the caller
+        // supplied a tiny buffer.
+        let new_cap = 128usize;
+        let new_buf = realloc(buf as *mut c_void, new_cap) as *mut c_char;
+        if new_buf.is_null() { ERRNO!() = ENOMEM; return -1; }
+        buf = new_buf;
+        cap = new_cap;
+        *lineptr = buf;
+        *n = cap;
+    }
+    let f = &mut *stream;
+    let d = delim as u8;
     let mut len = 0usize;
-    loop {
-        let c = fgetc(stream);
-        if c == -1 { if len == 0 { return -1; } break; }
-        if len >= cap - 1 {
-            let new_cap = match cap.checked_mul(2) {
-                Some(v) => v,
-                None => {
-                    ERRNO!() = ENOMEM;
-                    return -1;
-                }
-            };
-            let new_buf = realloc(buf as *mut c_void, new_cap) as *mut c_char;
-            if new_buf.is_null() {
-                ERRNO!() = ENOMEM;
-                return -1;
-            }
-            buf = new_buf; cap = new_cap;
-            *lineptr = buf; *n = cap;
-        }
+
+    // Consume characters pushed back with ungetc() first.
+    while f.ungotten_count > 0 {
+        f.ungotten_count -= 1;
+        let c = f.ungotten[f.ungotten_count as usize] as u8;
         *buf.add(len) = c as c_char;
         len += 1;
-        if c == delim { break; }
+        if c == d {
+            *buf.add(len) = 0;
+            return len as isize;
+        }
     }
+
+    loop {
+        if f.rpos.is_null() || f.rpos >= f.rend {
+            if f._eof != 0 { break; }
+            let nread = match f.read_fn {
+                Some(rfunc) => rfunc(stream, f.buf, f.buf_size),
+                None => 0,
+            };
+            if nread == 0 {
+                if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+                break;
+            }
+            f.rpos = f.buf;
+            f.rend = f.buf.add(nread);
+        }
+        let avail = f.rend as usize - f.rpos as usize;
+        let found = memchr(f.rpos, delim, avail) as *mut c_char;
+        let take = if found.is_null() {
+            avail
+        } else {
+            found as usize - f.rpos as usize + 1
+        };
+        let need = match len.checked_add(take).and_then(|v| v.checked_add(1)) {
+            Some(v) => v,
+            None => { ERRNO!() = ENOMEM; return -1; }
+        };
+        if need > cap {
+            let mut new_cap = cap;
+            while new_cap < need {
+                new_cap = match new_cap.checked_mul(2) {
+                    Some(v) => v,
+                    None => { ERRNO!() = ENOMEM; return -1; }
+                };
+            }
+            let new_buf = realloc(buf as *mut c_void, new_cap) as *mut c_char;
+            if new_buf.is_null() { ERRNO!() = ENOMEM; return -1; }
+            buf = new_buf;
+            cap = new_cap;
+            *lineptr = buf;
+            *n = cap;
+        }
+        core::ptr::copy_nonoverlapping(f.rpos, buf.add(len) as *mut u8, take);
+        f.rpos = f.rpos.add(take);
+        len += take;
+        if !found.is_null() { break; }
+    }
+    if len == 0 { return -1; }
     *buf.add(len) = 0;
     len as isize
 }

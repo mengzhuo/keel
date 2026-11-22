@@ -79,7 +79,7 @@ static mut STDIN_FILE: FILE = FILE {
     ungotten: [0; UNGET], ungotten_count: 0, _eof: 0, _err: 0,
 };
 static mut STDOUT_FILE: FILE = FILE {
-    flags: F_NOWR as u32 + F_SVB as u32, rpos: core::ptr::null_mut(), rend: core::ptr::null_mut(),
+    flags: F_NOWR as u32, rpos: core::ptr::null_mut(), rend: core::ptr::null_mut(),
     close: None, wend: core::ptr::null_mut(), wpos: core::ptr::null_mut(),
     mustbezero_1: core::ptr::null_mut(), wbase: core::ptr::null_mut(),
     read_fn: None, write_fn: None, seek_fn: None,
@@ -154,10 +154,11 @@ unsafe fn __stdio_init() {
     STDOUT_FILE.buf_size = BUFSIZ;
     STDOUT_FILE.lbf = b'\n' as c_int;
     STDOUT_FILE.read_fn = Some(__stdio_read);
-    STDOUT_FILE.write_fn = Some(__stdio_write);
+    STDOUT_FILE.write_fn = Some(__stdout_write);
     STDOUT_FILE.seek_fn = Some(__stdio_seek);
     STDERR_FILE.buf = core::ptr::addr_of_mut!(STDERR_BUF) as *mut u8;
-    STDERR_FILE.buf_size = BUFSIZ;
+    // stderr must not be fully buffered: keep it unbuffered like musl.
+    STDERR_FILE.buf_size = 0;
     STDERR_FILE.read_fn = Some(__stdio_read);
     STDERR_FILE.write_fn = Some(__stdio_write);
     STDERR_FILE.seek_fn = Some(__stdio_seek);
@@ -235,6 +236,20 @@ unsafe extern "C" fn __stdio_seek(f: *mut FILE, off: i64, whence: c_int) -> i64 
     let r = sys_lseek((*f).fd as i64, off, whence as i64);
     if r < 0 { ERRNO!() = (-r) as c_int; }
     r
+}
+
+// First write on stdout: decide whether the stream is a terminal.  Redirected
+// stdout must stay fully buffered, otherwise every printf() line becomes a
+// write syscall.  Replace the hook afterwards so the check runs only once.
+unsafe extern "C" fn __stdout_write(f: *mut FILE, buf: *const u8, len: usize) -> usize {
+    (*f).write_fn = Some(__stdio_write);
+    if (*f).flags & F_SVB == 0 {
+        let mut ws: winsize = core::mem::zeroed();
+        if sys_ioctl((*f).fd, TIOCGWINSZ, &mut ws as *mut winsize as *mut u8) != 0 {
+            (*f).lbf = -1;
+        }
+    }
+    __stdio_write(f, buf, len)
 }
 
 unsafe fn init_file(
@@ -677,17 +692,62 @@ pub unsafe extern "C" fn ungetc(c: c_int, stream: *mut FILE) -> c_int {
 // ============================================================
 
 unsafe fn fgets_common(s: *mut c_char, max: usize, stream: *mut FILE, keep_newline: bool) -> *mut c_char {
+    let f = &mut *stream;
+    // ungetc() bytes and unbuffered streams are rare; keep the byte loop for
+    // them instead of complicating the bulk path.
+    if f.ungotten_count > 0 || f.buf.is_null() || f.buf_size == 0 {
+        let mut i = 0usize;
+        while i < max {
+            let c = fgetc(stream);
+            if c == -1 {
+                if i == 0 { return null_mut(); }
+                break;
+            }
+            if c == b'\n' as c_int && !keep_newline { break; }
+            *s.add(i) = c as c_char;
+            i += 1;
+            if c == b'\n' as c_int { break; }
+        }
+        *s.add(i) = 0;
+        return s;
+    }
     let mut i = 0usize;
     while i < max {
-        let c = fgetc(stream);
-        if c == -1 {
-            if i == 0 { return null_mut(); }
+        if f.rpos.is_null() || f.rpos >= f.rend {
+            if f._eof != 0 { break; }
+            let n = match f.read_fn {
+                Some(rfunc) => rfunc(stream, f.buf, f.buf_size),
+                None => {
+                    f._eof = 1;
+                    0
+                }
+            };
+            if n == 0 {
+                if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+                break;
+            }
+            f.rpos = f.buf;
+            f.rend = f.buf.add(n);
+        }
+        let avail = f.rend as usize - f.rpos as usize;
+        let nl = memchr(f.rpos, b'\n' as c_int, avail) as *mut c_char;
+        let take = if nl.is_null() {
+            avail
+        } else {
+            nl as usize - f.rpos as usize + 1
+        };
+        let room = max - i;
+        let n = if take < room { take } else { room };
+        core::ptr::copy_nonoverlapping(f.rpos, s.add(i) as *mut u8, n);
+        f.rpos = f.rpos.add(n);
+        i += n;
+        if !nl.is_null() && n == take {
+            if !keep_newline { i -= 1; }
             break;
         }
-        if c == b'\n' as c_int && !keep_newline { break; }
-        *s.add(i) = c as c_char;
-        i += 1;
-        if c == b'\n' as c_int { break; }
+    }
+    if i == 0 && max != 0 && (f._eof != 0 || f._err != 0) {
+        return null_mut();
     }
     *s.add(i) = 0;
     s
@@ -738,14 +798,45 @@ pub unsafe extern "C" fn fread(
         Some(v) => v,
         None => { ERRNO!() = EINVAL; return 0; }
     };
-    let mut rd = 0usize;
-    while rd < total {
-        let c = fgetc(stream);
-        if c == -1 { break; }
-        *(ptr as *mut u8).add(rd) = c as u8;
-        rd += 1;
+    let f = &mut *stream;
+    let mut dest = ptr as *mut u8;
+    let mut left = total;
+
+    // Characters pushed back by ungetc() live outside the read buffer and
+    // must be consumed first.
+    while f.ungotten_count > 0 && left != 0 {
+        f.ungotten_count -= 1;
+        *dest = f.ungotten[f.ungotten_count as usize] as u8;
+        dest = dest.add(1);
+        left -= 1;
     }
-    rd / size
+
+    // Drain whatever the last buffered read left behind.
+    if !f.rpos.is_null() && f.rpos < f.rend {
+        let avail = f.rend as usize - f.rpos as usize;
+        let k = if avail < left { avail } else { left };
+        core::ptr::copy_nonoverlapping(f.rpos, dest, k);
+        f.rpos = f.rpos.add(k);
+        dest = dest.add(k);
+        left -= k;
+    }
+
+    // Read the remainder straight into the caller's buffer.  For a large
+    // request this is a single read() instead of one byte at a time through
+    // the stdio buffer.
+    while left != 0 && f._eof == 0 {
+        let n = match f.read_fn {
+            Some(rfunc) => rfunc(stream, dest, left),
+            None => 0,
+        };
+        if n == 0 {
+            if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+            break;
+        }
+        dest = dest.add(n);
+        left -= n;
+    }
+    (total - left) / size
 }
 
 // ============================================================
@@ -818,6 +909,48 @@ pub unsafe extern "C" fn putc(c: c_int, stream: *mut FILE) -> c_int { fputc(c, s
 #[no_mangle]
 pub unsafe extern "C" fn putchar(c: c_int) -> c_int { fputc(c, stdout) }
 
+// Buffered write core, following musl's __fwritex:
+// - a chunk larger than the free buffer space bypasses the buffer, so a large
+//   fwrite becomes one write() instead of one per BUFSIZ;
+// - on a line-buffered stream only the bytes through the last newline are
+//   flushed and the tail stays buffered.
+unsafe fn fwritex(s: *const u8, mut l: usize, f: *mut FILE) -> usize {
+    if l == 0 { return 0; }
+    if (*f).wpos.is_null() {
+        (*f).wbase = (*f).buf;
+        (*f).wpos = (*f).buf;
+        (*f).wend = (*f).buf.add((*f).buf_size);
+    }
+    let wfunc = match (*f).write_fn {
+        Some(w) => w,
+        None => { (*f).flags |= F_ERR; return 0; }
+    };
+    let avail = (*f).wend as usize - (*f).wpos as usize;
+    if l > avail {
+        let n = wfunc(f, s, l);
+        if n < l { (*f).flags |= F_ERR; (*f)._err = 1; }
+        return n;
+    }
+    let mut written = 0usize;
+    let mut src = s;
+    if (*f).lbf >= 0 {
+        let mut i = l;
+        while i > 0 && *src.add(i - 1) != b'\n' { i -= 1; }
+        if i > 0 {
+            let n = wfunc(f, src, i);
+            if n < i { (*f).flags |= F_ERR; (*f)._err = 1; return n; }
+            written = i;
+            src = src.add(i);
+            l -= i;
+        }
+    }
+    if l != 0 {
+        core::ptr::copy_nonoverlapping(src, (*f).wpos, l);
+        (*f).wpos = (*f).wpos.add(l);
+    }
+    written + l
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn fwrite(
     ptr: *const c_void, size: SizeT, nmemb: SizeT, stream: *mut FILE,
@@ -827,38 +960,7 @@ pub unsafe extern "C" fn fwrite(
         Some(v) => v,
         None => { ERRNO!() = EINVAL; return 0; }
     };
-    let f = &mut *stream;
-    if f.buf_size == 0 {
-        if let Some(wfunc) = f.write_fn {
-            let ret = wfunc(stream, ptr as *const u8, total);
-            if ret < total { f._err = 1; f.flags |= F_ERR; }
-            return ret / size;
-        }
-        f._err = 1;
-        f.flags |= F_ERR;
-        return 0;
-    }
-    if f.wpos.is_null() {
-        f.wbase = f.buf;
-        f.wpos = f.buf;
-        f.wend = f.buf.add(f.buf_size);
-    }
-    let mut remaining = total;
-    let mut src = ptr as *const u8;
-    while remaining > 0 {
-        let space = f.wend as usize - f.wpos as usize;
-        if space == 0 {
-            if flush_buf(f as *mut FILE) == -1 { break; }
-            continue;
-        }
-        let n = if remaining < space { remaining } else { space };
-        core::ptr::copy_nonoverlapping(src, f.wpos, n);
-        f.wpos = f.wpos.add(n);
-        src = src.add(n);
-        remaining -= n;
-        if f.wpos >= f.wend { let _ = flush_buf(f as *mut FILE); }
-    }
-    if f.lbf >= 0 { let _ = flush_buf(f as *mut FILE); }
-    (total - remaining) / size
+    let n = fwritex(ptr as *const u8, total, stream);
+    (n / size) as SizeT
 }
 
