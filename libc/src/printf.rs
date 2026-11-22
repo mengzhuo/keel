@@ -132,8 +132,20 @@ macro_rules! impl_format {
             let c = *fmt.add(i) as u8;
             if c == 0 { break; }
             if c != b'%' {
-                ($write_char)(c);
-                count += 1; i += 1; continue;
+                // Emit a whole literal run at once.  printf() backs
+                // write_str with fwrite(), so writing literal text one
+                // character at a time both bypasses buffer batching and
+                // flushes far more often than necessary.
+                let start = i;
+                loop {
+                    i += 1;
+                    let d = *fmt.add(i) as u8;
+                    if d == 0 || d == b'%' { break; }
+                }
+                let len = i - start;
+                ($write_str)(fmt.add(start) as *const u8, len);
+                count += len;
+                continue;
             }
             i += 1;
             let fs = parse_format_spec(fmt as *const u8, i, args);
@@ -1360,8 +1372,9 @@ unsafe fn format_to_buf(buf: *mut u8, cap: usize, fmt: *const c_char, args: &mut
     };
     let write_str = |s: *const u8, len: usize| {
         let p = pos.get();
-        for k in 0..len {
-            if p + k < cap { *buf.add(p + k) = *s.add(k); }
+        if p < cap {
+            let n = if len < cap - p { len } else { cap - p };
+            core::ptr::copy_nonoverlapping(s, buf.add(p), n);
         }
         pos.set(p + len);
     };
