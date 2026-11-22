@@ -8,10 +8,12 @@
 #
 #   fmt-lint:     fmt  -> lint
 #   header-macro: header -> macro-parity
+#                 header -> inline-parity
 #
 # fmt runs before header, so formatting is known-good before the header and
 # macro checks start.  rustfmt therefore sees the source before any macro
-# expansion.
+# expansion.  macro-parity and inline-parity are independent and run in
+# parallel against the same pinned musl 1.2.6 headers.
 
 name: Precheck
 
@@ -97,13 +99,43 @@ jobs:
       - name: Install cross compilers
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu g++-aarch64-linux-gnu g++-riscv64-linux-gnu make curl
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu g++-aarch64-linux-gnu g++-riscv64-linux-gnu curl
 
       - name: Cache musl 1.2.6 headers
         uses: actions/cache@v6
         with:
           path: ~/.cache/keel
-          key: musl-1.2.6-headers-v1
+          key: musl-1.2.6-headers-v2
 
       - name: Check macro expansion parity
         run: ./scripts/macro-parity.sh
+
+  # Every function musl can inline must also be inlinable from keel's headers;
+  # extra keel inlines are allowed.  Covers x86_64, aarch64, riscv64,
+  # powerpc64le and loongarch64, and runs in parallel with macro-parity.
+  inline-parity:
+    name: header-macro / inline-parity
+    needs: header
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
+            gcc-powerpc64le-linux-gnu gcc-14-loongarch64-linux-gnu \
+            libc6-dev-arm64-cross libc6-dev-riscv64-cross \
+            libc6-dev-ppc64el-cross libc6-dev-loong64-cross \
+            curl linux-libc-dev
+
+      - name: Cache musl 1.2.6 headers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/keel
+          key: musl-1.2.6-headers-v2
+
+      - name: Check inline function parity
+        run: ./scripts/inline-parity.sh

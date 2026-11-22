@@ -141,5 +141,6 @@ the code path.
   follow-up.
 - Release gating: these suites are intentionally not a `needs:` dependency
   of `publish`.  The release gate is the reusable `precheck` group (header
-  consistency, rustfmt, clippy and macro parity) plus the native and
-  cross-architecture test matrices; workload suites run on demand and weekly.
+  consistency, rustfmt, clippy, macro parity and inline parity) plus the
+  native and cross-architecture test matrices; workload suites run on demand
+  and weekly.

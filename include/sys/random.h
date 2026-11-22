@@ -4,6 +4,7 @@
 #ifndef _KEEL_SYS_RANDOM_H
 #define _KEEL_SYS_RANDOM_H
 #include <stddef.h>
+#include <sys/types.h>
 ssize_t getrandom(void *, size_t, unsigned);
 #define GRND_NONBLOCK 1
 #define GRND_RANDOM 2

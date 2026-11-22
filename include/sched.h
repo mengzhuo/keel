@@ -33,9 +33,17 @@ int sched_setparam(pid_t, const struct sched_param *);
 int sched_getscheduler(pid_t);
 int sched_setscheduler(pid_t, int, const struct sched_param *);
 int sched_rr_get_interval(pid_t, struct timespec *);
-int sched_getaffinity(pid_t, size_t, void *);
-int sched_setaffinity(pid_t, size_t, const void *);
+
+int (memcmp)(const void *, const void *, size_t);
+void *(memset)(void *, int, size_t);
+void *(calloc)(size_t, size_t);
+void (free)(void *);
+
+typedef struct cpu_set_t { unsigned long __bits[128/sizeof(long)]; } cpu_set_t;
+int __sched_cpucount(size_t, const cpu_set_t *);
 int sched_getcpu(void);
+int sched_getaffinity(pid_t, size_t, cpu_set_t *);
+int sched_setaffinity(pid_t, size_t, const cpu_set_t *);
 
 #ifdef __cplusplus
 }
@@ -100,4 +108,8 @@ int sched_getcpu(void);
 
 /* musl 1.2.6 compatibility macros */
 #define __CPU_op_func_S(func, op) static __inline void __CPU_ ##func ##_S(size_t __size, cpu_set_t *__dest, const cpu_set_t *__src1, const cpu_set_t *__src2) { size_t __i; for (__i=0; __i<__size/sizeof(long); __i++) ((unsigned long *)__dest)[__i] = ((unsigned long *)__src1)[__i] op ((unsigned long *)__src2)[__i] ; }
+
+__CPU_op_func_S(AND, &)
+__CPU_op_func_S(OR, |)
+__CPU_op_func_S(XOR, ^)
 #endif

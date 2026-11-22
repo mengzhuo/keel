@@ -3,10 +3,10 @@
 
 # Release order:
 #
-#   verify-version (fast) -> ci (the complete ci.yml graph) -> publish
+#   verify-version (fast) -> gate (reuse the CI run for this commit) -> publish
 #
-# `publish` has no path around `ci`: if the CI workflow cannot be loaded or
-# any job in it fails, `publish` is skipped and nothing is published.
+# `publish` has no path around `gate`: if the tagged commit has no successful
+# ci.yml run, `publish` is skipped and nothing is published.
 
 name: Release
 
@@ -51,20 +51,64 @@ jobs:
           done
           echo "Publishing version $version"
 
-  # The release gate is the exact workflow that runs on main and pull
-  # requests: the precheck group (header, rustfmt, clippy, macro parity),
-  # native x86_64 + aarch64 tests, cross-arch smoke tests and libc-test on
-  # all four qemu targets.
-  # GitHub reports this job as failed if the workflow cannot be loaded or if
-  # any job in ci.yml fails, including the aggregate `ci-status` job.
-  ci:
+  # Release gate: reuse the CI run that already covers this exact commit.  A
+  # tag is releasable only when the `CI status` aggregate of the `main` push
+  # run for the tagged SHA has completed successfully (precheck, native tests,
+  # workloads, cross and qemu suites).  This never starts another CI run.
+  gate:
     needs: verify-version
     permissions:
+      checks: read
       contents: read
-    uses: ./.github/workflows/ci.yml
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Require a successful CI run for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # `CI status` is the aggregate job at the end of ci.yml.  The
+          # unprefixed name identifies the main push run; a nested release
+          # run would be reported as `ci / CI status`.
+          status=""
+          conclusion=""
+          url=""
+          for attempt in $(seq 1 360); do
+            line=$(gh api \
+              "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name == "CI status")]
+                    | sort_by(.id) | last
+                    | if . == null then empty
+                      else [.status, .conclusion, .html_url] | @tsv
+                      end')
+            if [ -n "$line" ]; then
+              IFS=$'\t' read -r status conclusion url <<< "$line"
+              if [ "$status" = "completed" ]; then
+                break
+              fi
+            fi
+            if [ "$attempt" -lt 360 ]; then
+              echo "CI status for $SHA is ${status:-not created yet} (attempt $attempt/360); waiting..."
+              sleep 15
+            fi
+          done
+
+          if [ "$status" != "completed" ]; then
+            echo "::error::Timed out waiting for the CI status of $SHA."
+            echo "Push the commit to main and wait for CI before creating the release tag."
+            exit 1
+          fi
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI status for $SHA is $conclusion: $url"
+            exit 1
+          fi
+          echo "CI status for $SHA succeeded: $url"
 
   publish:
-    needs: [verify-version, ci]
+    needs: [verify-version, gate]
     runs-on: ubuntu-latest
     # Must match the "Environment" field of the trusted publisher configured
     # on crates.io for keel-rt, keel-libc and keel-utils.

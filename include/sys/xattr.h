@@ -4,6 +4,7 @@
 #ifndef _KEEL_SYS_XATTR_H
 #define _KEEL_SYS_XATTR_H
 #include <stddef.h>
+#include <sys/types.h>
 ssize_t getxattr(const char *, const char *, void *, size_t);
 ssize_t lgetxattr(const char *, const char *, void *, size_t);
 ssize_t setxattr(const char *, const char *, const void *, size_t, int);

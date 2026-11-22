@@ -9,6 +9,7 @@
 #   precheck
 #     ├── fmt-lint:     fmt -> lint
 #     └── header-macro: header -> macro-parity   (header waits for fmt)
+#                                -> inline-parity
 #          │
 #          ├──> build-and-test    (native x86_64 + aarch64)
 #          │         │
@@ -40,8 +41,9 @@ env:
   RUST_TEST_THREADS: "1"
 
 jobs:
-  # Precheck is a reusable workflow so the four fast correctness gates stay
-  # one unit in the CI graph: header, fmt, lint and macro-parity.
+  # Precheck is a reusable workflow so the five fast correctness gates stay
+  # one unit in the CI graph: header, fmt, lint, macro-parity and
+  # inline-parity.
   precheck:
     name: precheck
     permissions:

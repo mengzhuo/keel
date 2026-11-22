@@ -15,69 +15,19 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MUSL_VERSION=1.2.6
-MUSL_URL="https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz"
-MUSL_SHA256=d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a
-CACHE="${KEEL_MUSL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/keel}"
-
-declare -A TARGET=(
-    [x86_64]=x86_64-linux-musl
-    [aarch64]=aarch64-linux-musl
-    [riscv64]=riscv64-linux-musl
-)
-declare -A CC=(
-    [x86_64]=gcc
-    [aarch64]=aarch64-linux-gnu-gcc
-    [riscv64]=riscv64-linux-gnu-gcc
-)
-declare -A CXX=(
-    [x86_64]=g++
-    [aarch64]=aarch64-linux-gnu-g++
-    [riscv64]=riscv64-linux-gnu-g++
-)
-
-if [ -n "${KEEL_MUSL_INC_ROOT:-}" ]; then
-    INC_ROOT="$KEEL_MUSL_INC_ROOT"
-else
-    INC_ROOT="$CACHE/musl-${MUSL_VERSION}-headers"
-    if [ ! -f "$INC_ROOT/x86_64/include/bits/alltypes.h" ]; then
-        mkdir -p "$CACHE"
-        archive="$CACHE/musl-${MUSL_VERSION}.tar.gz"
-        if [ ! -f "$archive" ]; then
-            echo "downloading musl ${MUSL_VERSION} headers..."
-            curl -fsSL --retry 3 "$MUSL_URL" -o "$archive"
-        fi
-        echo "${MUSL_SHA256}  ${archive}" | sha256sum -c -
-        src="$CACHE/musl-${MUSL_VERSION}-src"
-        rm -rf "$src"
-        tar -xzf "$archive" -C "$CACHE"
-        mv "$CACHE/musl-${MUSL_VERSION}" "$src"
-        for arch in x86_64 aarch64 riscv64; do
-            build="$CACHE/musl-${MUSL_VERSION}-build-${arch}"
-            rm -rf "$build"
-            cp -a "$src" "$build"
-            (
-                cd "$build"
-                make distclean >/dev/null 2>&1 || true
-                CC="${CC[$arch]}" ./configure --target="${TARGET[$arch]}" \
-                    --prefix="$INC_ROOT/$arch" >/dev/null
-                make install-headers >/dev/null
-            )
-        done
-    fi
-fi
+source "$ROOT/scripts/musl-headers.sh"
 
 for arch in x86_64 aarch64 riscv64; do
     for language in c c++; do
         if [ "$language" = c++ ]; then
-            compiler="${CXX[$arch]}"
+            compiler="${MUSL_CXX[$arch]}"
         else
-            compiler="${CC[$arch]}"
+            compiler="${MUSL_CC[$arch]}"
         fi
         python3 "$ROOT/tests/macro_parity.py" \
             --arch "$arch" \
             --language "$language" \
-            --musl "$INC_ROOT/$arch/include" \
+            --musl "$MUSL_INC_ROOT/$arch/include" \
             --keel "$ROOT/include" \
             --cc "$compiler" \
             --allowlist "$ROOT/tests/macro-parity.allowlist"

@@ -10,6 +10,8 @@
 #include <pthread.h>
 #include <sys/statfs.h>
 #include <sys/sysinfo.h>
+#include <sys/io.h>
+#include <sched.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -571,6 +573,52 @@ int main(void) {
     /* pathconf names outside the supported table set EINVAL. */
     errno = 0;
     CHECK(pathconf("/", 9999) == -1 && errno == EINVAL, "pathconf bad name");
+
+    /* musl's CPU_SET family must be fully available from <sched.h>. */
+    {
+        cpu_set_t a, b, c, *d;
+        CPU_ZERO(&a);
+        CPU_ZERO(&b);
+        CPU_SET(3, &a);
+        CPU_SET(5, &b);
+        CHECK(!!CPU_ISSET(3, &a), "CPU_SET/CPU_ISSET");
+        CHECK(!CPU_ISSET(4, &a), "CPU_ISSET clear");
+        CHECK(CPU_COUNT(&a) == 1, "CPU_COUNT");
+        CPU_OR(&c, &a, &b);
+        CHECK(CPU_COUNT(&c) == 2, "CPU_OR");
+        CPU_AND(&c, &a, &b);
+        CHECK(CPU_COUNT(&c) == 0, "CPU_AND");
+        CPU_XOR(&c, &a, &b);
+        CHECK(CPU_COUNT(&c) == 2, "CPU_XOR");
+        CPU_CLR(3, &c);
+        CHECK(!CPU_ISSET(3, &c) && CPU_COUNT(&c) == 1, "CPU_CLR");
+        CHECK(CPU_EQUAL(&a, &a), "CPU_EQUAL");
+        d = CPU_ALLOC(1024);
+        CHECK(d != NULL, "CPU_ALLOC");
+        if (d) {
+            size_t sz = CPU_ALLOC_SIZE(1024);
+            CPU_ZERO_S(sz, d);
+            CPU_SET_S(100, sz, d);
+            CHECK(!!CPU_ISSET_S(100, sz, d), "CPU_SET_S/CPU_ISSET_S");
+            CPU_FREE(d);
+        }
+        CHECK(sched_getaffinity(0, sizeof a, &a) == 0, "sched_getaffinity");
+        CHECK(CPU_COUNT(&a) >= 1, "sched_getaffinity count");
+    }
+
+#if defined(__x86_64__) || defined(__i386__)
+    /* Port I/O is privileged; only verify the inline definitions compile. */
+    if (0) {
+        outb(0, 0); outw(0, 0); outl(0, 0);
+        (void)inb(0); (void)inw(0); (void)inl(0);
+        outsb(0, (const void *)0, 0);
+        outsw(0, (const void *)0, 0);
+        outsl(0, (const void *)0, 0);
+        insb(0, (void *)0, 0);
+        insw(0, (void *)0, 0);
+        insl(0, (void *)0, 0);
+    }
+#endif
 
     if (failures == 0) puts("compat ok");
     return failures != 0;

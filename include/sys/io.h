@@ -4,6 +4,7 @@
 #ifndef _KEEL_SYS_IO_H
 #define _KEEL_SYS_IO_H
 #include <features.h>
+#include <bits/io.h>
 #include <sys/types.h>
 int ioperm(unsigned long, unsigned long, int);
 int iopl(int);
