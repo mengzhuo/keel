@@ -314,9 +314,17 @@ unsafe fn memrchr_words(s: *const u8, c: u8, n: usize) -> *mut u8 {
         let w = load_u64(s.add(i)) ^ k;
         let z = w.wrapping_sub(ONES) & !w & HIGHS;
         if z != 0 {
-            // The highest matching byte has its high bit at 8*k+7; convert
-            // that bit position (from the MSB) back to byte index k.
-            return s.add(i + (63 - z.leading_zeros() as usize) / 8) as *mut u8;
+            // HASZERO is exact about *whether* a matching byte exists, but
+            // a borrow out of a lower zero byte can set high-bit flags in
+            // higher bytes.  Scan the candidate word backwards so a false
+            // flag cannot turn into a wrong index.
+            let mut j = 8usize;
+            while j != 0 {
+                j -= 1;
+                if *s.add(i + j) == c {
+                    return s.add(i + j) as *mut u8;
+                }
+            }
         }
     }
     while i != 0 {
