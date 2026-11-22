@@ -15,9 +15,16 @@ const ALLOC_CLASSES: usize = ALLOC_MAX_CLASS / ALLOC_STEP + 1;
 const ALLOC_HDR: usize = core::mem::size_of::<AllocBlock>();
 const ALLOC_LARGE: usize = 1usize << 63;
 const ALLOC_ALIGNED: usize = 1usize << 62;
+// Aligned blocks that came from the size-class heap instead of a dedicated
+// mapping store the requested size in the tag and the raw malloc pointer in
+// `next`.  This keeps small over-aligned allocations off the mmap path.
+const ALLOC_OFFSET: usize = 1usize << 61;
+const ALLOC_SIZE_MASK: usize = ALLOC_OFFSET - 1;
 // Page counts live below both tag bits; masking with ALLOC_LARGE - 1 would
 // keep the ALLOC_ALIGNED bit and overstate every aligned block by 2^62 bytes.
 const ALLOC_PAGES_MASK: usize = ALLOC_ALIGNED - 1;
+
+const MREMAP_MAYMOVE: i64 = 1;
 
 #[repr(C)]
 struct AllocBlock {
@@ -25,24 +32,37 @@ struct AllocBlock {
     tag: usize,
 }
 
-static ALLOC_LOCK: AtomicUsize = AtomicUsize::new(0);
+// One lock per shard instead of one global lock.  Size classes map onto
+// shards, so unrelated classes no longer serialize behind each other.
+// Each lock sits on its own cache line to avoid false sharing.
+const ALLOC_SHARDS: usize = 64;
+
+#[repr(align(64))]
+struct AllocLock(AtomicUsize);
+
+static ALLOC_LOCKS: [AllocLock; ALLOC_SHARDS] =
+    [const { AllocLock(AtomicUsize::new(0)) }; ALLOC_SHARDS];
 static mut ALLOC_FREE: [*mut AllocBlock; ALLOC_CLASSES] =
     [null_mut(); ALLOC_CLASSES];
 
 #[inline]
-unsafe fn alloc_lock() {
-    while ALLOC_LOCK.swap(1, Ordering::Acquire) != 0 {
+unsafe fn alloc_lock(shard: usize) {
+    while ALLOC_LOCKS[shard].0.swap(1, Ordering::Acquire) != 0 {
         core::hint::spin_loop();
     }
 }
 
 #[inline]
-unsafe fn alloc_unlock() {
-    ALLOC_LOCK.store(0, Ordering::Release);
+unsafe fn alloc_unlock(shard: usize) {
+    ALLOC_LOCKS[shard].0.store(0, Ordering::Release);
 }
 
 pub(crate) unsafe fn allocator_after_fork() {
-    ALLOC_LOCK.store(0, Ordering::Release);
+    let mut i = 0;
+    while i < ALLOC_SHARDS {
+        ALLOC_LOCKS[i].0.store(0, Ordering::Release);
+        i += 1;
+    }
 }
 
 #[inline]
@@ -111,6 +131,21 @@ unsafe fn alloc_aligned_impl(alignment: usize, size: usize) -> *mut u8 {
             return null_mut();
         }
     };
+    if alignment <= PAGE && total <= ALLOC_MAX_CLASS {
+        // Small over-aligned block: carve it out of the size-class heap
+        // instead of paying an mmap/munmap per allocation.
+        let raw = malloc(total) as *mut u8;
+        if raw.is_null() {
+            return null_mut();
+        }
+        // The aligned header lives inside the raw block's user area; the raw
+        // block's own header is ALLOC_HDR bytes below `raw`.
+        let data_addr = (raw as usize + ALLOC_HDR + alignment - 1) & !(alignment - 1);
+        let block = (data_addr - ALLOC_HDR) as *mut AllocBlock;
+        (*block).next = raw as *mut AllocBlock;
+        (*block).tag = ALLOC_OFFSET | size;
+        return data_addr as *mut u8;
+    }
     if total > usize::MAX - (PAGE - 1) {
         ERRNO!() = ENOMEM;
         return null_mut();
@@ -134,7 +169,9 @@ pub(crate) unsafe fn alloc_usable_size(ptr: *mut u8) -> usize {
     }
     let block = ptr.sub(ALLOC_HDR) as *mut AllocBlock;
     let tag = (*block).tag;
-    if tag & ALLOC_ALIGNED != 0 {
+    if tag & ALLOC_OFFSET != 0 {
+        tag & ALLOC_SIZE_MASK
+    } else if tag & ALLOC_ALIGNED != 0 {
         let base = (*block).next as usize;
         let pages = tag & ALLOC_PAGES_MASK;
         pages * PAGE - (ptr as usize - base)
@@ -155,12 +192,13 @@ pub unsafe extern "C" fn malloc(size: SizeT) -> *mut c_void {
         None => return alloc_large(size) as *mut c_void,
     };
     let idx = class / ALLOC_STEP;
+    let shard = idx & (ALLOC_SHARDS - 1);
 
-    alloc_lock();
+    alloc_lock(shard);
     let head = ALLOC_FREE[idx];
     if !head.is_null() {
         ALLOC_FREE[idx] = (*head).next;
-        alloc_unlock();
+        alloc_unlock(shard);
         return (head as *mut u8).add(ALLOC_HDR) as *mut c_void;
     }
 
@@ -169,7 +207,7 @@ pub unsafe extern "C" fn malloc(size: SizeT) -> *mut c_void {
     let map_size = (chunk_size + PAGE - 1) & !(PAGE - 1);
     let base = alloc_mmap(map_size);
     if base.is_null() {
-        alloc_unlock();
+        alloc_unlock(shard);
         return null_mut();
     }
     let count = map_size / class;
@@ -183,7 +221,7 @@ pub unsafe extern "C" fn malloc(size: SizeT) -> *mut c_void {
     }
     let first = base as *mut AllocBlock;
     (*first).tag = class;
-    alloc_unlock();
+    alloc_unlock(shard);
     base.add(ALLOC_HDR) as *mut c_void
 }
 
@@ -194,6 +232,11 @@ pub unsafe extern "C" fn free(ptr: *mut c_void) {
     }
     let block = (ptr as *mut u8).sub(ALLOC_HDR) as *mut AllocBlock;
     let tag = (*block).tag;
+    if tag & ALLOC_OFFSET != 0 {
+        // Heap-backed over-aligned block: `next` holds the raw malloc base.
+        free((*block).next as *mut c_void);
+        return;
+    }
     if tag & ALLOC_ALIGNED != 0 {
         let base = (*block).next as *mut u8;
         let pages = tag & ALLOC_PAGES_MASK;
@@ -209,10 +252,11 @@ pub unsafe extern "C" fn free(ptr: *mut c_void) {
         return;
     }
     let idx = tag / ALLOC_STEP;
-    alloc_lock();
+    let shard = idx & (ALLOC_SHARDS - 1);
+    alloc_lock(shard);
     (*block).next = ALLOC_FREE[idx];
     ALLOC_FREE[idx] = block;
-    alloc_unlock();
+    alloc_unlock(shard);
 }
 
 #[no_mangle]
@@ -225,8 +269,14 @@ pub unsafe extern "C" fn calloc(count: SizeT, size: SizeT) -> *mut c_void {
         }
     };
     let ptr = malloc(total);
-    if !ptr.is_null() {
-        core::ptr::write_bytes(ptr as *mut u8, 0, total);
+    if !ptr.is_null() && total != 0 {
+        // Large and dedicated-aligned blocks always come from a fresh
+        // MAP_ANONYMOUS mapping, which the kernel has already zeroed.
+        let block = (ptr as *mut u8).sub(ALLOC_HDR) as *mut AllocBlock;
+        let tag = (*block).tag;
+        if tag & (ALLOC_LARGE | ALLOC_ALIGNED) == 0 {
+            core::ptr::write_bytes(ptr as *mut u8, 0, total);
+        }
     }
     ptr
 }
@@ -243,6 +293,37 @@ pub unsafe extern "C" fn realloc(ptr: *mut c_void, new_size: SizeT) -> *mut c_vo
     let old_size = alloc_usable_size(ptr as *mut u8);
     if new_size <= old_size {
         return ptr;
+    }
+    let block = (ptr as *mut u8).sub(ALLOC_HDR) as *mut AllocBlock;
+    let tag = (*block).tag;
+    if tag & (ALLOC_LARGE | ALLOC_ALIGNED | ALLOC_OFFSET) == ALLOC_LARGE {
+        // Grow a dedicated mapping in place.  This avoids copying the whole
+        // block for every small growth (musl uses mremap here too).
+        let old_pages = tag & ALLOC_PAGES_MASK;
+        let total = match new_size.checked_add(ALLOC_HDR) {
+            Some(v) if v <= usize::MAX - (PAGE - 1) => v,
+            _ => {
+                ERRNO!() = ENOMEM;
+                return null_mut();
+            }
+        };
+        let new_pages = (total + PAGE - 1) / PAGE;
+        if new_pages > old_pages {
+            let moved = <Arch as Syscalls>::syscall5(
+                SYS_MREMAP,
+                block as i64,
+                (old_pages * PAGE) as i64,
+                (new_pages * PAGE) as i64,
+                MREMAP_MAYMOVE,
+                0,
+            );
+            if moved >= 0 {
+                let nb = moved as *mut AllocBlock;
+                (*nb).next = nb;
+                (*nb).tag = ALLOC_LARGE | new_pages;
+                return (nb as *mut u8).add(ALLOC_HDR) as *mut c_void;
+            }
+        }
     }
     let new_ptr = malloc(new_size);
     if new_ptr.is_null() {

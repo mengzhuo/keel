@@ -68,6 +68,21 @@ int main(void) {
         if ((uintptr_t)q & 4095) return 16;
         free(q);
     }
+    /* Several aligned blocks live at once: their headers must not overlap
+       the underlying size-class block headers. */
+    {
+        void *v[64];
+        for (int i = 0; i < 64; i++) {
+            v[i] = aligned_alloc(256, 1024);
+            if (!v[i] || ((uintptr_t)v[i] & 255)) return 26;
+            memset(v[i], i, 1024);
+        }
+        for (int i = 0; i < 64; i++) {
+            unsigned char *p = v[i];
+            for (int j = 0; j < 1024; j++) if (p[j] != (unsigned char)i) return 27;
+            free(v[i]);
+        }
+    }
     {
         void *q = valloc(300);
         if (!q || ((uintptr_t)q & 4095)) return 17;
