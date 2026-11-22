@@ -521,11 +521,11 @@ pub unsafe extern "C" fn getnetbyname(name: *const c_char) -> *mut NetEnt {
         crate::fclose(f);
     }
     // "loopback" / "default" are always available even without the file.
-    if crate::strcmp(name as *const u8, b"loopback\0".as_ptr()) == 0 {
+    if crate::cstr_eq(name as *const u8, b"loopback") {
         net_parse(b"loopback 127.0.0.0\0".as_ptr() as *const c_char);
         return &raw mut NET_ENT;
     }
-    if crate::strcmp(name as *const u8, b"default\0".as_ptr()) == 0 {
+    if crate::cstr_eq(name as *const u8, b"default") {
         net_parse(b"default 0.0.0.0\0".as_ptr() as *const c_char);
         return &raw mut NET_ENT;
     }
@@ -1030,7 +1030,7 @@ unsafe fn nd_parse_service(service: *const c_char, socktype: c_int, protocol: c_
     let se = getservbyname(service, proto_name);
     if se.is_null() { return false; }
     *port = ntohs((*se).s_port as u16);
-    *proto_out = if crate::strcmp((*se).s_proto as *const u8, b"udp\0".as_ptr()) == 0 { 17 } else { 6 };
+    *proto_out = if crate::cstr_eq((*se).s_proto as *const u8, b"udp") { 17 } else { 6 };
     true
 }
 

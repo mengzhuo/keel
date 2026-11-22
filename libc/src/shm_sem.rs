@@ -636,7 +636,7 @@ pub unsafe extern "C" fn setlocale(_category: c_int, locale: *const c_char) -> *
         return LOCALE_NAME as *mut c_char;
     }
     let name = locale as *const u8;
-    if strcmp(name, b"C\0".as_ptr()) == 0 || strcmp(name, b"POSIX\0".as_ptr()) == 0 {
+    if crate::cstr_eq(name, b"C") || crate::cstr_eq(name, b"POSIX") {
         LOCALE_CTYPE_UTF8 = false;
         return LOCALE_NAME as *mut c_char;
     }
@@ -675,9 +675,7 @@ const LC_GLOBAL_LOCALE: locale_t = usize::MAX as locale_t;
 pub unsafe extern "C" fn newlocale(_mask: c_int, name: *const c_char, base: locale_t) -> locale_t {
     if !name.is_null() && *name != 0 {
         let n = name as *const u8;
-        if strcmp(n, b"C\0".as_ptr()) != 0
-            && strcmp(n, b"POSIX\0".as_ptr()) != 0
-        {
+        if !crate::cstr_eq(n, b"C") && !crate::cstr_eq(n, b"POSIX") {
             return core::ptr::null_mut();
         }
     }

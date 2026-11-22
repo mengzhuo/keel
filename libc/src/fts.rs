@@ -215,8 +215,8 @@ unsafe fn fts_walk(fts: *mut Fts, ent: *mut FtsEnt) {
             for i in 0..count {
                 let name = *names.add(i);
                 if ((*fts).options & FTS_SEEDOT_V) == 0 {
-                    if crate::strcmp(name as *const u8, b".\0".as_ptr()) == 0 { continue; }
-                    if crate::strcmp(name as *const u8, b"..\0".as_ptr()) == 0 { continue; }
+                    if crate::cstr_eq(name as *const u8, b".") { continue; }
+                    if crate::cstr_eq(name as *const u8, b"..") { continue; }
                 }
                 let full = fts_join((*ent).fts_path, name);
                 if full.is_null() { continue; }

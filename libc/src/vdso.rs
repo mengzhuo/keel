@@ -88,17 +88,6 @@ unsafe fn read_u64(p: *const u8) -> u64 {
     u64::from_le(core::ptr::read_unaligned(p as *const u64))
 }
 
-unsafe fn cstr_eq(s: *const u8, want: &[u8]) -> bool {
-    let mut i = 0usize;
-    while i < want.len() {
-        if *s.add(i) != want[i] {
-            return false;
-        }
-        i += 1;
-    }
-    *s.add(want.len()) == 0
-}
-
 /// Look up a symbol in the vDSO by name.  Versions are ignored: the vDSO
 /// exports exactly one definition of each entry point.
 unsafe fn vdso_lookup(want: &[u8]) -> usize {
@@ -178,7 +167,7 @@ unsafe fn vdso_lookup(want: &[u8]) -> usize {
             continue;
         }
         let name = strtab.wrapping_add(read_u32(sym) as usize);
-        if cstr_eq(name as *const u8, want) {
+        if crate::cstr_eq(name as *const u8, want) {
             return load_base.wrapping_add(read_u64(sym.add(8)) as usize);
         }
         i += 1;

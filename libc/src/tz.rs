@@ -445,8 +445,8 @@ unsafe fn do_tzset() {
             && (*p == b'+' as c_char
                 || *p == b'-' as c_char
                 || is_digit(*p)
-                || crate::strcmp(dummy.as_ptr() as *const u8, b"UTC\0".as_ptr()) == 0
-                || crate::strcmp(dummy.as_ptr() as *const u8, b"GMT\0".as_ptr()) == 0)
+                || crate::cstr_eq(dummy.as_ptr() as *const u8, b"UTC")
+                || crate::cstr_eq(dummy.as_ptr() as *const u8, b"GMT"))
         {
             posix_form = true;
         }

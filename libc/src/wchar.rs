@@ -452,18 +452,18 @@ static WCTYPE_XDIGIT: c_int = WC_XDIGIT;
 pub unsafe extern "C" fn wctype(name: *const c_char) -> wctype_t {
     if name.is_null() { return core::ptr::null(); }
     let n = name as *const u8;
-    if strcmp(n, b"alnum\0".as_ptr()) == 0 { return &WCTYPE_ALNUM; }
-    if strcmp(n, b"alpha\0".as_ptr()) == 0 { return &WCTYPE_ALPHA; }
-    if strcmp(n, b"blank\0".as_ptr()) == 0 { return &WCTYPE_BLANK; }
-    if strcmp(n, b"cntrl\0".as_ptr()) == 0 { return &WCTYPE_CNTRL; }
-    if strcmp(n, b"digit\0".as_ptr()) == 0 { return &WCTYPE_DIGIT; }
-    if strcmp(n, b"graph\0".as_ptr()) == 0 { return &WCTYPE_GRAPH; }
-    if strcmp(n, b"lower\0".as_ptr()) == 0 { return &WCTYPE_LOWER; }
-    if strcmp(n, b"print\0".as_ptr()) == 0 { return &WCTYPE_PRINT; }
-    if strcmp(n, b"punct\0".as_ptr()) == 0 { return &WCTYPE_PUNCT; }
-    if strcmp(n, b"space\0".as_ptr()) == 0 { return &WCTYPE_SPACE; }
-    if strcmp(n, b"upper\0".as_ptr()) == 0 { return &WCTYPE_UPPER; }
-    if strcmp(n, b"xdigit\0".as_ptr()) == 0 { return &WCTYPE_XDIGIT; }
+    if crate::cstr_eq(n, b"alnum") { return &WCTYPE_ALNUM; }
+    if crate::cstr_eq(n, b"alpha") { return &WCTYPE_ALPHA; }
+    if crate::cstr_eq(n, b"blank") { return &WCTYPE_BLANK; }
+    if crate::cstr_eq(n, b"cntrl") { return &WCTYPE_CNTRL; }
+    if crate::cstr_eq(n, b"digit") { return &WCTYPE_DIGIT; }
+    if crate::cstr_eq(n, b"graph") { return &WCTYPE_GRAPH; }
+    if crate::cstr_eq(n, b"lower") { return &WCTYPE_LOWER; }
+    if crate::cstr_eq(n, b"print") { return &WCTYPE_PRINT; }
+    if crate::cstr_eq(n, b"punct") { return &WCTYPE_PUNCT; }
+    if crate::cstr_eq(n, b"space") { return &WCTYPE_SPACE; }
+    if crate::cstr_eq(n, b"upper") { return &WCTYPE_UPPER; }
+    if crate::cstr_eq(n, b"xdigit") { return &WCTYPE_XDIGIT; }
     core::ptr::null()
 }
 
@@ -544,8 +544,8 @@ pub unsafe extern "C" fn towupper(c: wint_t) -> wint_t {
 pub unsafe extern "C" fn wctrans(name: *const c_char) -> wctrans_t {
     if name.is_null() { return core::ptr::null(); }
     let n = name as *const u8;
-    if strcmp(n, b"tolower\0".as_ptr()) == 0 { return &WCTRANS_LOWER; }
-    if strcmp(n, b"toupper\0".as_ptr()) == 0 { return &WCTRANS_UPPER; }
+    if crate::cstr_eq(n, b"tolower") { return &WCTRANS_LOWER; }
+    if crate::cstr_eq(n, b"toupper") { return &WCTRANS_UPPER; }
     core::ptr::null()
 }
 
