@@ -17,7 +17,6 @@
 #   MUSL_CC        arch -> C compiler
 #   MUSL_CXX       arch -> C++ compiler
 #   MUSL_NM        arch -> binutils nm
-#   MUSL_KERNEL_INC arch -> sysroot that supplies <linux/...> headers
 #
 # Override the header location with KEEL_MUSL_INC_ROOT (the layout must be
 # <arch>/include/bits/alltypes.h), or the download cache with KEEL_MUSL_CACHE.
@@ -55,13 +54,6 @@ declare -A MUSL_NM=(
     [riscv64]=riscv64-linux-gnu-nm
     [powerpc64le]=powerpc64le-linux-gnu-nm
     [loongarch64]=loongarch64-linux-gnu-nm
-)
-declare -A MUSL_KERNEL_INC=(
-    [x86_64]=/usr/include
-    [aarch64]=/usr/aarch64-linux-gnu/include
-    [riscv64]=/usr/riscv64-linux-gnu/include
-    [powerpc64le]=/usr/powerpc64le-linux-gnu/include
-    [loongarch64]=/usr/loongarch64-linux-gnu/include
 )
 
 # The repository pins GCC 14 for loongarch64; prefer it when both the

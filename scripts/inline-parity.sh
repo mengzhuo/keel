@@ -9,7 +9,10 @@
 # -fkeep-inline-functions makes the compiler emit every static inline
 # definition even when unused, so nm gives the real inlinable set instead of a
 # textual guess.  Each public header is compiled on its own so feature guards
-# and per-header includes are honoured.
+# and per-header includes are honoured.  The three headers that only wrap
+# kernel UAPI (sys/kd.h, sys/soundcard.h, sys/vt.h) are skipped: they define
+# no inlines and pulling in <linux/...> would make the check depend on the
+# host's kernel headers.
 #
 # The check is C-only: musl's headers only *remove* inlines in C++ mode
 # (`__isspace`, the ctype predicates), never add any, so the C set is a
@@ -29,14 +32,16 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 extract() {
-    local inc="$1" cc="$2" nm_tool="$3" kernel_inc="$4" out="$5"
+    local inc="$1" cc="$2" nm_tool="$3" out="$4"
     local header rel err="$tmp/compile.err"
     : > "$out"
     while IFS= read -r header; do
         rel="${header#"$inc"/}"
+        case "$rel" in
+            sys/kd.h|sys/soundcard.h|sys/vt.h) continue ;;
+        esac
         if ! printf '#include <%s>\n' "$rel" |
             "$cc" -std=gnu11 -D_GNU_SOURCE -nostdinc -I "$inc" \
-                -idirafter "$kernel_inc" -idirafter /usr/include \
                 -O0 -fkeep-inline-functions \
                 -x c -c -o "$tmp/obj.o" - 2>"$err"; then
             echo "error: cannot compile header '$rel' with $cc:" >&2
@@ -54,10 +59,8 @@ status=0
 for arch in "${MUSL_ARCHES[@]}"; do
     musl_all="$tmp/musl-$arch"
     keel_all="$tmp/keel-$arch"
-    kernel_inc="${MUSL_KERNEL_INC[$arch]}"
-    [ -d "$kernel_inc" ] || kernel_inc=/usr/include
-    extract "$MUSL_INC_ROOT/$arch/include" "${MUSL_CC[$arch]}" "${MUSL_NM[$arch]}" "$kernel_inc" "$musl_all"
-    extract "$ROOT/include" "${MUSL_CC[$arch]}" "${MUSL_NM[$arch]}" "$kernel_inc" "$keel_all"
+    extract "$MUSL_INC_ROOT/$arch/include" "${MUSL_CC[$arch]}" "${MUSL_NM[$arch]}" "$musl_all"
+    extract "$ROOT/include" "${MUSL_CC[$arch]}" "${MUSL_NM[$arch]}" "$keel_all"
 
     sort -u "$musl_all" -o "$musl_all"
     cut -f1 "$musl_all" | sort -u > "$tmp/musl-names-$arch"
