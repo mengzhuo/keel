@@ -75,17 +75,32 @@ unsafe fn strtox(
     p = parse_prefix(p, &mut base);
 
     let limit = if neg { neg_limit } else { pos_limit };
+    let base_u = base as u64;
+    // Precompute the overflow bounds once: the previous code performed a
+    // 64-bit division for every digit.
+    let cutoff = limit / base_u;
+    let cut_rem = limit % base_u;
     let mut val: u64 = 0;
     let mut any = false;
-    while let Some(d) = parse_digit(*p, base) {
+    loop {
+        let d = if base == 10 {
+            let c = *p;
+            if c < b'0' || c > b'9' { break; }
+            (c - b'0') as u64
+        } else {
+            match parse_digit(*p, base) {
+                Some(d) => d as u64,
+                None => break,
+            }
+        };
         any = true;
-        if val > (limit - d as u64) / base as u64 {
+        if val > cutoff || (val == cutoff && d > cut_rem) {
             while parse_digit(*p, base).is_some() { p = p.add(1); }
             if !endptr.is_null() { *endptr = p as *mut c_char; }
             ERRNO!() = ERANGE;
             return (limit, true, neg);
         }
-        val = val * base as u64 + d as u64;
+        val = val * base_u + d;
         p = p.add(1);
     }
 
