@@ -170,6 +170,44 @@ through `startup_common.rs`.  The standalone mapper preserves
 its runtime address, maps BSS past `p_filesz`, and clears its own thread
 pointer before jumping to a static target.
 
+## Targeted fixes outside the benchmark set (2026-11)
+
+The 30 benchmarks above exercise small-object malloc and the vectorized
+`memcpy`/`memset`/`strlen`/`strcmp` paths, which are keel's strengths.  They
+did not cover bulk stdio, large `calloc`/`realloc`, aligned allocations, or
+the scalar string helpers.  Those paths were measured separately with the
+same interpreter-swap method (shared host, minimum of three interleaved
+rounds) and fixed:
+
+- `fread` drains the read buffer with `memcpy` and reads the remainder
+  directly; 1 MiB went from 4.2 ms to 134 us (musl 157 us).
+- `fwrite` follows musl's `__fwritex`: a chunk larger than the buffer is
+  written directly, and a line-buffered stream flushes only through the last
+  newline.  1 MiB to `/dev/null` went from 357 us (1024 writes) to 0.5 us
+  (1 write); musl is 0.46 us.
+- stdout probes `TIOCGWINSZ` on the first write, so redirected output stays
+  fully buffered.  Printing 1000 lines to a file went from 2000 write
+  syscalls to 12, and from 2.8 us to 0.24 us per line (musl 0.20 us).
+  stderr is unbuffered again, as C requires.
+- `getline`/`fgets` use the read buffer plus `memchr`; reading 12 MiB of
+  lines went from 53 ms to 11.7 ms (musl 14.5 ms).
+- `calloc` skips zeroing fresh `MAP_ANONYMOUS` blocks (1 MiB: 537 us to
+  9 us); `realloc` grows dedicated mappings with `mremap` (1 MiB grown by
+  4 KiB 256 times: 209 ms to 1.5 ms); and small `aligned_alloc`/
+  `posix_memalign` requests come from the size-class heap (64 bytes at
+  64-byte alignment: 8.0 us to 15 ns).
+- `memchr`/`memrchr`/`strchrnul` are SIMD; `strcpy`, `strcat`, `strncpy`,
+  `strnlen`, `strchr` and `strrchr` build on them; `strcspn`/`strspn`/
+  `strpbrk` use a 256-bit set; `strstr`/`memmem` use musl's two-way
+  algorithm.  4 KiB `memchr` went from 1257 ns to 90 ns and 1 MiB `strstr`
+  from 958 us to 20 us.
+- `printf` emits literal runs in one call, `snprintf` copies strings with
+  `memcpy`, and `strtol` precomputes its overflow bounds (118 ns to 20 ns).
+
+The allocator now shards its free-list lock by size class.  Mixed-size
+allocation at 64 threads is at parity with musl; a single hot size class
+still serializes and needs a per-thread cache.
+
 ## Remaining gaps
 
 - **Process startup, 1.07x.** keel now uses one combined `libc.so` as both
