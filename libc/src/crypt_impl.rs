@@ -4,12 +4,6 @@
 // crypt_impl.rs - crypt password hashing (MD5, bcrypt, SHA-256, SHA-512)
 // Ported from musl libc src/crypt/
 
-unsafe fn cstr_bytes(s: *const c_char) -> &'static [u8] {
-    if s.is_null() { return &[]; }
-    let len = strlen(s as *const c_char);
-    core::slice::from_raw_parts(s as *const u8, len)
-}
-
 const CRYPT_B64: [u8; 64] = *b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 fn crypt_to64(out: &mut [u8], mut u: u32, n: usize) -> usize {
@@ -137,7 +131,7 @@ fn md5crypt(key: &[u8], setting: &[u8], output: &mut [u8]) -> Option<usize> {
 
 #[no_mangle]
 pub unsafe extern "C" fn __crypt_md5(key: *const c_char, setting: *const c_char, output: *mut c_char) -> *mut c_char {
-    let ks = cstr_bytes(key); let ss = cstr_bytes(setting);
+    let ks = crate::cstr_bytes(key); let ss = crate::cstr_bytes(setting);
     let out = core::slice::from_raw_parts_mut(output as *mut u8, 256);
     let p = md5crypt(ks, ss, out);
     if p.is_none() { *output=b'*' as c_char; *output.add(1)=0; return output; }
@@ -242,7 +236,7 @@ fn sha256crypt(key: &[u8], setting: &[u8], output: &mut [u8]) -> Option<usize> {
 
 #[no_mangle]
 pub unsafe extern "C" fn __crypt_sha256(key:*const c_char,setting:*const c_char,output:*mut c_char)->*mut c_char {
-    let ks=cstr_bytes(key); let ss=cstr_bytes(setting);
+    let ks=crate::cstr_bytes(key); let ss=crate::cstr_bytes(setting);
     let out=core::slice::from_raw_parts_mut(output as *mut u8,256);
     let p=sha256crypt(ks,ss,out);
     if p.is_none() { *output=b'*' as c_char; *output.add(1)=0; return output; }
@@ -360,7 +354,7 @@ fn sha512crypt(key: &[u8], setting: &[u8], output: &mut [u8]) -> Option<usize> {
 
 #[no_mangle]
 pub unsafe extern "C" fn __crypt_sha512(key:*const c_char,setting:*const c_char,output:*mut c_char)->*mut c_char {
-    let ks=cstr_bytes(key); let ss=cstr_bytes(setting);
+    let ks=crate::cstr_bytes(key); let ss=crate::cstr_bytes(setting);
     let out=core::slice::from_raw_parts_mut(output as *mut u8,256);
     let p=sha512crypt(ks,ss,out);
     if p.is_none() { *output=b'*' as c_char; *output.add(1)=0; return output; }
@@ -789,8 +783,8 @@ fn bf_encode(dst: &mut [u8], src: &[u8]) {
 
 #[no_mangle]
 pub unsafe extern "C" fn __crypt_blowfish(key: *const c_char, setting: *const c_char, output: *mut c_char) -> *mut c_char {
-    let ks = cstr_bytes(key);
-    let ss = cstr_bytes(setting);
+    let ks = crate::cstr_bytes(key);
+    let ss = crate::cstr_bytes(setting);
     let out = core::slice::from_raw_parts_mut(output as *mut u8, 256);
 
     let retval = bf_crypt_inner(ks, ss, out, 16);

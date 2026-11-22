@@ -263,6 +263,7 @@ mod math {
 pub use math::*;
 include!("alloc.rs");
 include!("string_fast.rs");
+include!("cstr.rs");
 include!("vdso.rs");
 include!("iconv_iso8859.rs");
 include!("arch.rs");

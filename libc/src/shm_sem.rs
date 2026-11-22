@@ -618,18 +618,6 @@ static mut LCONV: lconv = lconv {
     int_n_sign_posn: (-1i32) as c_char,
 };
 
-unsafe fn cstr_contains_ci(s: *const u8, needle: &[u8]) -> bool {
-    let len = strlen(s as *const c_char) as usize;
-    let s_slice = core::slice::from_raw_parts(s, len);
-    if needle.len() > len { return false; }
-    for i in 0..=len - needle.len() {
-        if s_slice[i..i + needle.len()].eq_ignore_ascii_case(needle) {
-            return true;
-        }
-    }
-    false
-}
-
 #[no_mangle]
 pub unsafe extern "C" fn setlocale(_category: c_int, locale: *const c_char) -> *mut c_char {
     if locale.is_null() || *locale == 0 {
@@ -640,7 +628,7 @@ pub unsafe extern "C" fn setlocale(_category: c_int, locale: *const c_char) -> *
         LOCALE_CTYPE_UTF8 = false;
         return LOCALE_NAME as *mut c_char;
     }
-    if cstr_contains_ci(name, b"UTF-8") || cstr_contains_ci(name, b"UTF8") {
+    if crate::cstr_contains_ci(name, b"UTF-8") || crate::cstr_contains_ci(name, b"UTF8") {
         LOCALE_CTYPE_UTF8 = true;
         return LOCALE_NAME as *mut c_char;
     }

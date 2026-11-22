@@ -697,21 +697,3 @@ pub unsafe extern "C" fn strcmp(s1: *const u8, s2: *const u8) -> c_int {
         }
     }
 }
-
-/// Compare a NUL-terminated string with a known byte sequence (typically a
-/// Rust literal).  Unlike `strcmp`, the expected side does not need a
-/// trailing NUL and the comparison stops after `want.len()` bytes.
-#[inline]
-pub unsafe fn cstr_eq(s: *const u8, want: &[u8]) -> bool {
-    if s.is_null() {
-        return false;
-    }
-    let mut i = 0usize;
-    while i < want.len() {
-        if *s.add(i) != want[i] {
-            return false;
-        }
-        i += 1;
-    }
-    *s.add(want.len()) == 0
-}
