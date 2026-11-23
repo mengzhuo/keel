@@ -528,6 +528,28 @@ unsafe fn format_octal(mut val: u64, alt: bool) -> ([u8; 24], usize) {
     }
 }
 
+#[inline]
+unsafe fn write_int_content(
+    dst: *mut u8,
+    digits: *const u8,
+    num_digits: usize,
+    sign: Option<u8>,
+    prefix: Option<u8>,
+    zero_pad: usize,
+) -> usize {
+    let mut pos = 0usize;
+    if let Some(c) = sign { *dst.add(pos) = c; pos += 1; }
+    if let Some(c) = prefix { *dst.add(pos) = b'0'; *dst.add(pos + 1) = c; pos += 2; }
+    if zero_pad != 0 {
+        core::ptr::write_bytes(dst.add(pos), b'0', zero_pad);
+        pos += zero_pad;
+    }
+    if num_digits != 0 {
+        core::ptr::copy_nonoverlapping(digits, dst.add(pos), num_digits);
+    }
+    pos + num_digits
+}
+
 unsafe fn format_int(
     dst: *mut u8,
     digits: *const u8,
@@ -552,33 +574,25 @@ unsafe fn format_int(
     let prefix_len = prefix.map_or(0, |_| 2);
     let content_len = sign_len + prefix_len + zero_pad + num_digits;
 
-    let mut buf = [0u8; FMT_INT_BUF];
-    let mut pos = 0usize;
-    if let Some(c) = sign { buf[pos] = c; pos += 1; }
-    if let Some(c) = prefix { buf[pos] = b'0'; pos += 1; buf[pos] = c; pos += 1; }
-    for _ in 0..zero_pad { buf[pos] = b'0'; pos += 1; }
-    if num_digits > 0 {
-        core::ptr::copy_nonoverlapping(digits, buf.as_mut_ptr().add(pos), num_digits);
-    }
-
     if content_len >= width {
-        core::ptr::copy_nonoverlapping(buf.as_ptr(), dst, content_len);
+        write_int_content(dst, digits, num_digits, sign, prefix, zero_pad);
         return content_len;
     }
     let pad = width - content_len;
     if flags & FLAG_MINUS != 0 {
-        core::ptr::copy_nonoverlapping(buf.as_ptr(), dst, content_len);
-        for i in 0..pad { *dst.add(content_len + i) = b' '; }
+        write_int_content(dst, digits, num_digits, sign, prefix, zero_pad);
+        core::ptr::write_bytes(dst.add(content_len), b' ', pad);
     } else if flags & FLAG_ZERO != 0 && precision < 0 {
-        let fixed = sign_len + prefix_len;
-        core::ptr::copy_nonoverlapping(buf.as_ptr(), dst, fixed);
-        for i in fixed..width - num_digits { *dst.add(i) = b'0'; }
-        if num_digits > 0 {
+        let mut pos = 0usize;
+        if let Some(c) = sign { *dst.add(pos) = c; pos += 1; }
+        if let Some(c) = prefix { *dst.add(pos) = b'0'; *dst.add(pos + 1) = c; pos += 2; }
+        core::ptr::write_bytes(dst.add(pos), b'0', width - num_digits - pos);
+        if num_digits != 0 {
             core::ptr::copy_nonoverlapping(digits, dst.add(width - num_digits), num_digits);
         }
     } else {
-        for i in 0..pad { *dst.add(i) = b' '; }
-        core::ptr::copy_nonoverlapping(buf.as_ptr(), dst.add(pad), content_len);
+        core::ptr::write_bytes(dst, b' ', pad);
+        write_int_content(dst.add(pad), digits, num_digits, sign, prefix, zero_pad);
     }
     width
 }
