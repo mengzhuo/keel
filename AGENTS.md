@@ -259,9 +259,9 @@ than hiding the caveat in a source comment.
 
 ## Current Baseline
 
-Baseline (2026-11-10 full container run. Harness counts are from the pinned
-`libc-test` checkout; the header count was rechecked on 2026-11-23 against the
-current tree.)
+Baseline (2026-11-10 full container run. Harness counts and the header count
+were rechecked on 2026-11-23: the harness against the pinned `libc-test`
+checkout, the header count against the current tree.)
 
 ```text
 cargo test --workspace          # green in clean Ubuntu and Alpine containers
