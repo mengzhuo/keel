@@ -195,41 +195,59 @@ unsafe extern "C" fn __stdio_read(f: *mut FILE, buf: *mut u8, len: usize) -> usi
 }
 
 unsafe extern "C" fn __stdio_write(f: *mut FILE, buf: *const u8, len: usize) -> usize {
-    let l = (*f).wpos as usize - (*f).wbase as usize;
     let mut iov = [
-        ((*f).wbase as *const u8, l),
-        (buf, len),
+        SysIoVec {
+            base: (*f).wbase,
+            len: (*f).wpos as usize - (*f).wbase as usize,
+        },
+        SysIoVec { base: buf, len },
     ];
-    if iov[0].1 == 0 { iov = [iov[1], (core::ptr::null(), 0)]; }
+    let mut first = usize::from(iov[0].len == 0);
+    let mut niov = 2 - first;
+    let mut rem = iov[0].len + iov[1].len;
     if (*f).flags & F_APP != 0 {
         let _ = sys_lseek((*f).fd as i64, 0, SEEK_END as i64);
     }
-    let mut rem = iov[0].1 + iov[1].1;
-    let mut idx = 0usize;
-    while rem > 0 {
-        let ptr = iov[idx].0;
-        let cnt = iov[idx].1;
-        if cnt == 0 { idx += 1; continue; }
-        let n = sys_write((*f).fd as i64, ptr, cnt);
-        if n < 0 { ERRNO!() = (-n) as c_int; }
-        if n <= 0 {
+    loop {
+        let n = sys_writev((*f).fd as i64, iov.as_ptr().add(first), niov as i32);
+        if n < 0 {
+            ERRNO!() = (-n) as c_int;
             (*f).wpos = core::ptr::null_mut();
             (*f).wbase = core::ptr::null_mut();
             (*f).wend = core::ptr::null_mut();
             (*f).flags |= F_ERR;
-            // The caller's buffer was not written (or only partially); report
-            // a short write instead of claiming the whole length succeeded.
-            return 0;
+            // Report how much of the caller's buffer was written before the
+            // error: nothing while the pending buffer is still in flight.
+            return if niov == 2 { 0 } else { len - iov[first].len };
         }
-        rem -= n as usize;
-        iov[idx].0 = iov[idx].0.add(n as usize);
-        iov[idx].1 -= n as usize;
-        if iov[idx].1 == 0 { idx += 1; }
+        if n as usize == rem {
+            (*f).wend = (*f).buf.add((*f).buf_size);
+            (*f).wbase = (*f).buf;
+            (*f).wpos = (*f).buf;
+            return len;
+        }
+        let mut done = n as usize;
+        if done == 0 {
+            // A zero-length write with data pending must not spin.
+            (*f).wpos = core::ptr::null_mut();
+            (*f).wbase = core::ptr::null_mut();
+            (*f).wend = core::ptr::null_mut();
+            (*f).flags |= F_ERR;
+            return if niov == 2 { 0 } else { len - iov[first].len };
+        }
+        rem -= done;
+        if done > iov[first].len {
+            done -= iov[first].len;
+            first += 1;
+            niov -= 1;
+        }
+        iov[first].base = iov[first].base.add(done);
+        iov[first].len -= done;
+        if iov[first].len == 0 && niov > 1 {
+            first += 1;
+            niov -= 1;
+        }
     }
-    (*f).wend = (*f).buf.add((*f).buf_size);
-    (*f).wbase = (*f).buf;
-    (*f).wpos = (*f).buf;
-    len
 }
 
 unsafe extern "C" fn __stdio_seek(f: *mut FILE, off: i64, whence: c_int) -> i64 {

@@ -288,6 +288,17 @@ unsafe fn sys_write(fd: i64, buf: *const u8, count: usize) -> i64 {
     <Arch as Syscalls>::syscall3(SYS_WRITE, fd as i64, buf as i64, count as i64)
 }
 
+#[repr(C)]
+struct SysIoVec {
+    base: *const u8,
+    len: usize,
+}
+
+#[inline]
+unsafe fn sys_writev(fd: i64, iov: *const SysIoVec, count: i32) -> i64 {
+    <Arch as Syscalls>::syscall3(SYS_WRITEV, fd as i64, iov as i64, count as i64)
+}
+
 #[inline]
 unsafe fn sys_read(fd: i64, buf: *mut u8, count: usize) -> i64 {
     <Arch as Syscalls>::syscall3(SYS_READ, fd as i64, buf as i64, count as i64)
