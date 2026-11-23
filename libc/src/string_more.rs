@@ -416,7 +416,10 @@ unsafe fn twoway_strstr(h0: *const u8, n: *const u8) -> *mut u8 {
             let grow = if (l | 63) < room { l | 63 } else { room };
             let z2 = memchr(z, 0, grow);
             if z2.is_null() {
+                // The page cap can make this grow shorter than l, so the
+                // z-h >= l invariant must be re-checked at the loop top.
                 z = z.add(grow);
+                continue;
             } else {
                 z = z2 as *const u8;
                 if (z as usize - h as usize) < l {

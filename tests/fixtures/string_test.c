@@ -2,6 +2,8 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 
 #include <stdio.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include "string.h"
 
 int main(void) {
@@ -45,6 +47,30 @@ int main(void) {
     /* Large reject set: exercises the bitmap path. */
     if (strcspn("abcXdef", "0123456789XYZ") != 3) return 25;
     if (strrchr(hay, 0) != hay + sizeof hay - 1) return 26;
+
+    /* strstr grows its end pointer in bounded steps, so it must still stop
+       at the NUL when the haystack ends flush against an unmapped page. */
+    {
+        long ps = sysconf(_SC_PAGESIZE);
+        char *area = mmap(0, 2 * ps, PROT_READ | PROT_WRITE,
+                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (area == MAP_FAILED) return 28;
+        if (mprotect(area + ps, ps, PROT_NONE) != 0) return 29;
+        char *guard = area + ps;
+        char needle[64];
+        memset(needle, 'a', 34);
+        needle[34] = 0;
+        for (size_t hl = 129; hl <= 3000; hl += 41) {
+            char *h = guard - hl;
+            for (size_t i = 0; i + 1 < hl; i++) h[i] = (i & 1) ? 'a' : 'b';
+            h[hl - 1] = 0;
+            if (strstr(h, needle) != 0) return 30;
+            memcpy(h + hl - 40, needle, 34);
+            h[hl - 41] = 'b';
+            if (strstr(h, needle) != h + hl - 40) return 31;
+        }
+        munmap(area, 2 * ps);
+    }
 
     char mem[] = {1, 2, 3, 2, 1};
     if (memchr(mem, 2, sizeof(mem)) != mem + 1) return 15;
