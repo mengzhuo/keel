@@ -8,24 +8,25 @@ manager's libc in production.
 ## Published image
 
 ```bash
-docker pull mengzhuo/keel-alpine:0.1.1
-docker run --rm -it mengzhuo/keel-alpine:0.1.1 sh
+docker pull mengzhuo/keel-alpine:0.1.6
+docker run --rm -it mengzhuo/keel-alpine:0.1.6 sh
 ```
 
-The tag is a multi-arch manifest for `amd64`, `arm64` and `riscv64`. The
-newest published Docker tag is 0.1.1; the current source release is 0.1.6, so
-pass `--build-arg KEEL_VERSION=0.1.6` to build from those release APKs.
+The tag is a multi-arch manifest for `amd64`, `arm64` and `riscv64`. Images
+are built from the GitHub release APKs by
+[`.github/workflows/docker.yml`](../.github/workflows/docker.yml) when a
+release is published, or by manual dispatch for a specific version.
 
 ## Build
 
 ```bash
 # x86_64 (or the host architecture)
-docker build -f docker/Dockerfile -t keel:0.1.1 .
+docker build -f docker/Dockerfile -t keel:0.1.6 .
 
 # Multi-arch (requires buildx and a registry/loading backend)
 docker buildx build \
   --platform linux/amd64,linux/arm64,linux/riscv64 \
-  -f docker/Dockerfile -t keel:0.1.1 .
+  -f docker/Dockerfile -t keel:0.1.6 .
 ```
 
 The image downloads the keel release APK from GitHub. To use a local mirror
@@ -33,10 +34,10 @@ The image downloads the keel release APK from GitHub. To use a local mirror
 
 ```bash
 docker build -f docker/Dockerfile \
-  --build-arg KEEL_VERSION=0.1.1 \
-  --build-arg KEEL_APK_URL=http://mirror.example/keel-0.1.1-r0.x86_64.apk \
-  --build-arg KEEL_UTILS_URL=http://mirror.example/keel-utils-0.1.1-r0.x86_64.apk \
-  -t keel:0.1.1 .
+  --build-arg KEEL_VERSION=0.1.6 \
+  --build-arg KEEL_APK_URL=http://mirror.example/keel-0.1.6-r0.x86_64.apk \
+  --build-arg KEEL_UTILS_URL=http://mirror.example/keel-utils-0.1.6-r0.x86_64.apk \
+  -t keel:0.1.6 .
 ```
 
 Behind an HTTP proxy:
@@ -45,14 +46,23 @@ Behind an HTTP proxy:
 docker build --network host \
   --build-arg http_proxy=http://proxy:3128 \
   --build-arg https_proxy=http://proxy:3128 \
-  -f docker/Dockerfile -t keel:0.1.1 .
+  -f docker/Dockerfile -t keel:0.1.6 .
 ```
+
+## Publishing
+
+`.github/workflows/docker.yml` builds and pushes
+`mengzhuo/keel-alpine:<version>` on `release: published`, and can be run
+manually with a version input. Configure the repository secrets
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` first. The manual path is useful
+when a release was published before the Docker workflow existed, or when the
+image push needs to be retried.
 
 ## Run
 
 ```bash
-docker run --rm -it keel:0.1.1 sh
-docker run --rm keel:0.1.1 /bin/echo hello
+docker run --rm -it keel:0.1.6 sh
+docker run --rm keel:0.1.6 /bin/echo hello
 ```
 
 At runtime, `LD_LIBRARY_PATH=/usr/lib/keel` is set so DSOs that record
@@ -96,7 +106,6 @@ At runtime, `LD_LIBRARY_PATH=/usr/lib/keel` is set so DSOs that record
   or run destructors. Build a normal musl image if glibc-style unloading is
   required.
 - The image is architecture-specific. `TARGETARCH` is mapped to Alpine's
-  `x86_64` / `aarch64` / `riscv64` names. The x86_64 image is verified
-  locally; build aarch64/riscv64 on a native runner (or with a working
-  buildx/binfmt setup) because qemu-user emulation can trip over Alpine's
-  busybox shell independently of keel.
+  `x86_64` / `aarch64` / `riscv64` names. The release workflow builds the
+  three-arch manifest under qemu with `docker/setup-qemu-action`; local
+  multi-arch builds need a working buildx/binfmt setup.

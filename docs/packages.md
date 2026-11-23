@@ -143,6 +143,11 @@ commit to `main` and wait for CI before tagging. A missing, still-running
 published. The `publish` job, including every release build and APK smoke
 test, only starts after that gate passes.
 
+The multi-arch Docker image (`mengzhuo/keel-alpine:<version>`) is published by
+`.github/workflows/docker.yml` when the GitHub release is published, or by
+manual dispatch. It uses the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
+repository secrets and builds from the release APKs.
+
 ### Signing and reproducibility
 
 Release packages are signed with `apk mkpkg --sign-key` when the release
