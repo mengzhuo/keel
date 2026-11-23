@@ -1,6 +1,6 @@
 [package]
 name = "keel-utils"
-version = "0.1.5"
+version = "0.1.6"
 rust-version = "1.99"
 edition = "2021"
 description = "Rust implementations of the musl-utils commands for keel"
