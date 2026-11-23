@@ -56,9 +56,10 @@ same exit status and the same relevant stdout as the musl baseline.
 The scripts use only the packaged binaries; no recompilation, no patches and no
 keel-specific build flags are involved.
 
-The same scripts live under `scripts/workloads/` and are used by CI. The
-`workloads` workflow prepares one Alpine rootfs and then runs every program in
-its own matrix job, all in parallel, after `build-and-test` succeeds.
+The same scripts live under `scripts/workloads/` and are used by CI.
+`workloads-prepare` builds one Alpine rootfs in parallel with `build-and-test`,
+then `workloads-matrix` runs every program in its own matrix job, all in
+parallel, once both succeed.
 
 This matrix is a smoke test.  For the programs' own test suites — CPython's
 `test` package, Git's `t/` scripts and `nginx-tests` — see

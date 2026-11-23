@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Slow header-parity checks.  ci.yml calls this workflow directly, so both
+# jobs run in parallel with build-and-test instead of delaying it:
+#
+#   macro-parity:  x86_64/aarch64/riscv64, C and C++
+#   inline-parity: x86_64/aarch64/riscv64/powerpc64le/loongarch64
+#
+# Both jobs share the pinned musl 1.2.6 header cache.
+
+name: Parity
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macro-parity:
+    name: parity / macro-parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
+            g++-aarch64-linux-gnu g++-riscv64-linux-gnu curl
+
+      - name: Cache musl 1.2.6 headers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/keel
+          key: musl-1.2.6-headers-v2
+
+      - name: Check macro expansion parity
+        run: ./scripts/macro-parity.sh
+
+  # Every function musl can inline must also be inlinable from keel's headers;
+  # extra keel inlines are allowed.
+  inline-parity:
+    name: parity / inline-parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
+            gcc-powerpc64le-linux-gnu gcc-14-loongarch64-linux-gnu \
+            curl
+
+      - name: Cache musl 1.2.6 headers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/keel
+          key: musl-1.2.6-headers-v2
+
+      - name: Check inline function parity
+        run: ./scripts/inline-parity.sh

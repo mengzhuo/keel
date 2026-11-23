@@ -140,7 +140,7 @@ the code path.
   upstream suites.  The latter need a source build and are candidates for a
   follow-up.
 - Release gating: these suites are intentionally not a `needs:` dependency
-  of `publish`.  The release gate is the reusable `precheck` group (header
-  consistency, rustfmt, clippy, macro parity and inline parity) plus the
-  native and cross-architecture test matrices; workload suites run on demand
-  and weekly.
+  of `publish`.  The release gate is the `CI status` aggregate: the fast
+  precheck (header consistency, rustfmt, clippy), the macro/inline parity
+  jobs, the native and cross-architecture test matrices, and the workload
+  matrix; workload suites run on demand and weekly.

@@ -42,10 +42,12 @@ threads, `fork`/`exec`, sockets, `epoll`, SysV IPC, regular expressions,
 `scandir`, termios/job control and the dynamic loader's dependency and
 relocation paths.
 
-The scripts live in `scripts/workloads/`.  CI runs one parallel job per
-program after `build-and-test` through
-[`.github/workflows/workloads.yml`](.github/workflows/workloads.yml), so a
-failure in any program blocks `ci-status` and the release gate.
+The scripts live in `scripts/workloads/`.  CI builds the Alpine rootfs in
+parallel with `build-and-test` through
+[`workloads-prepare.yml`](.github/workflows/workloads-prepare.yml), then runs
+one parallel job per program through
+[`workloads-matrix.yml`](.github/workflows/workloads-matrix.yml).  A failure
+in any program blocks `ci-status` and the release gate.
 
 To run a workload locally:
 

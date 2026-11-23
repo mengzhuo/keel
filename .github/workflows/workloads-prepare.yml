@@ -1,0 +1,64 @@
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Build the release libc and one pristine Alpine rootfs for the workload
+# matrix.  ci.yml calls this as `workloads-prepare`, in parallel with
+# build-and-test; the matrix only needs the uploaded `workload-rootfs`
+# artifact.  The manual workloads.yml wrapper calls it too.
+
+name: Workloads prepare
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  ALPINE_MIRROR: ${{ vars.ALPINE_MIRROR || 'https://dl-cdn.alpinelinux.org' }}
+  ALPINE_VERSION: "3.23.8"
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-x86_64-cargo-registry-${{ hashFiles('**/Cargo.toml', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-x86_64-cargo-registry-
+
+      - name: Build release libc
+        run: cargo build --release -p keel-libc --target x86_64-unknown-linux-gnu
+
+      - name: Create pristine Alpine rootfs
+        run: |
+          sudo ALPINE_MIRROR="$ALPINE_MIRROR" ALPINE_VERSION="$ALPINE_VERSION" \
+            ./scripts/workloads/setup-rootfs.sh "$RUNNER_TEMP/workload"
+
+      - name: Package rootfs
+        run: |
+          mkdir -p "$RUNNER_TEMP/artifact"
+          cp "$RUNNER_TEMP/workload/libc.so" "$RUNNER_TEMP/artifact/libc.so"
+          chmod 755 "$RUNNER_TEMP/artifact/libc.so"
+          sudo tar -C "$RUNNER_TEMP/workload" -czf \
+            "$RUNNER_TEMP/artifact/alpine-root.tar.gz" alpine-root
+          sudo chmod 644 "$RUNNER_TEMP/artifact/alpine-root.tar.gz"
+
+      - name: Upload rootfs
+        uses: actions/upload-artifact@v7
+        with:
+          name: workload-rootfs
+          path: ${{ runner.temp }}/artifact/
+          if-no-files-found: error
+          retention-days: 3

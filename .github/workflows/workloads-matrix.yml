@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Meng Zhuo
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Run the thirteen Alpine workloads in parallel.  The `workload-rootfs`
+# artifact is produced by workloads-prepare.yml earlier in the same workflow
+# run.  ci.yml calls this after both build-and-test and workloads-prepare
+# succeed; the manual workloads.yml wrapper calls it after its own prepare job.
+
+name: Workloads
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  workload:
+    name: workload / ${{ matrix.workload }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        workload:
+          - busybox
+          - curl
+          - git
+          - sqlite
+          - nginx
+          - redis
+          - python
+          - node
+          - postgres
+          - bash
+          - php
+          - ruby
+          - ffmpeg
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download rootfs
+        uses: actions/download-artifact@v8
+        with:
+          name: workload-rootfs
+          path: ${{ runner.temp }}/workload
+
+      - name: Unpack rootfs
+        run: |
+          sudo tar -C "$RUNNER_TEMP/workload" -xzf \
+            "$RUNNER_TEMP/workload/alpine-root.tar.gz"
+          chmod 755 "$RUNNER_TEMP/workload/libc.so"
+
+      - name: Run ${{ matrix.workload }}
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/workload/results"
+          if ! sudo -E ./scripts/workloads/run-workload.sh \
+              "${{ matrix.workload }}" "$RUNNER_TEMP/workload" \
+              2>&1 | tee "$RUNNER_TEMP/workload/results/run.log"; then
+            {
+              grep -E '^(error:|### )' "$RUNNER_TEMP/workload/results/run.log" || true
+              tail -40 "$RUNNER_TEMP/workload/results/run.log"
+            } | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
+
+      - name: Report workload diff
+        if: failure()
+        run: |
+          if [[ -f "$RUNNER_TEMP/workload/results/diff.txt" ]]; then
+            while IFS= read -r line; do
+              echo "::error::$line"
+            done < "$RUNNER_TEMP/workload/results/diff.txt"
+          fi
+
+      - name: Report HTTP server log
+        if: failure()
+        run: |
+          if [[ -f "$RUNNER_TEMP/workload/results/http.log" ]]; then
+            while IFS= read -r line; do
+              echo "::error::http: $line"
+            done < <(tail -20 "$RUNNER_TEMP/workload/results/http.log")
+          fi
+
+      - name: Upload workload logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: workload-${{ matrix.workload }}-logs
+          path: ${{ runner.temp }}/workload/results/
+          retention-days: 7

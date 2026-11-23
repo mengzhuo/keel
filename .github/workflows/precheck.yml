@@ -1,19 +1,15 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Precheck group: ci.yml calls this workflow as the single `precheck` job,
-# and the heavier build/test jobs only start after the whole group succeeds.
+# Fast precheck group, called by ci.yml before the build and qemu jobs start.
 #
-# It contains two ordered groups:
+#   fmt -> lint
+#   fmt -> header
 #
-#   fmt-lint:     fmt  -> lint
-#   header-macro: header -> macro-parity
-#                 header -> inline-parity
-#
-# fmt runs before header, so formatting is known-good before the header and
-# macro checks start.  rustfmt therefore sees the source before any macro
-# expansion.  macro-parity and inline-parity are independent and run in
-# parallel against the same pinned musl 1.2.6 headers.
+# The slower macro/inline parity checks live in parity.yml and run in parallel
+# with the build, so they no longer gate the build's critical path.  `fmt`
+# stays in front of `lint` and `header` so a style failure is reported before
+# the slower checks; `header` and `lint` are independent of each other.
 
 name: Precheck
 
@@ -30,7 +26,7 @@ jobs:
   # The hand-maintained headers and the Rust sources are independent sources
   # of truth, so fail fast if a numeric macro drifts.
   header:
-    name: header-macro / header
+    name: precheck / header
     needs: fmt
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -43,13 +39,14 @@ jobs:
       - name: Install cross compilers
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu
 
       - name: Check headers against Rust constants
         run: cargo run -q -p keel-header-check -- --include include
 
   fmt:
-    name: fmt-lint / fmt
+    name: precheck / fmt
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -67,7 +64,7 @@ jobs:
   # keel-libc's correctness lints while allowing the intentional style lints
   # from its literal musl port.
   lint:
-    name: fmt-lint / lint
+    name: precheck / lint
     needs: fmt
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -84,56 +81,8 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-x86_64-cargo-registry-${{ hashFiles('**/Cargo.toml', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-x86_64-cargo-registry-
 
       - name: Run Rust lints
         run: ./scripts/lint.sh
-
-  macro-parity:
-    name: header-macro / macro-parity
-    needs: header
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install cross compilers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu g++-aarch64-linux-gnu g++-riscv64-linux-gnu curl
-
-      - name: Cache musl 1.2.6 headers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/keel
-          key: musl-1.2.6-headers-v2
-
-      - name: Check macro expansion parity
-        run: ./scripts/macro-parity.sh
-
-  # Every function musl can inline must also be inlinable from keel's headers;
-  # extra keel inlines are allowed.  Covers x86_64, aarch64, riscv64,
-  # powerpc64le and loongarch64, and runs in parallel with macro-parity.
-  inline-parity:
-    name: header-macro / inline-parity
-    needs: header
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install cross compilers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
-            gcc-powerpc64le-linux-gnu gcc-14-loongarch64-linux-gnu \
-            curl
-
-      - name: Cache musl 1.2.6 headers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/keel
-          key: musl-1.2.6-headers-v2
-
-      - name: Check inline function parity
-        run: ./scripts/inline-parity.sh

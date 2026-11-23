@@ -1,28 +1,23 @@
 # Copyright (c) 2026 Meng Zhuo
 # SPDX-License-Identifier: BSD-3-Clause
 
-# CI is also the release gate: release.yml calls this workflow through
-# workflow_call, so every job here must be blocking.
+# CI is also the release gate: release.yml requires the `CI status` aggregate
+# for the tagged commit; it does not call this workflow.
 #
 # Job graph:
 #
-#   precheck
-#     ├── fmt-lint:     fmt -> lint
-#     └── header-macro: header -> macro-parity   (header waits for fmt)
-#                                -> inline-parity
-#          │
-#          ├──> build-and-test    (native x86_64 + aarch64)
-#          │         │
-#          │         └──> workloads (13 parallel Alpine programs)
-#          ├──> libc-test-cross   (qemu: aarch64/riscv64/ppc64le/loongarch64)
-#          └──> cross-arch        (qemu smoke: riscv64/ppc64le/loongarch64)
-#                     │
-#                     v
-#                 ci-status
+#   precheck (fast: fmt, lint, header)
+#     ├──> build-and-test ─────────────┐
+#     ├──> workloads-prepare ──────────┴──> workloads (13 Alpine programs)
+#     ├──> libc-test-cross   (qemu: aarch64/riscv64/ppc64le/loongarch64)
+#     └──> cross-arch        (qemu smoke: riscv64/ppc64le/loongarch64)
 #
-# `ci-status` is the single check to require in branch protection: it only
-# succeeds when the precheck group, every build/test job and the workload
-# matrix succeeded.
+#   parity (macro + inline) runs in parallel with the build.
+#
+#   ci-status requires precheck, parity, build-and-test, workloads-prepare,
+#   workloads, libc-test-cross and cross-arch.
+#
+# `ci-status` is the single check to require in branch protection.
 
 name: CI
 
@@ -31,7 +26,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_call:
+
+# Cancel superseded PR runs, but never cancel a main run: release.yml gates a
+# tag on the `CI status` check for that commit.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -41,14 +41,30 @@ env:
   RUST_TEST_THREADS: "1"
 
 jobs:
-  # Precheck is a reusable workflow so the five fast correctness gates stay
-  # one unit in the CI graph: header, fmt, lint, macro-parity and
-  # inline-parity.
+  # Fast correctness gates: header, fmt and lint.  The build and qemu jobs
+  # start as soon as this finishes.
   precheck:
     name: precheck
     permissions:
       contents: read
     uses: ./.github/workflows/precheck.yml
+
+  # Slow macro/inline parity checks.  They run in parallel with the build and
+  # are aggregated by ci-status, so they do not delay build-and-test.
+  parity:
+    name: parity
+    permissions:
+      contents: read
+    uses: ./.github/workflows/parity.yml
+
+  # Build the workload rootfs while build-and-test is running.  The workload
+  # matrix waits for both this and build-and-test.
+  workloads-prepare:
+    name: workloads-prepare
+    needs: precheck
+    permissions:
+      contents: read
+    uses: ./.github/workflows/workloads-prepare.yml
 
   build-and-test:
     needs: precheck
@@ -87,6 +103,8 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-${{ matrix.arch }}-cargo-registry-${{ hashFiles('**/Cargo.toml', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-cargo-registry-
 
       - name: Resolve libc-test revision
         id: libc_test
@@ -147,14 +165,15 @@ jobs:
           cd scripts/libc-test-harness
           ./run.sh math
 
-  # Real Alpine workloads.  The reusable workflow builds one rootfs and then
-  # runs every program in its own matrix job, all in parallel.
+  # Real Alpine workloads.  workloads-prepare has already built the rootfs in
+  # parallel with build-and-test; this starts the per-program matrix jobs as
+  # soon as both succeed.
   workloads:
     name: workloads
-    needs: build-and-test
+    needs: [build-and-test, workloads-prepare]
     permissions:
       contents: read
-    uses: ./.github/workflows/workloads.yml
+    uses: ./.github/workflows/workloads-matrix.yml
 
   # Cross-arch libc-test suites. Both matrices are blocking: together with
   # the native jobs they gate releases through ci-status.
@@ -300,12 +319,19 @@ jobs:
         run: ${{ matrix.script }}
 
   # Aggregate gate. `if: always()` makes this run even when an upstream job
-  # failed or was skipped, so the workflow (and a release that calls it)
-  # cannot pass on a partial matrix.
+  # failed or was skipped, so a release that requires `CI status` cannot pass
+  # on a partial matrix.
   ci-status:
     name: CI status
     if: always()
-    needs: [precheck, build-and-test, workloads, libc-test-cross, cross-arch]
+    needs:
+      - precheck
+      - parity
+      - build-and-test
+      - workloads-prepare
+      - workloads
+      - libc-test-cross
+      - cross-arch
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -320,7 +346,9 @@ jobs:
             fi
           done <<'RESULTS'
           precheck=${{ needs.precheck.result }}
+          parity=${{ needs.parity.result }}
           build-and-test=${{ needs.build-and-test.result }}
+          workloads-prepare=${{ needs.workloads-prepare.result }}
           workloads=${{ needs.workloads.result }}
           libc-test-cross=${{ needs.libc-test-cross.result }}
           cross-arch=${{ needs.cross-arch.result }}
