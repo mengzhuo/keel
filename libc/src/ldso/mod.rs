@@ -3739,18 +3739,29 @@ unsafe fn walk_closure<F: FnMut(usize) -> bool>(root: usize, mut visit: F) {
     if root >= count || count == 0 {
         return;
     }
-    let qbytes = count * core::mem::size_of::<usize>();
-    let queue = map_zeroed(qbytes) as *mut usize;
-    let seen = map_zeroed(count);
-    if queue.is_null() || seen.is_null() {
-        if !queue.is_null() {
-            sys_munmap(queue as *mut u8, qbytes);
+    // Almost every process has far fewer than 256 objects; keep the common
+    // dlsym() path syscall-free.  Larger closures (dlopen_many) still use
+    // mmap so there is no fixed cap.
+    const INLINE: usize = 256;
+    let mut q_inline = [0usize; INLINE];
+    let mut s_inline = [0u8; INLINE];
+    let (queue, seen, heap) = if count <= INLINE {
+        (q_inline.as_mut_ptr(), s_inline.as_mut_ptr(), false)
+    } else {
+        let qbytes = count * core::mem::size_of::<usize>();
+        let q = map_zeroed(qbytes) as *mut usize;
+        let s = map_zeroed(count);
+        if q.is_null() || s.is_null() {
+            if !q.is_null() {
+                sys_munmap(q as *mut u8, qbytes);
+            }
+            if !s.is_null() {
+                sys_munmap(s, count);
+            }
+            return;
         }
-        if !seen.is_null() {
-            sys_munmap(seen, count);
-        }
-        return;
-    }
+        (q, s, true)
+    };
     let mut head = 0usize;
     let mut tail = 0usize;
     *seen.add(root) = 1;
@@ -3774,8 +3785,10 @@ unsafe fn walk_closure<F: FnMut(usize) -> bool>(root: usize, mut visit: F) {
             }
         }
     }
-    sys_munmap(queue as *mut u8, qbytes);
-    sys_munmap(seen, count);
+    if heap {
+        sys_munmap(queue as *mut u8, count * core::mem::size_of::<usize>());
+        sys_munmap(seen, count);
+    }
 }
 
 unsafe fn dlsym_scope(idx: usize, name: *const u8, name_len: usize) -> Option<(usize, usize)> {
