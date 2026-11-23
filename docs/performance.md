@@ -204,12 +204,27 @@ rounds) and fixed:
   from 958 us to 20 us.
 - `printf` emits literal runs in one call, `snprintf` copies strings with
   `memcpy`, and `strtol` precomputes its overflow bounds (118 ns to 20 ns).
+- `glob` no longer stats wildcard hits when neither `GLOB_MARK` nor
+  `GLOB_ONLYDIR` needs their type (400 files: 547 us to 189 us).
+- `dlsym` keeps its dependency-closure walk in a 256-entry stack buffer
+  instead of two mmap/munmap pairs (15.9 us to 76 ns; a
+  dlopen+dlsym+dlclose cycle is 103 ns versus musl's 4.4 us).
+- Buffered flushes use `writev` instead of one write per iovec (512-byte
+  `fwrite`: 224 ns to 170 ns), and integers are formatted straight into the
+  destination buffer (`snprintf("%08x")`: 162 ns to 98 ns).
 
-The allocator now shards its free-list lock by size class.  Mixed-size
-allocation at 64 threads is at parity with musl; a single hot size class
-still serializes and needs a per-thread cache.
+The allocator shards its free-list lock by size class and keeps one cached
+block per small class (up to 512 bytes) per thread, so alloc/free loops no
+longer take a lock at all.  Cached blocks are flushed back when a Thread
+slot is reused.
 
 ## Remaining gaps
+
+- **`regexec`, ~2.1x on a tiny match.** The security audit's empty-match
+  visited table, capture undo log and operand bounds checks cost this on
+  microbenchmarks; they are kept.
+- **`realpath`, ~1.3x.** A per-component `lstat` gives stricter
+  ENOTDIR/type checking than musl's `readlink` probe; kept.
 
 - **Process startup, 1.07x.** keel now uses one combined `libc.so` as both
   loader and libc, matching musl's single-file mapping.  `_start` self-relocates
