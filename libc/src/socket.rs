@@ -671,6 +671,9 @@ struct Thread {
     tsd: [*mut c_void; PTHREAD_KEYS_MAX],
     cancelbuf: *mut __ptcb,
     robust_list: robust_list_head,
+    // One cached block per small size class.  Only the owning thread touches
+    // this array; it removes the global lock from alloc/free-heavy loops.
+    alloc_cache: [*mut AllocBlock; ALLOC_TCACHE_SLOTS],
     free_next: *mut Thread,
 }
 
@@ -696,6 +699,7 @@ static mut THREADS: [Thread; THREAD_CHUNK] = [Thread {
         futex_offset: 0,
         pending: core::ptr::null_mut(),
     },
+    alloc_cache: [core::ptr::null_mut(); ALLOC_TCACHE_SLOTS],
     free_next: core::ptr::null_mut(),
 }; THREAD_CHUNK];
 #[repr(C)]
@@ -1039,6 +1043,8 @@ unsafe fn thread_finish(slot: &mut Thread, retval: *mut c_void) -> ! {
 }
 
 unsafe fn init_thread_slot(slot: *mut Thread, me: c_int) {
+    // A reused slot may still own blocks cached by its previous thread.
+    allocator_flush_cache(&mut (*slot).alloc_cache);
     (*slot).tid = me;
     (*slot).detach_state = DT_JOINABLE;
     (*slot).result = core::ptr::null_mut();
@@ -1082,6 +1088,17 @@ unsafe fn register_current_thread() -> Option<&'static mut Thread> {
     }
     ACTIVE_THREADS.fetch_add(1, Ordering::AcqRel);
     Some(&mut *slot)
+}
+
+/// Cheap current-thread lookup for the allocator: the TCB pointer is set for
+/// every registered thread, so no gettid() syscall is needed here.
+#[inline]
+pub(crate) unsafe fn current_thread_fast() -> *mut Thread {
+    let tp = tcb_slot(THREAD_TCB_OFFSET);
+    if tp.is_null() {
+        return core::ptr::null_mut();
+    }
+    core::ptr::read_unaligned(tp) as *mut Thread
 }
 
 unsafe fn find_thread() -> Option<&'static mut Thread> {

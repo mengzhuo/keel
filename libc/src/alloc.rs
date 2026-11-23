@@ -26,6 +26,10 @@ const ALLOC_PAGES_MASK: usize = ALLOC_ALIGNED - 1;
 
 const MREMAP_MAYMOVE: i64 = 1;
 
+const ALLOC_TCACHE_MIN: usize = 32;
+const ALLOC_TCACHE_MAX: usize = 512;
+const ALLOC_TCACHE_SLOTS: usize = (ALLOC_TCACHE_MAX - ALLOC_TCACHE_MIN) / ALLOC_STEP + 1;
+
 #[repr(C)]
 struct AllocBlock {
     next: *mut AllocBlock,
@@ -192,6 +196,17 @@ pub unsafe extern "C" fn malloc(size: SizeT) -> *mut c_void {
         None => return alloc_large(size) as *mut c_void,
     };
     let idx = class / ALLOC_STEP;
+    if class <= ALLOC_TCACHE_MAX {
+        let t = current_thread_fast();
+        if !t.is_null() {
+            let slot = idx - ALLOC_TCACHE_MIN / ALLOC_STEP;
+            let head = (*t).alloc_cache[slot];
+            if !head.is_null() {
+                (*t).alloc_cache[slot] = (*head).next;
+                return (head as *mut u8).add(ALLOC_HDR) as *mut c_void;
+            }
+        }
+    }
     let shard = idx & (ALLOC_SHARDS - 1);
 
     alloc_lock(shard);
@@ -252,11 +267,49 @@ pub unsafe extern "C" fn free(ptr: *mut c_void) {
         return;
     }
     let idx = tag / ALLOC_STEP;
+    if tag <= ALLOC_TCACHE_MAX {
+        let t = current_thread_fast();
+        if !t.is_null() {
+            let slot = idx - ALLOC_TCACHE_MIN / ALLOC_STEP;
+            if (*t).alloc_cache[slot].is_null() {
+                (*block).next = core::ptr::null_mut();
+                (*t).alloc_cache[slot] = block;
+                return;
+            }
+        }
+    }
     let shard = idx & (ALLOC_SHARDS - 1);
     alloc_lock(shard);
     (*block).next = ALLOC_FREE[idx];
     ALLOC_FREE[idx] = block;
     alloc_unlock(shard);
+}
+
+// Return one thread's cached blocks to the global free lists.  Called when a
+// Thread slot is reused, so the next thread does not inherit them and a dead
+// thread's cache cannot strand memory forever.
+pub(crate) unsafe fn allocator_flush_cache(cache: &mut [*mut AllocBlock; ALLOC_TCACHE_SLOTS]) {
+    let mut slot = 0usize;
+    while slot < ALLOC_TCACHE_SLOTS {
+        let mut block = cache[slot];
+        cache[slot] = null_mut();
+        if block.is_null() {
+            slot += 1;
+            continue;
+        }
+        let class = ALLOC_TCACHE_MIN + slot * ALLOC_STEP;
+        let idx = class / ALLOC_STEP;
+        let shard = idx & (ALLOC_SHARDS - 1);
+        alloc_lock(shard);
+        while !block.is_null() {
+            let next = (*block).next;
+            (*block).next = ALLOC_FREE[idx];
+            ALLOC_FREE[idx] = block;
+            block = next;
+        }
+        alloc_unlock(shard);
+        slot += 1;
+    }
 }
 
 #[no_mangle]
