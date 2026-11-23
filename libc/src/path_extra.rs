@@ -461,10 +461,15 @@ unsafe fn glob_walk(
         core::ptr::copy_nonoverlapping(name as *const u8, base.as_mut_ptr().add(newlen), nlen);
         newlen += nlen;
         base[newlen] = 0;
-        let mut st: Stat = core::mem::zeroed();
-        let exists = crate::lstat(base.as_ptr() as *const c_char, &mut st as *mut Stat as *mut c_void) == 0;
-        let is_dir = exists && st.st_mode & 0o170000 == 0o040000;
         if last {
+            // A name from readdir() already exists.  Only a trailing slash,
+            // GLOB_MARK or GLOB_ONLYDIR needs its type.
+            let mut is_dir = false;
+            if flags & (GLOB_MARK_V | GLOB_ONLYDIR_V) != 0 {
+                let mut st: Stat = core::mem::zeroed();
+                let exists = crate::lstat(base.as_ptr() as *const c_char, &mut st as *mut Stat as *mut c_void) == 0;
+                is_dir = exists && st.st_mode & 0o170000 == 0o040000;
+            }
             if flags & GLOB_ONLYDIR_V != 0 && !is_dir { continue; }
             let mut end = newlen;
             if (flags & GLOB_MARK_V != 0) && is_dir && end + 1 < base.len() {
@@ -472,11 +477,16 @@ unsafe fn glob_walk(
                 end += 1;
             }
             glob_list_push_n(list, base.as_ptr(), end);
-        } else if is_dir {
-            *blen = newlen;
-            let r = glob_walk(base, blen, pat, comps, ci + 1, trailing, flags, errfunc, list);
-            *blen = old;
-            if r != 0 { free_names(names, count); return r; }
+        } else {
+            let mut st: Stat = core::mem::zeroed();
+            let exists = crate::lstat(base.as_ptr() as *const c_char, &mut st as *mut Stat as *mut c_void) == 0;
+            let is_dir = exists && st.st_mode & 0o170000 == 0o040000;
+            if is_dir {
+                *blen = newlen;
+                let r = glob_walk(base, blen, pat, comps, ci + 1, trailing, flags, errfunc, list);
+                *blen = old;
+                if r != 0 { free_names(names, count); return r; }
+            }
         }
     }
     free_names(names, count);
