@@ -58,7 +58,7 @@ Useful environment variables:
 ## Results
 
 The latest recorded run used keel 0.1.0 (2026-11-12); the current release is
-0.1.1.
+0.1.6. Re-run the suites to refresh these results for a newer release.
 
 ### CPython
 

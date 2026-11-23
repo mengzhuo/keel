@@ -23,10 +23,11 @@ dynamic binaries use `libc.so` as their interpreter.
 ## Status
 
 keel is experimental (`0.1.x`), not a production-ready drop-in replacement
-for musl. `libc-test` runs on x86\_64 and aarch64; LTP, the Alpine workload
-matrix, and the CPython/Git/nginx upstream suites are recorded on x86\_64.
-riscv64, powerpc64le and loongarch64 are covered by cross-builds and the
-qemu smoke suites (`scripts/riscv-smoke.sh`, `scripts/cross-smoke.sh`).
+for musl. `libc-test` runs natively on x86\_64 and aarch64, and through qemu
+on riscv64, powerpc64le and loongarch64. LTP, the Alpine workload matrix, and
+the CPython/Git/nginx upstream suites are recorded on x86\_64. The three
+non-native targets are also covered by cross-builds and the qemu smoke suites
+(`scripts/riscv-smoke.sh`, `scripts/cross-smoke.sh`).
 
 ## Workload validation
 
@@ -81,6 +82,8 @@ release workflow details are in `AGENTS.md`.
 - [Upstream workload suites](docs/workload-suites.md)
 - [LTP results](docs/ltp.md)
 - [Performance](docs/performance.md)
+- [Security policy](SECURITY.md)
+- [Security testing](docs/security-testing.md)
 - [Alpine packages](docs/packages.md)
 
 keel is licensed under [BSD-3-Clause](LICENSE). Parts ported from musl

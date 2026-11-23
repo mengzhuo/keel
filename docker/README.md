@@ -12,7 +12,9 @@ docker pull mengzhuo/keel-alpine:0.1.1
 docker run --rm -it mengzhuo/keel-alpine:0.1.1 sh
 ```
 
-The tag is a multi-arch manifest for `amd64`, `arm64` and `riscv64`.
+The tag is a multi-arch manifest for `amd64`, `arm64` and `riscv64`. The
+newest published Docker tag is 0.1.1; the current source release is 0.1.6, so
+pass `--build-arg KEEL_VERSION=0.1.6` to build from those release APKs.
 
 ## Build
 

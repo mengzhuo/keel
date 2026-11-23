@@ -136,11 +136,12 @@ target; riscv64 uses `rust-lld` and Rust's self-contained musl sysroot.
 
 Packages are published by `.github/workflows/release.yml` on `v*` tags. The
 workflow first verifies that the tag matches all three crate manifests, then
-runs the complete CI workflow (`.github/workflows/ci.yml`) as a required
-gate. The `publish` job, including every release build and APK smoke test,
-only starts after the native x86_64/aarch64 jobs, macro/header checks,
-cross-arch smoke tests and cross-architecture libc-test suites all pass. A
-failed or skipped CI job prevents any crate or APK from being published.
+requires the existing `CI status` check for the tagged commit's `main` push
+to be complete and successful. It does not start another CI run, so push the
+commit to `main` and wait for CI before tagging. A missing, still-running
+(beyond the gate timeout) or failed run prevents any crate or APK from being
+published. The `publish` job, including every release build and APK smoke
+test, only starts after that gate passes.
 
 ### Signing and reproducibility
 

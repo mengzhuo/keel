@@ -76,6 +76,8 @@ part of the gate; the x86_64 math suite below still runs natively.
 
 Current native baseline (x86_64, pinned `libc-test` checkout): `functional` 72/72,
 `regression` 66 PASS + 2 SKIP, `api` 79/79, `math` 195 PASS + 4 SKIP. The
+current upstream checkout adds `functional/mntent`, so a local run reports
+73/73; CI keeps the pinned checkout so the baseline stays reproducible. The
 regression skip is `pthread_atfork-errno-clobber`, which can only pass as an
 unprivileged user and also fails under musl when root. On aarch64,
 `functional/strtold` and `functional/tls_local_exec` are skipped for the

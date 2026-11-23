@@ -33,7 +33,7 @@ powerpc64le and loongarch64.
 
 | Project | Status | Scope | Notes |
 |---|---|---|---|
-| **keel** | active, `0.1.x` | musl 1.2.6; x86\_64, aarch64, riscv64, ppc64le, loongarch64; combined `libc.so` | 13/13 Alpine workloads, shared LTP suites have identical failure lists, libc-test 412 PASS + 6 SKIP as root, full public macro surface checked |
+| **keel** | active, `0.1.x` | musl 1.2.6; x86\_64, aarch64, riscv64, ppc64le, loongarch64; combined `libc.so` | 13/13 Alpine workloads, shared LTP suites have identical failure lists, libc-test 412 PASS + 6 SKIP as root with the pinned checkout, full public macro surface checked |
 | [anp/rusl](https://github.com/anp/rusl) | inactive (2018) | x86\_64; partial musl port | historical, proof-of-concept port |
 | [SrDicov/zlibc](https://github.com/SrDicov/zlibc) | pre-alpha (2026-10) | x86\_64; musl ABI | phase 1 skeleton; does not link or run yet; no ldso |
 | [starkross/mytilus](https://github.com/starkross/mytilus) | pre-alpha (2026-05) | aarch64 only; musl 1.2.6 | empty crate scaffolds; no working libc; no ldso |
@@ -109,15 +109,16 @@ actively maintained. They are not drop-in replacements for each other.
 ### Why not zlibc or mytilus?
 
 Both are pre-alpha: they do not have a working libc or dynamic linker yet and
-are limited to one architecture. keel has a working combined `libc.so`, three
-architectures, thirteen real Alpine workloads, and identical LTP failure
-lists on the shared suites. More Rust libc projects are good for the ecosystem; these
-are simply at an earlier stage.
+are limited to one architecture. keel has a working combined `libc.so`, five
+architectures (x86\_64, aarch64 and riscv64 as release targets, with
+powerpc64le and loongarch64 in bring-up), thirteen real Alpine workloads, and
+identical LTP failure lists on the shared suites. More Rust libc projects are
+good for the ecosystem; these are simply at an earlier stage.
 
 ### Is keel the first Rust libc?
 
 No. relibc, eyra, and anp/rusl came earlier. keel's contribution is the
-combination of the musl 1.2.6 ABI, an integrated dynamic linker, three
+combination of the musl 1.2.6 ABI, an integrated dynamic linker, five
 architectures, and published real-workload and LTP validation.
 
 ### Is keel production-ready?
@@ -131,7 +132,7 @@ before using it outside a test environment.
 
 No libc is entirely memory-safe in the Rust sense. keel uses `unsafe` at the
 syscall and pointer boundary. Rust reduces the unsafe surface; it does not
-eliminate it. keel has not had a formal security audit.
+eliminate it. keel has not been independently audited.
 
 ### Why is startup slower than musl?
 

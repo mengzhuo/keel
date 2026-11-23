@@ -12,6 +12,9 @@ Cargo.lock
 # release package staging
 /dist/
 
+# local security audit reports (kept outside the published tree)
+/docs/*audit*.md
+
 __pycache__/
 *.pyc
 /tests/fixtures/group_many_test

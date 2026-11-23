@@ -7,8 +7,9 @@ identical chroots — one with the stock musl loader, one with keel's
 
 Everything below is a snapshot from **2026-11-19** on x86\_64, taken with
 keel **0.1.5**, which includes the `scandir` and regex-capture fixes recorded
-in the Bash and PHP reports.  The results are reproducible with the commands
-in each report.
+in the Bash and PHP reports.  The current release is **0.1.6**; re-run the
+matrix to refresh these results for it.  The results are reproducible with the
+commands in each report.
 
 ## Result
 

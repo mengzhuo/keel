@@ -259,21 +259,22 @@ than hiding the caveat in a source comment.
 
 ## Current Baseline
 
-Baseline (2026-11-10 full container run; harness counts and the header count
-rechecked on 2026-11-15 against the current `libc-test` checkout):
+Baseline (2026-11-10 full container run. Harness counts are from the pinned
+`libc-test` checkout; the header count was rechecked on 2026-11-23 against the
+current tree.)
 
 ```text
 cargo test --workspace          # green in clean Ubuntu and Alpine containers
-scripts/alpine-ci.sh            # Alpine 3.23.3, cargo test green
+scripts/alpine-ci.sh            # Alpine latest at run time (3.23.3), cargo test green
 ./run.sh api                    # 79/79
-./run.sh functional             # 72/72 (pinned libc-test)
+./run.sh functional             # 72/72 pinned CI checkout (73/73 current upstream)
 ./run.sh regression             # 66 PASS, 2 SKIP, 0 FAIL (as root; malloc-brk-fail is skipped on Linux >= 4.7)
 ./run.sh math                   # 195 PASS, 4 SKIP, 0 FAIL
 scripts/parity-check.sh all     # 0 unexpected diffs vs musl 1.2.6
 scripts/riscv-smoke.sh          # riscv64 cross-build + qemu fixtures, 0 failures
 scripts/macro-parity.sh         # 0 mismatches, 0 missing ABI macros (3 arches, C/C++)
 scripts/inline-parity.sh        # 0 missing inline functions (x86_64 39, other arches 27 musl inlines)
-cargo run -q -p keel-header-check -- --include include  # 1440/1440 numeric header macros match Rust
+cargo run -q -p keel-header-check -- --include include  # 1835/1835 numeric header macros match Rust
 
 LTP 20250930, x86_64, 1488 syscalls tags:
   musl baseline                 # 112 FAIL, 139 TCONF
@@ -292,6 +293,7 @@ math / mm / sched / nptl / ipc  # failure lists identical to musl
   `grep -c "execvp of" /tmp/ltp-*.out` (must be 0).
 
 - CI runs as an unprivileged user, so `pthread_atfork-errno-clobber` runs and
-  passes there: `415 PASS, 4 SKIP`.
+  passes there: `413 PASS, 5 SKIP` (79 api + 72 functional + 67 regression +
+  195 math; regression and math contribute the five skips).
 - If a run shows a different result, first re-run sequentially and compare against the previous report in `scripts/libc-test-harness/reports/`.  Cross reports are `cross_<arch>_*.txt`; the cross harness shares `libc-test/src/*_dso.so` symlinks, so run different architectures sequentially on one checkout.
 - The four math SKIPs are the only known expected non-passes; do not "fix" them by weakening the implementation.
