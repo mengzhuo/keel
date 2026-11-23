@@ -179,8 +179,9 @@ the scalar string helpers.  Those paths were measured separately with the
 same interpreter-swap method (shared host, minimum of three interleaved
 rounds) and fixed:
 
-- `fread` drains the read buffer with `memcpy` and reads the remainder
-  directly; 1 MiB went from 4.2 ms to 134 us (musl 157 us).
+- `fread` drains the read buffer with `memcpy`, refills it when the request
+  is smaller than `BUFSIZ`, and reads large requests directly; 1 MiB went
+  from 4.2 ms to 134 us and 8-byte reads from 584 ns to 15 ns (musl 19 ns).
 - `fwrite` follows musl's `__fwritex`: a chunk larger than the buffer is
   written directly, and a line-buffered stream flushes only through the last
   newline.  1 MiB to `/dev/null` went from 357 us (1024 writes) to 0.5 us

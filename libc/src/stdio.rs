@@ -821,14 +821,33 @@ pub unsafe extern "C" fn fread(
         left -= k;
     }
 
-    // Read the remainder straight into the caller's buffer.  For a large
-    // request this is a single read() instead of one byte at a time through
-    // the stdio buffer.
+    // Read the remainder.  Small requests refill the stdio buffer so a
+    // sequence of short fread() calls does not become one read() syscall
+    // each; large requests go straight to the caller's buffer.
     while left != 0 && f._eof == 0 {
-        let n = match f.read_fn {
-            Some(rfunc) => rfunc(stream, dest, left),
-            None => 0,
+        let rfunc = match f.read_fn {
+            Some(r) => r,
+            None => {
+                f._eof = 1;
+                break;
+            }
         };
+        if left < f.buf_size && !f.buf.is_null() {
+            let n = rfunc(stream, f.buf, f.buf_size);
+            if n == 0 {
+                if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+                break;
+            }
+            f.rpos = f.buf;
+            f.rend = f.buf.add(n);
+            let k = if n < left { n } else { left };
+            core::ptr::copy_nonoverlapping(f.buf, dest, k);
+            f.rpos = f.rpos.add(k);
+            dest = dest.add(k);
+            left -= k;
+            continue;
+        }
+        let n = rfunc(stream, dest, left);
         if n == 0 {
             if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
             break;
