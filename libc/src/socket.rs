@@ -938,6 +938,13 @@ unsafe fn alloc_thread_slot() -> Option<&'static mut Thread> {
 /// The child of fork() keeps only the calling thread.  Rebuild the free list
 /// so slots belonging to vanished threads are reusable, and update the
 /// current thread's tid to the child's.
+///
+/// Do NOT clear alloc_busy here: if fork() came from a signal handler that
+/// interrupted the allocator cache fast path, the interrupted frame is still
+/// on this thread's stack and owns the cached head; it clears the flag when
+/// it resumes.  Clearing it in the child would let an atfork/signal handler
+/// take the same block a second time.  A flag left set by siglongjmp only
+/// disables the cache (see docs/limitations.md).
 unsafe fn thread_allocator_after_fork() {
     a_store(&raw mut THREAD_LOCK, 0);
     a_store(&raw mut THREAD_WAITERS, 0);
@@ -954,7 +961,6 @@ unsafe fn thread_allocator_after_fork() {
         // first pthread_create() will build the free list.
         if !current.is_null() {
             (*current).tid = child_tid;
-            (*current).alloc_busy = 0;
             ACTIVE_THREADS.store(1, Ordering::Release);
         }
         return;
@@ -967,7 +973,6 @@ unsafe fn thread_allocator_after_fork() {
         let slot = thread_slot_at(i);
         if slot == current {
             (*slot).tid = child_tid;
-            (*slot).alloc_busy = 0;
             (*slot).free_next = core::ptr::null_mut();
             active += 1;
         } else {

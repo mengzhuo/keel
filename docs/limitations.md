@@ -47,9 +47,12 @@ regressions.  It is not an exhaustive security review.
   thread must own its TCB; a raw `clone(CLONE_VM)` that shares a parent's
   TCB would also share its cache.  A non-local exit (`siglongjmp`) out of
   the cache leaves the busy flag set, so that thread permanently uses the
-  global lists; `fork()` resets it for the child's thread.  A reused Thread
-  slot is flushed under the allocator shard lock in `pthread_create()`, so
-  allocating from a signal handler during thread creation can still spin.
+  global lists.  The child of `fork()` keeps the flag on purpose: a fork
+  from a signal handler that interrupted the cache fast path leaves the
+  interrupted frame owning its cached block until it resumes and clears
+  the flag.  A reused Thread slot is flushed under the allocator shard lock
+  in `pthread_create()`, so allocating from a signal handler during thread
+  creation can still spin.
 - **stdio locking is caller-managed.**  `fgetc`, `fputc`, `fread`, `fwrite`
   and the other buffered I/O functions neither take nor honor the `FILE`
   lock.  `flockfile`/`funlockfile` exist as ABI entry points, but they do
