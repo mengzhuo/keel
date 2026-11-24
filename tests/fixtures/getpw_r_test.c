@@ -62,10 +62,14 @@ int main(void)
     /* If the host has a group with members, verify the member array. */
     setgrent();
     char member_group[256] = "";
+    char first_member[256] = "";
+    gid_t member_gid = 0;
     struct group *g0;
     while ((g0 = getgrent()) != NULL) {
         if (g0->gr_mem && g0->gr_mem[0]) {
             snprintf(member_group, sizeof member_group, "%s", g0->gr_name);
+            snprintf(first_member, sizeof first_member, "%s", g0->gr_mem[0]);
+            member_gid = g0->gr_gid;
             break;
         }
     }
@@ -77,10 +81,20 @@ int main(void)
         CHECK(r == 0 && gres == &g2);
         CHECK(strcmp(g2.gr_name, member_group) == 0);
         CHECK(in_buf(g2.gr_mem, gbuf, sizeof gbuf));
+        CHECK(g2.gr_mem[0] != NULL);
+        CHECK(strcmp(g2.gr_mem[0], first_member) == 0);
         for (int i = 0; g2.gr_mem[i]; i++) {
             CHECK(in_buf(g2.gr_mem[i], gbuf, sizeof gbuf));
             CHECK(strlen(g2.gr_mem[i]) < (size_t)(gbuf + sizeof gbuf - g2.gr_mem[i]));
         }
+
+        memset(&g2, 0, sizeof g2);
+        memset(gbuf, 0xcc, sizeof gbuf);
+        r = getgrgid_r(member_gid, &g2, gbuf, sizeof gbuf, &gres);
+        CHECK(r == 0 && gres == &g2);
+        CHECK(strcmp(g2.gr_name, member_group) == 0);
+        CHECK(g2.gr_mem[0] != NULL);
+        CHECK(strcmp(g2.gr_mem[0], first_member) == 0);
     }
 
     char tinyg[1];

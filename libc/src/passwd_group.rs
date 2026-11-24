@@ -399,9 +399,13 @@ unsafe fn parse_group_r(line: *const c_char, ent: *mut Group, buf: *mut c_char, 
     // The member pointer array lives after the copied strings in `buf`.
     let ptr_size = core::mem::size_of::<*mut c_char>();
     let base = buf as usize;
-    let o = crate::strlen(buf) + 1;
+    // `split_colon_fields` lays the fields out back-to-back; the end of the
+    // copied region is the end of the last field.  strlen(buf) would only
+    // measure the first field and place the pointer array on top of the
+    // remaining strings.
+    let used = (fields[n - 1] as usize - base) + crate::strlen(fields[n - 1]) + 1;
     let aligned = match base
-        .checked_add(o)
+        .checked_add(used)
         .and_then(|v| v.checked_add(ptr_size - 1))
     {
         Some(v) => v & !(ptr_size - 1),
