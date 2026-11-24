@@ -40,6 +40,9 @@
 #include <semaphore.h>
 #include <fenv.h>
 #include <math.h>
+#include <strings.h>
+#include <fnmatch.h>
+#include <iconv.h>
 
 struct memcookie { char data[64]; size_t len, pos; };
 static ssize_t mc_read(void *c, char *b, size_t n) {
@@ -95,6 +98,136 @@ static void *worker(void *arg) {
 static int failures;
 
 #define CHECK(cond, msg) do { if (!(cond)) { printf("FAIL: %s\n", msg); failures++; } } while (0)
+
+/* Non-mem/str primitives must also stop at a mapping edge.  Put the input
+   (or output) flush against a PROT_NONE page and check the result. */
+static void guard_page_checks(void) {
+    long ps = sysconf(_SC_PAGESIZE);
+    char *area = mmap(NULL, 4 * ps, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (area == MAP_FAILED) { CHECK(0, "guard mmap"); return; }
+    if (mprotect(area + 3 * ps, ps, PROT_NONE) != 0) {
+        CHECK(0, "guard mprotect");
+        munmap(area, 4 * ps);
+        return;
+    }
+    char *guard = area + 3 * ps;
+    char *low = area + 64;
+
+    /* Wide strings ending at the guard. */
+    size_t wn = 17;
+    wchar_t *ws = (wchar_t *)(guard - (wn + 1) * sizeof(wchar_t));
+    for (size_t i = 0; i < wn; i++) ws[i] = L'a';
+    ws[wn] = 0;
+    CHECK(wcslen(ws) == wn, "wcslen guard");
+    CHECK(wcschr(ws, L'#') == NULL && wcschr(ws, 0) == ws + wn, "wcschr guard");
+    CHECK(wcsrchr(ws, L'a') == ws + wn - 1 && wcsrchr(ws, 0) == ws + wn,
+          "wcsrchr guard");
+    CHECK(wcsstr(ws, L"aaa") == ws && wcsstr(ws, L"###") == NULL,
+          "wcsstr guard");
+    CHECK(wmemchr(ws, L'a', wn) == ws, "wmemchr guard");
+    wchar_t *wd = (wchar_t *)low;
+    CHECK(wmemcpy(wd, ws, wn + 1) == wd && wd[wn] == 0, "wmemcpy guard");
+    CHECK(wmemset(wd, L'b', wn) == wd && wd[wn - 1] == L'b', "wmemset guard");
+
+    /* Byte-string helpers whose inputs end at the guard. */
+    size_t n = 15;
+    char *s = guard - (n + 1);
+    memset(s, 'a', n);
+    s[n] = 0;
+    memset(low, 'a', n);
+    low[n] = 0;
+    CHECK(strcasecmp(s, low) == 0 && strcasecmp(low, s) == 0,
+          "strcasecmp guard");
+    CHECK(strncasecmp(s, low, n) == 0, "strncasecmp guard");
+    CHECK(strverscmp(s, low) == 0, "strverscmp guard");
+    CHECK(strlcpy(low, s, n + 1) == n && low[n] == 0, "strlcpy guard");
+    CHECK(memccpy(low, s, 'a', n) == low + 1, "memccpy guard");
+    CHECK(strxfrm(low, s, n + 1) == n, "strxfrm guard");
+
+    /* Tokenizer on a buffer that ends at the guard. */
+    char *t = guard - 6;
+    memcpy(t, "a,b,c", 6);
+    CHECK(strtok(t, ",") != NULL && strtok(NULL, ",") != NULL &&
+          strtok(NULL, ",") != NULL, "strtok guard");
+
+    /* Parsers with the input flush against the guard. */
+    char *num = guard - 6;
+    memcpy(num, "12345", 6);
+    int x = 0;
+    CHECK(sscanf(num, "%d", &x) == 1 && x == 12345, "sscanf guard");
+    CHECK(strtol(num, NULL, 10) == 12345, "strtol guard");
+    CHECK(strtoul(num, NULL, 10) == 12345, "strtoul guard");
+    char *dbl = guard - 4;
+    memcpy(dbl, "1.5", 4);
+    CHECK(strtod(dbl, NULL) == 1.5, "strtod guard");
+    char *date = guard - 11;
+    memcpy(date, "2012-03-11", 11);
+    struct tm tm;
+    memset(&tm, 0, sizeof tm);
+    CHECK(strptime(date, "%Y-%m-%d", &tm) != NULL && tm.tm_mday == 11,
+          "strptime guard");
+    char *key = guard - 4;
+    memcpy(key, "abc", 4);
+    CHECK(crypt(key, "ab") != NULL, "crypt guard");
+
+    /* A format string that ends at the guard, including a trailing '%'. */
+    char *pf = guard - 2;
+    pf[0] = '%';
+    pf[1] = 0;
+    char obuf[32];
+    memset(&tm, 0, sizeof tm);
+    CHECK(snprintf(obuf, sizeof obuf, pf) >= 0, "snprintf guard");
+    (void)sscanf("1", pf, &x);
+    (void)strftime(obuf, sizeof obuf, pf, &tm);
+    (void)strptime("1", pf, &tm);
+
+    /* iconv with a non-NUL-terminated input at the guard. */
+    iconv_t cd = iconv_open("UTF-16LE", "UTF-8");
+    if (cd != (iconv_t)-1) {
+        char *in = guard - 3;
+        memcpy(in, "abc", 3);
+        char out[16];
+        char *ip = in, *op = out;
+        size_t il = 3, ol = sizeof out;
+        CHECK(iconv(cd, &ip, &il, &op, &ol) == 0 && ip == in + 3 && ol == 10,
+              "iconv guard");
+        iconv_close(cd);
+    }
+
+    /* fmemopen + getline over a buffer ending at the guard. */
+    char *m = guard - 12;
+    memcpy(m, "line1\nline2\n", 12);
+    FILE *f = fmemopen(m, 12, "r");
+    if (f) {
+        char *line = NULL;
+        size_t cap = 0;
+        ssize_t r1 = getline(&line, &cap, f);
+        ssize_t r2 = getline(&line, &cap, f);
+        CHECK(r1 == 6 && r2 == 6 && strcmp(line, "line2\n") == 0,
+              "fmemopen getline guard");
+        free(line);
+        fclose(f);
+    }
+
+    /* Pattern compile/match with the pattern at the guard. */
+    char *pat = guard - 6;
+    memcpy(pat, "*.txt", 6);
+    CHECK(fnmatch(pat, "a.txt", 0) == 0, "fnmatch guard");
+    char *rp = guard - 7;
+    memcpy(rp, "[0-9]+", 7);
+    regex_t re;
+    if (regcomp(&re, rp, REG_EXTENDED) == 0) {
+        char *txt = guard - 4;
+        memcpy(txt, "123", 4);
+        CHECK(regexec(&re, txt, 0, NULL, 0) == 0, "regexec guard");
+        regfree(&re);
+    } else {
+        CHECK(0, "regcomp guard");
+    }
+
+    munmap(area, 4 * ps);
+}
 
 int main(void) {
     struct statfs s;
@@ -619,6 +752,8 @@ int main(void) {
         insl(0, (void *)0, 0);
     }
 #endif
+
+    guard_page_checks();
 
     if (failures == 0) puts("compat ok");
     return failures != 0;
