@@ -216,7 +216,14 @@ rounds) and fixed:
 The allocator shards its free-list lock by size class and keeps one cached
 block per small class (up to 512 bytes) per thread, so alloc/free loops no
 longer take a lock at all.  Cached blocks are flushed back when a Thread
-slot is reused.
+slot is reused.  The `alloc_busy` re-entry flag (a signal handler skips the
+cache and uses the global lists) adds about 3%: 8.14 to 8.39 ns for the
+single-thread loop, 1.35 to 1.40 ns/op aggregate at 64 threads.
+
+The SIMD `memchr` was later changed to aligned loads with first/last-block
+masks after a buffer ending on a page boundary read into the next page; it
+never crosses a page or returns a match outside the requested range.  This
+is a correctness constraint on the vector loop, not a benchmark trade-off.
 
 ## Remaining gaps
 

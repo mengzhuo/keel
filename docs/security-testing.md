@@ -75,6 +75,39 @@ The loader hardening driven by this fuzzer:
 The last crashing mutant is saved to `/tmp/opencode/elf-crash.so` for triage
 with `gdb` against the `dlopen` harness.
 
+## Guard-page bounds testing
+
+`tests/fixtures/string_test.c` (driver `tests/string.rs`) and
+`tests/fixtures/compat_test.c` (`tests/compat.rs`) map a writable region whose
+last page is `PROT_NONE`, then place the source, destination or input buffer
+so it ends exactly at that page. A primitive that reads or writes even one
+byte past the requested range faults instead of silently passing.
+
+The string fixture covers `memcpy`, `memmove`, `memset`, `memcmp`, `memchr`,
+`memrchr`, `strlen`, `strnlen`, `strchrnul`, `strchr`, `strrchr`, `strcmp`,
+`strncmp`, `strstr`, `memmem`, `strcasestr`, `strcspn`, `strspn`, `strpbrk`,
+`strcpy`, `strncpy`, `strcat` and `strncat`, with lengths from 1 to 4096 and
+the operand at either edge. The compat fixture extends this to wide strings,
+`strtok`, `strcasecmp`/`strverscmp`, `strlcpy`/`memccpy`/`strxfrm`,
+`sscanf`/`strtol`/`strtod`/`strptime`/`crypt`, `mbrtowc`/`wcrtomb`, `iconv`,
+`fmemopen`+`getline`, `fnmatch`/`regcomp`/`regexec`, and format strings that
+end with `%`.
+
+```sh
+cargo test --test string
+cargo test --test compat
+```
+
+This found two real bugs. `memchr` used unaligned 16/32-byte loads and read
+into the next page when the range ended on a page boundary; BusyBox `tar`
+crashed in `strnlen` on such a buffer. It now uses aligned loads with
+first/last-block masks, so it never crosses a page and never reports a match
+outside `[s, s+n)`; it may still load bytes after `n` within the same page and
+mask them out. `strnlen(s, SIZE_MAX)` wrapped `start + n` and returned
+`SIZE_MAX`; the end is now a `checked_add`. The non-`mem*`/`str*` families
+passed with no bounds findings; the only observed difference was the C-locale
+UTF-8 behaviour recorded in `docs/limitations.md`.
+
 ## Supply chain
 
 - `deny.toml` + `scripts/audit-deps.sh` (cargo-deny/cargo-audit)

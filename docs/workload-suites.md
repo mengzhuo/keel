@@ -12,11 +12,11 @@ the host kernel and network sandbox.  Run them manually or from the scheduled
 
 ## Suites
 
-| Suite | Source | Scope | Result (2026-11-12) |
+| Suite | Source | Scope | Result |
 |---|---|---|---|
-| CPython | Alpine `python3-tests` 3.12.16 | 40 named modules (62 test files after CPython expands package tests), 13,737 tests | 62 test files OK; only an SSL timing test differs |
-| Git | `git/t` 2.52.1, installed `git` 2.52.0 | 7 foundational t/ scripts, 599 tests | 6 scripts pass under both; one racy test in t0000 |
-| nginx | `nginx/nginx-tests` `bb4d348` | 8 HTTP tests | 8/8 under both |
+| CPython | Alpine `python3-tests` 3.12.16 | 40 named modules (70 test files after CPython expands package tests), 13,737 tests | 62 tests OK; same 5 environment failures as musl, only an SSL timing test differs (2026-11-24) |
+| Git | `git/t` 2.52.1, installed `git` 2.52.0 | 7 foundational t/ scripts, 599 tests | 6 scripts pass under both; one racy test in t0000 (2026-11-12) |
+| nginx | `nginx/nginx-tests` `bb4d348` | 8 HTTP tests | 8/8 under both (2026-11-12) |
 
 The Python list covers the interfaces keel implements directly: `os`,
 `io`, `fcntl`, `pwd`/`grp`, sockets and `select`, threads, subprocesses,
@@ -57,19 +57,23 @@ Useful environment variables:
 
 ## Results
 
-The latest recorded run used keel 0.1.0 (2026-11-12); the current release is
-0.1.6. Re-run the suites to refresh these results for a newer release.
+The latest CPython run used keel 0.1.6 plus the 2026-11-24 `main` fixes; the
+recorded Git and nginx runs are from 2026-11-12. Re-run the suites to refresh
+them for a newer release.
 
 ### CPython
 
 ```text
-musl:  62 test files OK, 6 failed, 13,737 tests run
-keel: 62 test files OK, 6 failed, 13,737 tests run
+musl:  62 tests OK, 6 failed, 13,737 tests run
+keel:  62 tests OK, 6 failed, 13,737 tests run
+keel-only: test_ssl
 ```
 
 The baseline failures are environment-related and occur with stock musl too:
 `test_asyncio.test_events`, `test_ctypes`, `test_locale`,
-`test_multiprocessing`, `test_os`, and occasionally `test_re`.
+`test_multiprocessing`, `test_os`, and occasionally `test_re`.  In the
+2026-11-24 run keel reported the same five plus `test_ssl`, so there are no
+keel-only functional failures.
 
 Time-zone support is implemented in `libc/src/tz.rs` (TZif v1/v2/v3 and
 POSIX `TZ` rules), so `test_time`, `test_datetime` and `test_logging` pass
@@ -105,7 +109,8 @@ from `/usr/lib/nginx/modules`.
 
 ## Bugs this harness found
 
-Each of these was reproduced by a suite and is included in 0.1.0:
+Each of these was reproduced by a suite and fixed on `main`; the earlier ones
+shipped in 0.1.0:
 
 - `gethostbyaddr()` ignored `/etc/hosts`; it now goes through
   `getnameinfo()` like musl.
@@ -125,6 +130,18 @@ Each of these was reproduced by a suite and is included in 0.1.0:
 - `mktime`/`localtime` lacked time-zone support, and `year_to_secs` used a
   signed year range check where musl uses an unsigned one (breaking years
   before 1902).  `ctime` also used `gmtime` instead of `localtime`.
+- `getgrgid_r`/`getgrnam_r` placed the `gr_mem` pointer array at
+  `strlen(buf) + 1`, which is only the end of the first field; the remaining
+  copied strings were overwritten.  CPython's `grp` module uses the
+  reentrant calls, so `test_grp` saw garbage member pointers and missed
+  later groups.
+- POSIX TZ `M` rules clamped the weekday field to `1..31` instead of `0..6`
+  (Sunday = 0), moving every Sunday DST transition to Monday.
+  `test_datetime` and `test_logging` failed on the 2012 US Eastern
+  transitions.
+- `memchr` used unaligned 16/32-byte loads and could read into the next
+  page when a buffer ended on a page boundary.  BusyBox `tar` crashed in
+  `strnlen`, which made `test_shutil` fail.
 
 These are exactly the class of bug a small smoke workload misses: they need
 the program's own tests, or at least its real command-line tools, to reach

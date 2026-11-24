@@ -69,6 +69,10 @@ regressions.  It is not an exhaustive security review.
 - **Locale data is minimal.**  `setlocale` recognizes `C`, `POSIX` and a
   UTF-8 ctype mode; there is no locale database, collation data, monetary
   formatting or localized time formatting beyond the C locale.
+- **The default C locale decodes UTF-8.**  `mbrtowc`/`wcrtomb` accept valid
+  UTF-8 sequences where musl's C locale reports `EILSEQ`.  Applications that
+  require byte-for-byte C-locale semantics must validate non-ASCII input
+  themselves; locale conversion is not a security boundary.
 - **`iconv` supports a fixed encoding set.**  UTF-8/16/32, ASCII, the
   ISO-8859 family, Windows-1251/1252, KOI8-R, GBK/GB2312, Big5, EUC-JP and
   Shift-JIS are implemented; other musl charmaps are not available.
@@ -80,6 +84,15 @@ regressions.  It is not an exhaustive security review.
   aarch64/riscv64 kernels configured with 16 KiB or 64 KiB pages.
 - **`fnmatch` rejects long components.**  Path components longer than 1024
   bytes return `FNM_NOMATCH` instead of being matched with a heap buffer.
+- **`glob` drops a literal trailing slash and does not filter `*/` to
+  directories.**  `glob("dir/*/", 0)` returns every entry, and
+  `glob("dir/sub/", 0)` returns `dir/sub`.  `GLOB_MARK` decides
+  directory-ness with `lstat`, so a symlink to a directory is not marked
+  with `/`.  `GLOB_ONLYDIR` and `GLOB_BRACE` use keel's header values
+  (`0x200` and `0x800`); glibc uses `0x2000` and `0x400`, so a binary built
+  against glibc headers will not get the intended semantics (musl does not
+  define `GLOB_ONLYDIR`).  These differ from musl/glibc but are not memory
+  safety issues.
 - **`wordexp` supports a subset of shell parameter expansion.**  `$VAR`,
   `${VAR}`, `$$`, command substitution and globbing work; `${VAR:-word}`,
   `${VAR:+word}`, `$?` and positional parameters are not expanded.
