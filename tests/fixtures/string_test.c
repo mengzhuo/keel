@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include "string.h"
 
+/* GNU extension, not declared by the project's strings.h. */
+char *strcasestr(const char *, const char *);
+
 int main(void) {
     char buf[64];
 
@@ -74,7 +77,45 @@ int main(void) {
         memset(tail, 'q', 9);
         tail[9] = 0;
         if (strnlen(tail, 100) != 9) return 32;
+        if (strnlen(tail, (size_t)-1) != 9) return 34;
         if (memchr(tail, 0, 100) != tail + 9) return 33;
+
+        /* The rest of the memory primitives must also stop at the mapping
+           edge, with the source or destination flush against it. */
+        {
+            char *edge = guard - 64;
+            char *inner = guard - 128;
+            memset(edge, 'm', 64);
+            if (memcpy(inner, edge, 64) != inner || inner[63] != 'm') return 35;
+            if (memcpy(edge, inner, 64) != edge || edge[0] != 'm') return 36;
+            if (memmove(edge, edge + 8, 56) != edge) return 37;
+            if (memset(edge, 'n', 64) != edge) return 38;
+            if (memrchr(edge, 'n', 64) != edge + 63) return 39;
+            if (memcmp(edge, inner, 64) == 0) return 40;
+
+            char *es = guard - 16;
+            memset(es, 's', 15);
+            es[15] = 0;
+            if (strlen(es) != 15) return 41;
+            if (strchr(es, 'z') != 0 || strchr(es, 0) != es + 15) return 42;
+            if (strrchr(es, 's') != es + 14 || strrchr(es, 0) != es + 15) return 43;
+            if (strncpy(inner, es, 16) != inner) return 44;
+            if (strcmp(es, inner) != 0 || strncmp(es, inner, 15) != 0) return 45;
+            if (strcpy(guard - 6, "hello") != guard - 6 || guard[-6] != 'h') return 46;
+            if (strncpy(guard - 16, inner, 16) != guard - 16) return 47;
+
+            char *nd = guard - 3;
+            memcpy(nd, "ss", 3);
+            if (strstr(es, nd) != es) return 48;
+            if (memmem(es, 15, nd, 2) != es) return 49;
+            if (strcasestr(es, nd) != es) return 50;
+
+            char *cd = guard - 64;
+            strcpy(cd, "pre-");
+            if (strcat(cd, es) != cd || strlen(cd) != 19) return 51;
+            strcpy(cd, "pre-");
+            if (strncat(cd, es, 15) != cd || strlen(cd) != 19) return 52;
+        }
         munmap(area, 2 * ps);
     }
 

@@ -185,7 +185,8 @@ unsafe fn memchr_avx2(s: *const u8, c: u8, n: usize) -> *mut u8 {
     }
     let needle = _mm256_set1_epi8(c as i8);
     let start = s as usize;
-    let end = start + n;
+    // strnlen(s, SIZE_MAX) is a common idiom; do not wrap the end.
+    let end = start.checked_add(n).unwrap_or(usize::MAX);
     // Aligned loads never cross a page, so a buffer that ends on a page
     // boundary cannot fault even when the first NUL is before the end.
     let mut p = start & !31usize;
@@ -220,7 +221,8 @@ unsafe fn memchr_sse2(s: *const u8, c: u8, n: usize) -> *mut u8 {
     }
     let needle = _mm_set1_epi8(c as i8);
     let start = s as usize;
-    let end = start + n;
+    // strnlen(s, SIZE_MAX) is a common idiom; do not wrap the end.
+    let end = start.checked_add(n).unwrap_or(usize::MAX);
     let mut p = start & !15usize;
     let mut first = true;
     loop {
