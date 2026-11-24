@@ -45,7 +45,11 @@ regressions.  It is not an exhaustive security review.
   global free lists instead of racing a half-updated cache, but allocation
   from a signal handler still has the same reentrancy hazard as musl.  Each
   thread must own its TCB; a raw `clone(CLONE_VM)` that shares a parent's
-  TCB would also share its cache.
+  TCB would also share its cache.  A non-local exit (`siglongjmp`) out of
+  the cache leaves the busy flag set, so that thread permanently uses the
+  global lists; `fork()` resets it for the child's thread.  A reused Thread
+  slot is flushed under the allocator shard lock in `pthread_create()`, so
+  allocating from a signal handler during thread creation can still spin.
 - **stdio locking is caller-managed.**  `fgetc`, `fputc`, `fread`, `fwrite`
   and the other buffered I/O functions neither take nor honor the `FILE`
   lock.  `flockfile`/`funlockfile` exist as ABI entry points, but they do

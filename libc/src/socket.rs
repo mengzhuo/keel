@@ -954,6 +954,7 @@ unsafe fn thread_allocator_after_fork() {
         // first pthread_create() will build the free list.
         if !current.is_null() {
             (*current).tid = child_tid;
+            (*current).alloc_busy = 0;
             ACTIVE_THREADS.store(1, Ordering::Release);
         }
         return;
@@ -966,6 +967,7 @@ unsafe fn thread_allocator_after_fork() {
         let slot = thread_slot_at(i);
         if slot == current {
             (*slot).tid = child_tid;
+            (*slot).alloc_busy = 0;
             (*slot).free_next = core::ptr::null_mut();
             active += 1;
         } else {
