@@ -180,42 +180,68 @@ pub unsafe extern "C" fn strlen(s: *const c_char) -> usize {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn memchr_avx2(s: *const u8, c: u8, n: usize) -> *mut u8 {
+    if n == 0 {
+        return null_mut();
+    }
     let needle = _mm256_set1_epi8(c as i8);
-    let mut i = 0usize;
-    while i + 32 <= n {
-        let v = _mm256_loadu_si256(s.add(i) as *const __m256i);
-        let m = _mm256_movemask_epi8(_mm256_cmpeq_epi8(v, needle)) as u32;
-        if m != 0 {
-            _mm256_zeroupper();
-            return s.add(i + m.trailing_zeros() as usize) as *mut u8;
+    let start = s as usize;
+    let end = start + n;
+    // Aligned loads never cross a page, so a buffer that ends on a page
+    // boundary cannot fault even when the first NUL is before the end.
+    let mut p = start & !31usize;
+    let mut first = true;
+    loop {
+        let v = _mm256_load_si256(p as *const __m256i);
+        let mut mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(v, needle)) as u32;
+        if first {
+            mask &= !0u32 << (start - p);
+            first = false;
         }
-        i += 32;
+        if p + 32 > end {
+            let valid = (end - p) as u32;
+            mask &= (1u32 << valid) - 1;
+        }
+        if mask != 0 {
+            _mm256_zeroupper();
+            return (p + mask.trailing_zeros() as usize) as *mut u8;
+        }
+        p += 32;
+        if p >= end {
+            _mm256_zeroupper();
+            return null_mut();
+        }
     }
-    _mm256_zeroupper();
-    while i < n {
-        if *s.add(i) == c { return s.add(i) as *mut u8; }
-        i += 1;
-    }
-    null_mut()
 }
 
 #[cfg(target_arch = "x86_64")]
 unsafe fn memchr_sse2(s: *const u8, c: u8, n: usize) -> *mut u8 {
+    if n == 0 {
+        return null_mut();
+    }
     let needle = _mm_set1_epi8(c as i8);
-    let mut i = 0usize;
-    while i + 16 <= n {
-        let v = _mm_loadu_si128(s.add(i) as *const __m128i);
-        let m = _mm_movemask_epi8(_mm_cmpeq_epi8(v, needle)) as u32;
-        if m != 0 {
-            return s.add(i + m.trailing_zeros() as usize) as *mut u8;
+    let start = s as usize;
+    let end = start + n;
+    let mut p = start & !15usize;
+    let mut first = true;
+    loop {
+        let v = _mm_load_si128(p as *const __m128i);
+        let mut mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, needle)) as u32;
+        if first {
+            mask &= !0u32 << (start - p);
+            first = false;
         }
-        i += 16;
+        if p + 16 > end {
+            let valid = (end - p) as u32;
+            mask &= (1u32 << valid) - 1;
+        }
+        if mask != 0 {
+            return (p + mask.trailing_zeros() as usize) as *mut u8;
+        }
+        p += 16;
+        if p >= end {
+            return null_mut();
+        }
     }
-    while i < n {
-        if *s.add(i) == c { return s.add(i) as *mut u8; }
-        i += 1;
-    }
-    null_mut()
 }
 
 #[cfg(not(target_arch = "x86_64"))]

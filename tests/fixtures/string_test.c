@@ -69,6 +69,12 @@ int main(void) {
             h[hl - 41] = 'b';
             if (strstr(h, needle) != h + hl - 40) return 31;
         }
+        /* memchr/strnlen must not read across the guard page. */
+        char *tail = guard - 10;
+        memset(tail, 'q', 9);
+        tail[9] = 0;
+        if (strnlen(tail, 100) != 9) return 32;
+        if (memchr(tail, 0, 100) != tail + 9) return 33;
         munmap(area, 2 * ps);
     }
 
