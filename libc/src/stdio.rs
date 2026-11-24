@@ -358,6 +358,7 @@ unsafe fn flush_buf(f: *mut FILE) -> c_int {
 unsafe fn stdio_toread(f: *mut FILE) -> bool {
     if !(*f).wpos.is_null() && (*f).wpos != (*f).wbase {
         if flush_buf(f) != 0 {
+            (*f)._err = 1;
             return false;
         }
     }
@@ -574,7 +575,9 @@ pub unsafe extern "C" fn fwide(_f: *mut FILE, mode: c_int) -> c_int { mode }
 pub unsafe extern "C" fn feof(f: *mut FILE) -> c_int { if (*f)._eof != 0 { 1 } else { 0 } }
 
 #[no_mangle]
-pub unsafe extern "C" fn ferror(f: *mut FILE) -> c_int { if (*f)._err != 0 { 1 } else { 0 } }
+pub unsafe extern "C" fn ferror(f: *mut FILE) -> c_int {
+    if (*f)._err != 0 || (*f).flags & F_ERR != 0 { 1 } else { 0 }
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn clearerr(f: *mut FILE) {
@@ -605,6 +608,7 @@ pub unsafe extern "C" fn rewind(stream: *mut FILE) {
     fseek(stream, 0, SEEK_SET);
     (*stream)._eof = 0;
     (*stream)._err = 0;
+    (*stream).flags &= !(F_EOF | F_ERR);
 }
 
 #[no_mangle]
@@ -646,6 +650,7 @@ pub unsafe extern "C" fn fseeko(stream: *mut FILE, offset: i64, whence: c_int) -
     f.rpos = core::ptr::null_mut();
     f.rend = core::ptr::null_mut();
     f._eof = 0;
+    f.flags &= !F_EOF;
     f.ungotten_count = 0;
     0
 }
@@ -748,6 +753,7 @@ pub unsafe extern "C" fn ungetc(c: c_int, stream: *mut FILE) -> c_int {
     f.ungotten[f.ungotten_count as usize] = c;
     f.ungotten_count += 1;
     f._eof = 0;
+    f.flags &= !F_EOF;
     c
 }
 
