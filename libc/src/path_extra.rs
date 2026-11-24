@@ -462,8 +462,8 @@ unsafe fn glob_walk(
         newlen += nlen;
         base[newlen] = 0;
         if last {
-            // A name from readdir() already exists.  Only a trailing slash,
-            // GLOB_MARK or GLOB_ONLYDIR needs its type.
+            // A name from readdir() already exists.  Only GLOB_MARK and
+            // GLOB_ONLYDIR need its type here.
             let mut is_dir = false;
             if flags & (GLOB_MARK_V | GLOB_ONLYDIR_V) != 0 {
                 let mut st: Stat = core::mem::zeroed();

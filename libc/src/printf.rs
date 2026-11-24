@@ -575,9 +575,11 @@ unsafe fn format_int(
     let content_len = sign_len + prefix_len + zero_pad + num_digits;
 
     if content_len >= width {
+        debug_assert!(content_len <= FMT_INT_BUF);
         write_int_content(dst, digits, num_digits, sign, prefix, zero_pad);
         return content_len;
     }
+    debug_assert!(width <= FMT_INT_BUF);
     let pad = width - content_len;
     if flags & FLAG_MINUS != 0 {
         write_int_content(dst, digits, num_digits, sign, prefix, zero_pad);
