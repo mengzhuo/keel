@@ -209,6 +209,7 @@ unsafe extern "C" fn __stdio_write(f: *mut FILE, buf: *const u8, len: usize) -> 
         let _ = sys_lseek((*f).fd as i64, 0, SEEK_END as i64);
     }
     loop {
+        debug_assert!(first < 2 && niov >= 1 && niov <= 2);
         let n = sys_writev((*f).fd as i64, iov.as_ptr().add(first), niov as i32);
         if n < 0 {
             ERRNO!() = (-n) as c_int;
@@ -235,12 +236,22 @@ unsafe extern "C" fn __stdio_write(f: *mut FILE, buf: *const u8, len: usize) -> 
             (*f).flags |= F_ERR;
             return if niov == 2 { 0 } else { len - iov[first].len };
         }
+        if done > rem {
+            // A write cannot cover more than the requested iovecs; treat a
+            // bogus return as an error instead of underflowing rem.
+            (*f).wpos = core::ptr::null_mut();
+            (*f).wbase = core::ptr::null_mut();
+            (*f).wend = core::ptr::null_mut();
+            (*f).flags |= F_ERR;
+            return if niov == 2 { 0 } else { len - iov[first].len };
+        }
         rem -= done;
         if done > iov[first].len {
             done -= iov[first].len;
             first += 1;
             niov -= 1;
         }
+        debug_assert!(first < 2 && niov >= 1);
         iov[first].base = iov[first].base.add(done);
         iov[first].len -= done;
         if iov[first].len == 0 && niov > 1 {
@@ -338,6 +349,36 @@ unsafe fn flush_buf(f: *mut FILE) -> c_int {
     }
     (*f).flags |= F_ERR;
     -1
+}
+
+// Switch from write mode to read mode.  A C update stream requires an
+// intervening fflush/fseek before reading; musl's __toread flushes the
+// pending write buffer instead of overwriting it with read-ahead data.
+#[inline]
+unsafe fn stdio_toread(f: *mut FILE) -> bool {
+    if !(*f).wpos.is_null() && (*f).wpos != (*f).wbase {
+        if flush_buf(f) != 0 {
+            return false;
+        }
+    }
+    true
+}
+
+// Classify a zero-length read.  __stdio_read reports EOF and errors in the
+// FILE flags; a sticky F_ERR must not hide a later EOF (or feof() never
+// becomes true after one EAGAIN).
+#[inline]
+unsafe fn mark_read_result(f: *mut FILE, n: usize) {
+    if n != 0 {
+        return;
+    }
+    if (*f).flags & F_EOF != 0 {
+        (*f)._eof = 1;
+    } else if (*f).flags & F_ERR != 0 {
+        (*f)._err = 1;
+    } else {
+        (*f)._eof = 1;
+    }
 }
 
 // ============================================================
@@ -536,7 +577,11 @@ pub unsafe extern "C" fn feof(f: *mut FILE) -> c_int { if (*f)._eof != 0 { 1 } e
 pub unsafe extern "C" fn ferror(f: *mut FILE) -> c_int { if (*f)._err != 0 { 1 } else { 0 } }
 
 #[no_mangle]
-pub unsafe extern "C" fn clearerr(f: *mut FILE) { (*f)._eof = 0; (*f)._err = 0; }
+pub unsafe extern "C" fn clearerr(f: *mut FILE) {
+    (*f)._eof = 0;
+    (*f)._err = 0;
+    (*f).flags &= !(F_EOF | F_ERR);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn fileno(f: *mut FILE) -> c_int { (*f).fd }
@@ -660,13 +705,14 @@ pub unsafe extern "C" fn fgetc(stream: *mut FILE) -> c_int {
     }
     if f._eof != 0 { return -1; }
     if let Some(rfunc) = f.read_fn {
+        if !stdio_toread(stream) { return -1; }
         // Fill the stdio buffer in one read. Reading one byte per syscall is
         // not only slow, it is wrong for procfs files that only return their
         // contents on the first read: a second one-byte read sees EOF.
         if !f.buf.is_null() && f.buf_size > 1 {
             let n = rfunc(stream, f.buf, f.buf_size);
             if n == 0 {
-                if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+                mark_read_result(stream, n);
                 return -1;
             }
             f.rpos = f.buf;
@@ -678,7 +724,7 @@ pub unsafe extern "C" fn fgetc(stream: *mut FILE) -> c_int {
         let mut buf = [0u8; 1];
         let n = rfunc(stream, buf.as_mut_ptr(), 1);
         if n == 0 {
-            if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+            mark_read_result(stream, n);
             return -1;
         }
         buf[0] as c_int
@@ -733,6 +779,7 @@ unsafe fn fgets_common(s: *mut c_char, max: usize, stream: *mut FILE, keep_newli
     while i < max {
         if f.rpos.is_null() || f.rpos >= f.rend {
             if f._eof != 0 { break; }
+            if !stdio_toread(stream) { break; }
             let n = match f.read_fn {
                 Some(rfunc) => rfunc(stream, f.buf, f.buf_size),
                 None => {
@@ -741,7 +788,7 @@ unsafe fn fgets_common(s: *mut c_char, max: usize, stream: *mut FILE, keep_newli
                 }
             };
             if n == 0 {
-                if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+                mark_read_result(stream, n);
                 break;
             }
             f.rpos = f.buf;
@@ -817,6 +864,7 @@ pub unsafe extern "C" fn fread(
         None => { ERRNO!() = EINVAL; return 0; }
     };
     let f = &mut *stream;
+    if !stdio_toread(stream) { return 0; }
     let mut dest = ptr as *mut u8;
     let mut left = total;
 
@@ -853,7 +901,7 @@ pub unsafe extern "C" fn fread(
         if left < f.buf_size && !f.buf.is_null() {
             let n = rfunc(stream, f.buf, f.buf_size);
             if n == 0 {
-                if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+                mark_read_result(stream, n);
                 break;
             }
             f.rpos = f.buf;
@@ -867,7 +915,7 @@ pub unsafe extern "C" fn fread(
         }
         let n = rfunc(stream, dest, left);
         if n == 0 {
-            if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+            mark_read_result(stream, n);
             break;
         }
         dest = dest.add(n);

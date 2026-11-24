@@ -52,12 +52,13 @@ pub unsafe extern "C" fn getdelim(
     loop {
         if f.rpos.is_null() || f.rpos >= f.rend {
             if f._eof != 0 { break; }
+            if !stdio_toread(stream) { break; }
             let nread = match f.read_fn {
                 Some(rfunc) => rfunc(stream, f.buf, f.buf_size),
                 None => 0,
             };
             if nread == 0 {
-                if f.flags & F_ERR != 0 { f._err = 1; } else { f._eof = 1; }
+                mark_read_result(stream, nread);
                 break;
             }
             f.rpos = f.buf;

@@ -41,6 +41,21 @@ int main(void) {
     fclose(nb);
     close(p[1]);
 
+    /* A sticky F_ERR from EAGAIN must not hide a later EOF. */
+    if (pipe(p) != 0) return 20;
+    if (fcntl(p[0], F_SETFL, O_NONBLOCK) < 0) return 21;
+    FILE *nb2 = fdopen(p[0], "r");
+    if (!nb2) return 22;
+    errno = 0;
+    if (fgetc(nb2) != EOF) return 23;
+    if (errno != EAGAIN) return 24;
+    if (write(p[1], "z", 1) != 1) return 25;
+    if (fgetc(nb2) != 'z') return 26;
+    close(p[1]);
+    if (fgetc(nb2) != EOF) return 27;
+    if (!feof(nb2)) return 28;
+    fclose(nb2);
+
     puts("stdio input ok");
     return 0;
 }
