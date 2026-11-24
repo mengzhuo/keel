@@ -198,13 +198,20 @@ pub unsafe extern "C" fn malloc(size: SizeT) -> *mut c_void {
     let idx = class / ALLOC_STEP;
     if class <= ALLOC_TCACHE_MAX {
         let t = current_thread_fast();
-        if !t.is_null() {
+        if !t.is_null() && core::ptr::read_volatile(&(*t).alloc_busy) == 0 {
+            core::ptr::write_volatile(&mut (*t).alloc_busy, 1);
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
             let slot = idx - ALLOC_TCACHE_MIN / ALLOC_STEP;
+            debug_assert!(slot < ALLOC_TCACHE_SLOTS);
             let head = (*t).alloc_cache[slot];
             if !head.is_null() {
                 (*t).alloc_cache[slot] = (*head).next;
+                core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+                core::ptr::write_volatile(&mut (*t).alloc_busy, 0);
                 return (head as *mut u8).add(ALLOC_HDR) as *mut c_void;
             }
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+            core::ptr::write_volatile(&mut (*t).alloc_busy, 0);
         }
     }
     let shard = idx & (ALLOC_SHARDS - 1);
@@ -269,13 +276,20 @@ pub unsafe extern "C" fn free(ptr: *mut c_void) {
     let idx = tag / ALLOC_STEP;
     if tag <= ALLOC_TCACHE_MAX {
         let t = current_thread_fast();
-        if !t.is_null() {
+        if !t.is_null() && core::ptr::read_volatile(&(*t).alloc_busy) == 0 {
+            core::ptr::write_volatile(&mut (*t).alloc_busy, 1);
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
             let slot = idx - ALLOC_TCACHE_MIN / ALLOC_STEP;
+            debug_assert!(slot < ALLOC_TCACHE_SLOTS);
             if (*t).alloc_cache[slot].is_null() {
                 (*block).next = core::ptr::null_mut();
                 (*t).alloc_cache[slot] = block;
+                core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+                core::ptr::write_volatile(&mut (*t).alloc_busy, 0);
                 return;
             }
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+            core::ptr::write_volatile(&mut (*t).alloc_busy, 0);
         }
     }
     let shard = idx & (ALLOC_SHARDS - 1);

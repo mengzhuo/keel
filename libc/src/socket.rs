@@ -673,7 +673,10 @@ struct Thread {
     robust_list: robust_list_head,
     // One cached block per small size class.  Only the owning thread touches
     // this array; it removes the global lock from alloc/free-heavy loops.
+    // alloc_busy makes a signal-handler re-entry skip the cache instead of
+    // racing the half-updated slot.
     alloc_cache: [*mut AllocBlock; ALLOC_TCACHE_SLOTS],
+    alloc_busy: u8,
     free_next: *mut Thread,
 }
 
@@ -700,6 +703,7 @@ static mut THREADS: [Thread; THREAD_CHUNK] = [Thread {
         pending: core::ptr::null_mut(),
     },
     alloc_cache: [core::ptr::null_mut(); ALLOC_TCACHE_SLOTS],
+    alloc_busy: 0,
     free_next: core::ptr::null_mut(),
 }; THREAD_CHUNK];
 #[repr(C)]
@@ -1045,6 +1049,7 @@ unsafe fn thread_finish(slot: &mut Thread, retval: *mut c_void) -> ! {
 unsafe fn init_thread_slot(slot: *mut Thread, me: c_int) {
     // A reused slot may still own blocks cached by its previous thread.
     allocator_flush_cache(&mut (*slot).alloc_cache);
+    (*slot).alloc_busy = 0;
     (*slot).tid = me;
     (*slot).detach_state = DT_JOINABLE;
     (*slot).result = core::ptr::null_mut();

@@ -40,6 +40,12 @@ regressions.  It is not an exhaustive security review.
 - **`getaddrinfo` and `getnameinfo` serialize on a resolver lock.**  The
   public APIs are thread-safe, but concurrent calls are serialized while
   they use the legacy non-reentrant `/etc/hosts` and service helpers.
+- **`malloc`/`free` are not async-signal-safe.**  The per-thread small-object
+  cache uses a per-thread busy flag so a signal handler falls back to the
+  global free lists instead of racing a half-updated cache, but allocation
+  from a signal handler still has the same reentrancy hazard as musl.  Each
+  thread must own its TCB; a raw `clone(CLONE_VM)` that shares a parent's
+  TCB would also share its cache.
 - **stdio locking is caller-managed.**  `fgetc`, `fputc`, `fread`, `fwrite`
   and the other buffered I/O functions neither take nor honor the `FILE`
   lock.  `flockfile`/`funlockfile` exist as ABI entry points, but they do
