@@ -279,11 +279,14 @@ unsafe fn getrule(p: &mut *const c_char, rule: &mut [i32; 5]) {
         rule[2] = getint(p);
         *p = (*p).add(1);
         rule[3] = getint(p);
-        // month, week-of-month, and day-of-month.  Without these clamps a
-        // TZ string such as M99.1.1 indexes month_to_secs out of bounds.
+        // month, week-of-month and weekday.  Without these clamps a TZ
+        // string such as M99.1.1 indexes month_to_secs out of bounds.
         rule[1] = rule[1].clamp(1, 12);
         rule[2] = rule[2].clamp(1, 5);
-        rule[3] = rule[3].clamp(1, 31);
+        // The third M field is the weekday (0 = Sunday), not the day of the
+        // month.  Clamping it to 1 would turn every Sunday rule into Monday
+        // and shift DST transitions by a day.
+        rule[3] = rule[3].clamp(0, 6);
     }
     if **p == b'/' as c_char {
         *p = (*p).add(1);

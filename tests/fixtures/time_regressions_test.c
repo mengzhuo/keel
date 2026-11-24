@@ -112,6 +112,23 @@ int main(void) {
     lt = localtime(&t);
     if (!lt) { puts("invalid TZ rule fail"); return 9; }
 
+    /* POSIX M-rules: the third field is the weekday (0 = Sunday).  US
+       Eastern DST ends at 06:00 UTC and starts at 07:00 UTC in 2012. */
+    setenv("TZ", "EST+05EDT,M3.2.0,M11.1.0", 1);
+    tzset();
+    t = 1352010600; /* 2012-11-04 06:30 UTC -> 01:30 EST */
+    lt = localtime(&t);
+    if (!lt || lt->tm_hour != 1 || lt->tm_isdst != 0) {
+        puts("TZ DST end fail");
+        return 11;
+    }
+    t = 1331451000; /* 2012-03-11 07:30 UTC -> 03:30 EDT */
+    lt = localtime(&t);
+    if (!lt || lt->tm_hour != 3 || lt->tm_isdst != 1) {
+        puts("TZ DST start fail");
+        return 12;
+    }
+
 
     /* A long tm_zone must not overflow strftime's internal buffer. */
     {
